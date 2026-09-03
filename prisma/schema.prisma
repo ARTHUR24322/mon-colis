@@ -3,15 +3,14 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 enum Role {
   vendeur
   agence
   livreur
+  admin
 }
 
 enum PackageStatus {
@@ -25,11 +24,13 @@ enum PackageStatus {
   CANCELLED
 }
 
-// 1. Table Profiles (Utilisateurs: Vendeurs, Agences, Livreurs)
+// 1. Table Profiles (Utilisateurs: Vendeurs, Agences, Livreurs, Admins)
 model Profile {
-  id         String     @id @db.Uuid // Matches auth.users UUID
+  id         String     @id @default(uuid()) @db.Uuid
   role       Role
   name       String
+  email      String?    @unique
+  phone      String?
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
@@ -45,6 +46,7 @@ model Agency {
   id         String     @id @db.Uuid
   address    String?
   phone      String?
+  rating     Float?     @default(4.9)
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
@@ -61,6 +63,7 @@ model Driver {
   agencyId   String?    @map("agency_id") @db.Uuid
   phone      String?
   available  Boolean?   @default(true)
+  vehicle    String?    @default("Moto")
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz()
 
   // Relations
@@ -73,8 +76,8 @@ model Driver {
 
 // 4. Table Packages (Colis)
 model Package {
-  id             String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  trackingId     String        @unique @default(dbgenerated("uuid_generate_v4()")) @map("tracking_id") @db.Uuid
+  id             String        @id @default(uuid()) @db.Uuid
+  trackingCode   String        @unique @map("tracking_code") // Ex: MC-84920 ou c1
   vendeurId      String        @map("vendeur_id") @db.Uuid
   agencyId       String?       @map("agency_id") @db.Uuid
   driverId       String?       @map("driver_id") @db.Uuid
@@ -83,11 +86,21 @@ model Package {
   clientAddress  String        @map("client_address")
   clientPhone    String?       @map("client_phone")
   
+  prixColis      Float         @default(0) @map("prix_colis")
+  prixLivraison  Float?        @map("prix_livraison")
+  poids          Float         @default(1.0) // kg
+  longueur       Float?        // cm
+  largeur        Float?        // cm
+  hauteur        Float?        // cm
+  distance       Float?        // km
+
   status         PackageStatus @default(CREATED)
-  validationCode String        @map("validation_code")
+  validationCode String        @map("validation_code") // Code secret OTP
+  otpConfirmed   Boolean       @default(false) @map("otp_confirmed")
 
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  deliveredAt    DateTime?     @map("delivered_at") @db.Timestamptz()
 
   // Relations
   vendeur        Profile       @relation("vendeur_packages", fields: [vendeurId], references: [id], onDelete: Cascade)

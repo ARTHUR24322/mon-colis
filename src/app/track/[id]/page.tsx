@@ -2,40 +2,9 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Lock, XCircle, CheckCircle } from 'lucide-react';
-
-/* ─────────────────────────────────────────────
-   Données simulées (remplacer par Supabase)
-───────────────────────────────────────────── */
-const FAKE_DB: Record<string, any> = {
-  'demo-client': {
-    id: 'demo-client',
-    role: 'client',
-    expired: false,
-    clientName: 'Amina Diallo',
-    clientPhone: '+243 81 11 22 334',
-    clientAddress: 'Gombe, Kinshasa',
-    prixLivraison: 3.5,
-    agenceName: 'Express Delivery',
-    livreurName: 'Trésor Makambo',
-    livreurPhone: '+243 81 44 55 660',
-    otp: '847392',
-    linkedKey: 'demo-livreur',
-  },
-  'demo-livreur': {
-    id: 'demo-livreur',
-    role: 'livreur',
-    expired: false,
-    clientName: 'Amina Diallo',
-    clientPhone: '+243 81 11 22 334',
-    clientAddress: 'Gombe, Kinshasa',
-    prixLivraison: 3.5,
-    agenceName: 'Express Delivery',
-    livreurName: 'Trésor Makambo',
-    otp: '847392',
-    linkedKey: 'demo-client',
-  },
-};
+import Link from 'next/link';
+import { Lock, XCircle, CheckCircle, Package, ArrowLeft, Truck, Phone, MapPin, DollarSign, ShieldCheck } from 'lucide-react';
+import { dataService, ColisItem } from '@/lib/data-service';
 
 /* ─────────────────────────────────────────────
    Wrapper Suspense pour useSearchParams
@@ -50,7 +19,7 @@ export default function TrackingPageWrapper() {
 
 function PageLoader() {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#07090e' }}>
       <Spinner />
     </div>
   );
@@ -60,93 +29,98 @@ function PageLoader() {
    Page principale
 ───────────────────────────────────────────── */
 function TrackingPage() {
-  const params       = useParams();
+  const params = useParams();
   const searchParams = useSearchParams();
-  const id           = params.id as string;
-  const role         = searchParams.get('role') as 'client' | 'livreur' | null;
+  const id = params?.id as string;
+  const role = searchParams.get('role') as 'client' | 'livreur' | null;
 
-  const [loading,   setLoading]   = useState(true);
-  const [data,      setData]      = useState<any>(null);
-  const [expired,   setExpired]   = useState(false);
-  const [otpInput,  setOtpInput]  = useState('');
-  const [otpError,  setOtpError]  = useState('');
+  const [loading, setLoading] = useState(true);
+  const [colis, setColis] = useState<ColisItem | null>(null);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpError, setOtpError] = useState('');
   const [confirmed, setConfirmed] = useState(false);
-  const [checking,  setChecking]  = useState(false);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const record = FAKE_DB[id];
-      if (!record) { setLoading(false); return; }
-      if (record.expired) { setExpired(true); setLoading(false); return; }
-      setData(record);
+    async function loadData() {
+      setLoading(true);
+      if (id) {
+        const found = await dataService.getPackageByTracking(id);
+        setColis(found);
+        if (found?.confirmed || found?.status === 'Livré') {
+          setConfirmed(true);
+        }
+      }
       setLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
+    }
+    loadData();
   }, [id]);
 
   /* Validation OTP par le livreur */
-  const handleOtpSubmit = (e: React.FormEvent) => {
+  const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setChecking(true);
     setOtpError('');
 
-    setTimeout(() => {
-      if (otpInput.trim() === data.otp) {
-        // Expire les deux liens (livreur + client)
-        FAKE_DB[id].expired = true;
-        if (data.linkedKey && FAKE_DB[data.linkedKey]) {
-          FAKE_DB[data.linkedKey].expired = true;
-        }
-        setConfirmed(true);
-      } else {
-        setOtpError('Code incorrect. Veuillez réessayer.');
-      }
+    if (!colis) {
+      setOtpError('Colis introuvable.');
       setChecking(false);
-    }, 800);
+      return;
+    }
+
+    const res = await dataService.validateDeliveryOtp(colis.id, otpInput);
+    if (res.success) {
+      setConfirmed(true);
+      if (res.package) setColis(res.package);
+    } else {
+      setOtpError(res.message);
+    }
+    setChecking(false);
   };
 
   /* ── LOADING ── */
   if (loading) {
     return (
-      <PageShell>
-        <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+      <PageShell role={role}>
+        <div style={{ textAlign: 'center', padding: '3rem 0' }}>
           <Spinner />
-          <p style={{ opacity: 0.6, marginTop: '1rem' }}>Chargement en cours…</p>
+          <p style={{ opacity: 0.6, marginTop: '1rem', color: '#94a3b8' }}>Recherche du colis en cours…</p>
         </div>
       </PageShell>
     );
   }
 
-  /* ── LIEN EXPIRÉ ── */
-  if ((expired || data?.expired) && !confirmed) {
-    return (
-      <PageShell role={role}>
-        <StatusBlock
-          icon={<Lock size={48} color="#ef4444" />}
-          title="Lien expiré"
-          color="#ef4444"
-          message="Ce lien n'est plus valide. La livraison a déjà été confirmée. Pour des raisons de sécurité, chaque lien ne peut être utilisé qu'une seule fois."
-        />
-      </PageShell>
-    );
-  }
-
   /* ── INTROUVABLE ── */
-  if (!data) {
+  if (!colis) {
     return (
       <PageShell role={role}>
-        <StatusBlock
-          icon={<XCircle size={48} color="#ef4444" />}
-          title="Lien invalide"
-          color="#ef4444"
-          message="Ce lien ne correspond à aucun colis. Veuillez vérifier l'URL reçue."
-        />
+        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '1.25rem', alignItems: 'center' }}>
+          <div style={{
+            width: '64px', height: '64px', borderRadius: '50%',
+            background: 'rgba(239, 68, 68, 0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#ef4444'
+          }}>
+            <XCircle size={36} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: '#fff', marginBottom: '0.5rem' }}>
+              Colis introuvable
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1.5rem 0' }}>
+              La référence <strong>#{id}</strong> ne correspond à aucun colis enregistré. Veuillez vérifier le code et réessayer.
+            </p>
+            <Link href="/" className="btn btn-outline" style={{ fontSize: '0.9rem' }}>
+              Retour à l'accueil
+            </Link>
+          </div>
+        </div>
       </PageShell>
     );
   }
 
   /* ── CONFIRMATION RÉUSSIE ── */
-  if (confirmed) {
+  if (confirmed || colis.status === 'Livré') {
     return (
       <PageShell role={role}>
         <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '1.25rem', alignItems: 'center' }}>
@@ -160,55 +134,85 @@ function TrackingPage() {
             <CheckCircle size={40} />
           </div>
           <div>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: '800', color: '#22c55e', marginBottom: '0.5rem' }}>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#22c55e', marginBottom: '0.5rem' }}>
               Livraison confirmée !
             </h2>
-            <p style={{ opacity: 0.6, fontSize: '0.88rem', lineHeight: 1.7 }}>
-              Le colis a été remis avec succès au client.<br />
-              Ce lien est maintenant <strong style={{ color: '#ef4444' }}>expiré</strong> et ne peut plus être utilisé.
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '1.5rem' }}>
+              Le colis <strong>#{colis.id}</strong> ({colis.clientName}) a été remis avec succès au destinataire.<br />
+              Statut : <strong style={{ color: '#22c55e' }}>LIVRÉ ✅</strong>
             </p>
+            <Link href="/" className="btn btn-primary" style={{ fontSize: '0.9rem' }}>
+              Retour à l'accueil
+            </Link>
           </div>
         </div>
       </PageShell>
     );
   }
 
-  /* ── VUE CLIENT ── */
+  /* ── VUE CLIENT (Par défaut) ── */
   if (role === 'client' || !role) {
     return (
       <PageShell role="client">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0.75rem 1rem',
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '12px'
+          }}>
+            <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Statut du colis :</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#4ade80' }}>
+              {colis.status === 'En transit' ? '🚚 En cours de livraison' : `📦 ${colis.status}`}
+            </span>
+          </div>
 
-          <StatutBadge label="En cours de livraison" color="var(--primary)" bg="rgba(34,197,94,0.08)" border="rgba(34,197,94,0.25)" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+            <InfoRow label="Destinataire" value={colis.clientName} />
+            <InfoRow label="Adresse de livraison" value={colis.clientAddress} />
+            <InfoRow label="Agence responsable" value={colis.agence || 'Non assignée'} />
+            <InfoRow label="Livreur assigné" value={colis.livreur ? `${colis.livreur} (${colis.livreurPhone || 'En route'})` : 'En attente d\'un livreur'} />
+            <InfoRow
+              label="Montant à payer"
+              value={`$${(colis.prixColis + (colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0)).toFixed(2)} USD (Colis: $${colis.prixColis} + Livraison: ${colis.paidByClient ? `$${colis.deliveryPrice || colis.prixLivraison || 0}` : '0$ (Payée par le vendeur)'})`}
+              highlight
+            />
+          </div>
 
-          <InfoRow label="Prix de la livraison"  value={`${data.prixLivraison.toLocaleString('fr-FR')} USD (${Math.round(data.prixLivraison * 2850).toLocaleString('fr-FR')} FC)`} highlight />
-          <InfoRow label="Agence de livraison"   value={data.agenceName} />
-          <InfoRow label="Nom du livreur"         value={data.livreurName} />
-          <InfoRow label="Téléphone du livreur"   value={data.livreurPhone} />
-
-          {/* Code OTP */}
+          {/* Code Secret OTP */}
           <div style={{
             textAlign: 'center',
-            background: 'rgba(59,130,246,0.08)',
-            border: '2px dashed rgba(59,130,246,0.4)',
-            borderRadius: '18px', padding: '1.5rem', marginTop: '0.25rem',
+            background: 'rgba(59, 130, 246, 0.08)',
+            border: '2px dashed rgba(59, 130, 246, 0.4)',
+            borderRadius: '18px',
+            padding: '1.5rem',
+            marginTop: '0.5rem',
           }}>
-            <p style={{ fontSize: '0.75rem', opacity: 0.55, marginBottom: '0.5rem', letterSpacing: '0.04em' }}>
-              CODE À REMETTRE AU LIVREUR
+            <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.5rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: '700' }}>
+              Votre Code Secret de Livraison (OTP)
             </p>
-            <p style={{ fontSize: '2.8rem', fontWeight: '900', letterSpacing: '10px', color: '#3b82f6', margin: '0 0 0.5rem' }}>
-              {data.otp}
+            <p style={{ fontSize: '2.5rem', fontWeight: '900', letterSpacing: '8px', color: '#3b82f6', margin: '0 0 0.5rem' }}>
+              {colis.otp}
             </p>
-            <p style={{ fontSize: '0.72rem', opacity: 0.4, lineHeight: 1.5 }}>
-              Ne donnez ce code qu'au moment où le livreur est devant vous
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
+              Ne donnez ce code au livreur qu'au moment précis de la réception de votre colis.
             </p>
           </div>
 
           <div style={{
-            background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)',
-            borderRadius: '12px', padding: '0.9rem 1rem', fontSize: '0.8rem', lineHeight: 1.6, color: '#f59e0b',
+            background: 'rgba(245, 158, 11, 0.07)',
+            border: '1px solid rgba(245, 158, 11, 0.25)',
+            borderRadius: '12px',
+            padding: '0.85rem 1rem',
+            fontSize: '0.8rem',
+            lineHeight: 1.6,
+            color: '#f59e0b',
           }}>
-            <strong>Important :</strong> Ce lien expirera automatiquement une fois la livraison confirmée par le livreur.
+            <strong>Sécurité Moncolis :</strong> La saisie de ce code par le livreur garantit la validation immédiate et définitive de votre livraison.
           </div>
         </div>
       </PageShell>
@@ -218,19 +222,34 @@ function TrackingPage() {
   /* ── VUE LIVREUR ── */
   return (
     <PageShell role="livreur">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-        <StatutBadge label="Mission de livraison" color="#3b82f6" bg="rgba(59,130,246,0.08)" border="rgba(59,130,246,0.25)" />
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '0.75rem 1rem',
+          background: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.3)',
+          borderRadius: '12px'
+        }}>
+          <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Mission Livreur :</span>
+          <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#60a5fa' }}>
+            #{colis.id}
+          </span>
+        </div>
 
-        <InfoRow label="Nom du client"      value={data.clientName} />
-        <InfoRow label="Téléphone client"   value={data.clientPhone} />
-        <InfoRow label="Adresse livraison"  value={data.clientAddress} />
-        <InfoRow label="Agence"             value={data.agenceName} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+          <InfoRow label="Client" value={colis.clientName} />
+          <InfoRow label="Téléphone" value={colis.clientPhone} />
+          <InfoRow label="Adresse" value={colis.clientAddress} />
+          <InfoRow label="Montant à encaisser" value={`$${(colis.prixColis + (colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0)).toFixed(2)} USD`} highlight />
+        </div>
 
         {/* Saisie OTP */}
-        <form onSubmit={handleOtpSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.25rem' }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: '600', opacity: 0.8 }}>
-            Code de confirmation (reçu du client)
+        <form onSubmit={handleOtpSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+          <label style={{ fontSize: '0.875rem', fontWeight: '600', color: '#cbd5e1' }}>
+            Code de confirmation remis par le client :
           </label>
           <input
             className="input-field"
@@ -245,109 +264,122 @@ function TrackingPage() {
             }}
             style={{
               textAlign: 'center',
-              fontSize: '2.2rem',
-              letterSpacing: '10px',
+              fontSize: '2rem',
+              letterSpacing: '8px',
               fontWeight: '900',
-              padding: '1rem',
+              padding: '0.85rem',
               border: otpError ? '1px solid #ef4444' : undefined,
             }}
             required
           />
           {otpError && (
-            <p style={{ color: '#ef4444', fontSize: '0.82rem', textAlign: 'center', margin: 0, fontWeight: '600' }}>
+            <p style={{ color: '#ef4444', fontSize: '0.85rem', textAlign: 'center', margin: 0, fontWeight: '600' }}>
               {otpError}
             </p>
           )}
+
           <button
             type="submit"
-            className="btn btn-primary"
             disabled={checking || otpInput.length < 6}
+            className="btn btn-primary"
             style={{
-              opacity: (checking || otpInput.length < 6) ? 0.45 : 1,
-              fontSize: '1rem', padding: '0.85rem',
-              transition: 'opacity 0.2s',
+              width: '100%',
+              padding: '0.85rem',
+              fontSize: '1rem',
+              fontWeight: '700',
+              marginTop: '0.5rem'
             }}
           >
-            {checking ? 'Vérification en cours…' : 'Confirmer la livraison'}
+            {checking ? 'Validation en cours...' : 'Valider la livraison'}
           </button>
         </form>
-
-        <p style={{ fontSize: '0.72rem', opacity: 0.35, textAlign: 'center', lineHeight: 1.6 }}>
-          Ce lien expirera immédiatement après confirmation pour des raisons de sécurité.
-        </p>
       </div>
     </PageShell>
   );
 }
 
 /* ─────────────────────────────────────────────
-   Composants utilitaires
+   Composants UI partagés
 ───────────────────────────────────────────── */
-
 function PageShell({ children, role }: { children: React.ReactNode; role?: string | null }) {
   return (
     <div style={{
       minHeight: '100vh',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '1.5rem',
-      background: role === 'livreur'
-        ? 'radial-gradient(ellipse at top, rgba(59,130,246,0.06) 0%, transparent 60%)'
-        : 'radial-gradient(ellipse at top, rgba(34,197,94,0.06) 0%, transparent 60%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '2rem 1rem',
+      background: 'radial-gradient(circle at 50% 20%, rgba(34, 197, 94, 0.08), transparent 60%), #07090e'
     }}>
-      <div className="glass-panel animate-fade-in" style={{
-        maxWidth: '440px', width: '100%',
-        padding: '2.5rem', borderRadius: '24px',
+      <div style={{
+        maxWidth: '480px',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1.5rem'
       }}>
-        {/* En-tête */}
-        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-          <h1 style={{
-            fontSize: '1.6rem', fontWeight: '900',
-            background: 'linear-gradient(135deg, var(--primary), #3b82f6)',
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Link href="/" style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            fontSize: '0.875rem',
+            color: '#94a3b8'
           }}>
-            Moncolis
-          </h1>
-          <p style={{ opacity: 0.45, fontSize: '0.78rem', marginTop: '0.2rem' }}>
-            {role === 'livreur' ? 'Espace Livreur' : 'Suivi de livraison'}
-          </p>
+            <ArrowLeft size={16} />
+            Accueil Moncolis
+          </Link>
+
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            padding: '0.25rem 0.65rem',
+            borderRadius: '999px',
+            background: 'rgba(34, 197, 94, 0.1)',
+            color: '#4ade80',
+            fontSize: '0.75rem',
+            fontWeight: '600'
+          }}>
+            <ShieldCheck size={14} />
+            <span>Suivi Sécurisé</span>
+          </div>
         </div>
-        {children}
+
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: '24px',
+          padding: '2.25rem',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)'
+        }}>
+          {children}
+        </div>
       </div>
     </div>
   );
 }
 
-function StatutBadge({ label, color, bg, border }: { label: string; color: string; bg: string; border: string }) {
-  return (
-    <div style={{ textAlign: 'center', background: bg, border: `1px solid ${border}`, borderRadius: '14px', padding: '0.9rem' }}>
-      <p style={{ fontSize: '0.72rem', opacity: 0.55, marginBottom: '0.25rem', letterSpacing: '0.04em' }}>STATUT</p>
-      <p style={{ fontWeight: '800', color, fontSize: '1rem', margin: 0 }}>{label}</p>
-    </div>
-  );
-}
-
-function InfoRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function InfoRow({ label, value, highlight }: { label: string; value: any; highlight?: boolean }) {
   return (
     <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '0.75rem 1rem', borderRadius: '12px', gap: '1rem',
-      background: highlight ? 'rgba(34,197,94,0.06)' : 'rgba(255,255,255,0.04)',
-      border: `1px solid ${highlight ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: '1rem',
+      padding: '0.5rem 0',
+      borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
     }}>
-      <span style={{ fontSize: '0.8rem', opacity: 0.55, whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontWeight: '700', fontSize: '0.9rem', color: highlight ? 'var(--primary)' : 'inherit', textAlign: 'right' }}>
+      <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{label}</span>
+      <span style={{
+        fontWeight: highlight ? '800' : '600',
+        color: highlight ? '#4ade80' : '#fff',
+        textAlign: 'right',
+        fontSize: '0.9rem'
+      }}>
         {value}
       </span>
-    </div>
-  );
-}
-
-function StatusBlock({ icon, title, color, message }: { icon: React.ReactNode; title: string; color: string; message: string }) {
-  return (
-    <div style={{ textAlign: 'center', padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
-      <div style={{ lineHeight: 1 }}>{icon}</div>
-      <h2 style={{ fontSize: '1.2rem', fontWeight: '800', color, margin: 0 }}>{title}</h2>
-      <p style={{ opacity: 0.6, fontSize: '0.875rem', lineHeight: 1.7, margin: 0 }}>{message}</p>
     </div>
   );
 }
@@ -355,11 +387,19 @@ function StatusBlock({ icon, title, color, message }: { icon: React.ReactNode; t
 function Spinner() {
   return (
     <div style={{
-      width: '36px', height: '36px', borderRadius: '50%',
-      border: '3px solid rgba(255,255,255,0.1)',
-      borderTop: '3px solid var(--primary)',
+      width: '40px',
+      height: '40px',
+      borderRadius: '50%',
+      border: '3px solid rgba(255, 255, 255, 0.1)',
+      borderTopColor: '#22c55e',
       animation: 'spin 0.8s linear infinite',
-      margin: '0 auto',
-    }} />
+      margin: '0 auto'
+    }}>
+      <style jsx>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
   );
 }

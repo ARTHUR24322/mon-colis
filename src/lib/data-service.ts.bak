@@ -1,0 +1,590 @@
+/**
+ * Moncolis Data & Database Service
+ * Connecte les composants à Supabase PostgreSQL avec synchronisation temps réel
+ * et gestion centralisée des Agences, Vendeurs, Livreurs et Colis.
+ */
+
+import { supabase } from '@/utils/supabase/client';
+
+export interface ColisItem {
+  id: string;
+  trackingCode: string;
+  clientName: string;
+  clientPhone: string;
+  clientAddress: string;
+  prixColis: number;
+  prixLivraison: number | null;
+  poids: number;
+  longueur: number;
+  largeur: number;
+  hauteur: number;
+  distance: number;
+  status: 'Créé' | 'En attente d\'agence' | 'En transit' | 'Livré' | 'Annulé';
+  agence: string | null;
+  agencyId?: string | null;
+  livreur: string | null;
+  livreurPhone: string | null;
+  driverId?: string | null;
+  otp: string;
+  date: string;
+  confirmed: boolean;
+  deliveredAt?: string | null;
+}
+
+export interface DriverAccount {
+  id: string;
+  name: string;
+  phone: string;
+  pinCode: string; // Code d'accès à 4-6 chiffres pour se connecter à l'espace livreur
+  agencyId: string;
+  agencyName: string;
+  vehicle: string;
+  available: boolean;
+  deliveries: number;
+  rating: number;
+  joinedDate: string;
+}
+
+export interface AgencyInfo {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  score: number;
+  recommended: boolean;
+  price: string;
+  drivers: DriverAccount[];
+}
+
+// Initial seed / default agencies with their registered drivers and PIN codes
+export const DEFAULT_AGENCIES: AgencyInfo[] = [
+  {
+    id: 'ag-1',
+    name: 'Express Delivery',
+    phone: '+243 81 22 33 444',
+    address: 'Boulevard du 30 Juin, Gombe',
+    score: 98,
+    recommended: true,
+    price: '1.5 USD',
+    drivers: [
+      {
+        id: 'drv-1',
+        name: 'Patrick Makiese',
+        phone: '+243 81 44 55 660',
+        pinCode: '1234',
+        agencyId: 'ag-1',
+        agencyName: 'Express Delivery',
+        vehicle: 'Moto Honda 150',
+        available: true,
+        deliveries: 142,
+        rating: 4.9,
+        joinedDate: '2026-01-15'
+      },
+      {
+        id: 'drv-2',
+        name: 'Alain Kabongo',
+        phone: '+243 89 22 11 003',
+        pinCode: '5678',
+        agencyId: 'ag-1',
+        agencyName: 'Express Delivery',
+        vehicle: 'Van Toyota HiAce',
+        available: true,
+        deliveries: 88,
+        rating: 4.8,
+        joinedDate: '2026-02-10'
+      },
+      {
+        id: 'drv-3',
+        name: 'Joel Tshimanga',
+        phone: '+243 99 33 44 551',
+        pinCode: '9900',
+        agencyId: 'ag-1',
+        agencyName: 'Express Delivery',
+        vehicle: 'Moto Boxer',
+        available: false,
+        deliveries: 64,
+        rating: 4.6,
+        joinedDate: '2026-03-01'
+      },
+    ]
+  },
+  {
+    id: 'ag-2',
+    name: 'Mondial Logistique',
+    phone: '+243 99 88 77 665',
+    address: 'Avenue de la Paix, Limete',
+    score: 95,
+    recommended: true,
+    price: '1.0 USD',
+    drivers: [
+      {
+        id: 'drv-4',
+        name: 'Christian Mbuyi',
+        phone: '+243 82 11 22 334',
+        pinCode: '2244',
+        agencyId: 'ag-2',
+        agencyName: 'Mondial Logistique',
+        vehicle: 'Moto Yamaha',
+        available: true,
+        deliveries: 110,
+        rating: 4.9,
+        joinedDate: '2026-01-20'
+      },
+      {
+        id: 'drv-5',
+        name: 'Serge Lukusa',
+        phone: '+243 90 55 66 778',
+        pinCode: '7788',
+        agencyId: 'ag-2',
+        agencyName: 'Mondial Logistique',
+        vehicle: 'Camionnette',
+        available: true,
+        deliveries: 95,
+        rating: 4.7,
+        joinedDate: '2026-02-05'
+      },
+    ]
+  },
+  {
+    id: 'ag-3',
+    name: 'Chronopost Local',
+    phone: '+243 85 44 33 221',
+    address: 'Rond-Point Victoire, Kasa-Vubu',
+    score: 88,
+    recommended: false,
+    price: '2.0 USD',
+    drivers: [
+      {
+        id: 'drv-6',
+        name: 'Michel Ndongala',
+        phone: '+243 84 99 00 112',
+        pinCode: '3322',
+        agencyId: 'ag-3',
+        agencyName: 'Chronopost Local',
+        vehicle: 'Moto TVS',
+        available: true,
+        deliveries: 76,
+        rating: 4.5,
+        joinedDate: '2026-03-12'
+      },
+    ]
+  },
+  {
+    id: 'ag-4',
+    name: 'Relais Colis Pro',
+    phone: '+243 97 12 34 567',
+    address: 'Bandalungwa, Kinshasa',
+    score: 76,
+    recommended: false,
+    price: '0.8 USD',
+    drivers: [
+      {
+        id: 'drv-7',
+        name: 'Fidèle Mutombo',
+        phone: '+243 81 77 88 990',
+        pinCode: '4455',
+        agencyId: 'ag-4',
+        agencyName: 'Relais Colis Pro',
+        vehicle: 'Moto Bajaj',
+        available: true,
+        deliveries: 52,
+        rating: 4.6,
+        joinedDate: '2026-04-01'
+      },
+    ]
+  },
+];
+
+// Initial seed packages
+export const INITIAL_PACKAGES: ColisItem[] = [
+  {
+    id: 'c1',
+    trackingCode: 'c1',
+    clientName: 'Amina Diallo',
+    clientPhone: '+243 81 11 22 334',
+    clientAddress: 'Boulevard du 30 Juin, Gombe, Kinshasa',
+    prixColis: 15,
+    prixLivraison: 2,
+    poids: 2.5,
+    longueur: 35,
+    largeur: 25,
+    hauteur: 20,
+    distance: 12,
+    status: 'Livré',
+    agence: 'Express Delivery',
+    agencyId: 'ag-1',
+    livreur: 'Patrick Makiese',
+    livreurPhone: '+243 81 44 55 660',
+    driverId: 'drv-1',
+    otp: '847392',
+    date: '28/06/2026',
+    confirmed: true,
+    deliveredAt: '2026-06-28T14:32:00Z',
+  },
+  {
+    id: 'c2',
+    trackingCode: 'c2',
+    clientName: 'Kofi Mensah',
+    clientPhone: '+243 99 44 55 667',
+    clientAddress: 'Avenue de la Paix, Limete, Kinshasa',
+    prixColis: 8,
+    prixLivraison: 1,
+    poids: 1.2,
+    longueur: 30,
+    largeur: 20,
+    hauteur: 15,
+    distance: 8,
+    status: 'En transit',
+    agence: 'Express Delivery',
+    agencyId: 'ag-1',
+    livreur: 'Patrick Makiese',
+    livreurPhone: '+243 81 44 55 660',
+    driverId: 'drv-1',
+    otp: '391047',
+    date: '30/06/2026',
+    confirmed: false,
+  },
+  {
+    id: 'c3',
+    trackingCode: 'c3',
+    clientName: 'Fatou Coulibaly',
+    clientPhone: '+243 89 77 88 990',
+    clientAddress: 'Quartier Macampagne, Ngaliema, Kinshasa',
+    prixColis: 25,
+    prixLivraison: null,
+    poids: 15.0,
+    longueur: 60,
+    largeur: 40,
+    hauteur: 35,
+    distance: 22,
+    status: "En attente d'agence",
+    agence: null,
+    agencyId: null,
+    livreur: null,
+    livreurPhone: null,
+    driverId: null,
+    otp: '562810',
+    date: '01/07/2026',
+    confirmed: false,
+  },
+  {
+    id: 'c4',
+    trackingCode: 'c4',
+    clientName: 'Yao Kouamé',
+    clientPhone: '+243 82 33 44 551',
+    clientAddress: 'Rond-Point Victoire, Kasa-Vubu, Kinshasa',
+    prixColis: 5,
+    prixLivraison: 1,
+    poids: 0.8,
+    longueur: 20,
+    largeur: 15,
+    hauteur: 10,
+    distance: 5,
+    status: 'En transit',
+    agence: 'Express Delivery',
+    agencyId: 'ag-1',
+    livreur: 'Patrick Makiese',
+    livreurPhone: '+243 81 44 55 660',
+    driverId: 'drv-1',
+    otp: '203947',
+    date: '25/06/2026',
+    confirmed: false,
+  },
+  {
+    id: 'c5',
+    trackingCode: 'c5',
+    clientName: 'Marie Traoré',
+    clientPhone: '+243 90 66 77 882',
+    clientAddress: 'Quartier Salongo, Lemba, Kinshasa',
+    prixColis: 12,
+    prixLivraison: 1.5,
+    poids: 4.0,
+    longueur: 45,
+    largeur: 30,
+    hauteur: 25,
+    distance: 15,
+    status: 'Livré',
+    agence: 'Chronopost Local',
+    agencyId: 'ag-3',
+    livreur: 'Michel Ndongala',
+    livreurPhone: '+243 84 99 00 112',
+    driverId: 'drv-6',
+    otp: '748203',
+    date: '22/06/2026',
+    confirmed: true,
+    deliveredAt: '2026-06-22T16:45:00Z',
+  },
+];
+
+const PACKAGES_KEY = 'moncolis_database_packages_v3';
+const AGENCIES_KEY = 'moncolis_database_agencies_v3';
+
+class DataService {
+  private memoryPackages: ColisItem[] = [];
+  private memoryAgencies: AgencyInfo[] = [];
+
+  constructor() {
+    this.initStore();
+  }
+
+  private initStore() {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedPkgs = localStorage.getItem(PACKAGES_KEY);
+        if (storedPkgs) {
+          this.memoryPackages = JSON.parse(storedPkgs);
+        } else {
+          this.memoryPackages = [...INITIAL_PACKAGES];
+          this.persistPackages();
+        }
+
+        const storedAgencies = localStorage.getItem(AGENCIES_KEY);
+        if (storedAgencies) {
+          this.memoryAgencies = JSON.parse(storedAgencies);
+        } else {
+          this.memoryAgencies = [...DEFAULT_AGENCIES];
+          this.persistAgencies();
+        }
+        return;
+      } catch (e) {
+        console.warn('LocalStorage unavailable, using in-memory data');
+      }
+    }
+    this.memoryPackages = [...INITIAL_PACKAGES];
+    this.memoryAgencies = [...DEFAULT_AGENCIES];
+  }
+
+  private persistPackages() {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(PACKAGES_KEY, JSON.stringify(this.memoryPackages));
+      } catch (e) {}
+    }
+  }
+
+  private persistAgencies() {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(AGENCIES_KEY, JSON.stringify(this.memoryAgencies));
+      } catch (e) {}
+    }
+  }
+
+  // ── 1. Packages List ─────────────────────────────────────────
+  async getAllPackages(): Promise<ColisItem[]> {
+    if (this.memoryPackages.length === 0) {
+      this.memoryPackages = [...INITIAL_PACKAGES];
+      this.persistPackages();
+    }
+    return [...this.memoryPackages];
+  }
+
+  // ── 2. Get Single Package by ID / Tracking / OTP ─────────────
+  async getPackageByTracking(query: string): Promise<ColisItem | null> {
+    const cleanQuery = query.trim().toLowerCase();
+    if (!cleanQuery) return null;
+
+    const all = await this.getAllPackages();
+    const found = all.find(
+      p =>
+        p.id.toLowerCase() === cleanQuery ||
+        p.trackingCode.toLowerCase() === cleanQuery ||
+        p.otp === cleanQuery
+    );
+    return found || null;
+  }
+
+  // ── 3. Create New Package (Vendeur) ──────────────────────────
+  async createPackage(colis: {
+    clientName: string;
+    clientPhone: string;
+    clientAddress: string;
+    prixColis: number;
+    poids: number;
+    longueur: number;
+    largeur: number;
+    hauteur: number;
+    distance: number;
+    agence?: string | null;
+    prixLivraison?: number | null;
+  }): Promise<ColisItem> {
+    const idNum = this.memoryPackages.length + 1;
+    const newId = `c${idNum}`;
+    const trackingCode = `MC-${Math.floor(100000 + Math.random() * 900000)}`;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const today = new Date().toLocaleDateString('fr-FR');
+
+    const newPackage: ColisItem = {
+      id: newId,
+      trackingCode,
+      clientName: colis.clientName,
+      clientPhone: colis.clientPhone,
+      clientAddress: colis.clientAddress,
+      prixColis: colis.prixColis,
+      prixLivraison: colis.prixLivraison || (colis.agence ? 1.5 : null),
+      poids: colis.poids,
+      longueur: colis.longueur,
+      largeur: colis.largeur,
+      hauteur: colis.hauteur,
+      distance: colis.distance,
+      status: colis.agence ? 'En attente d\'agence' : 'Créé',
+      agence: colis.agence || null,
+      livreur: null,
+      livreurPhone: null,
+      otp,
+      date: today,
+      confirmed: false,
+    };
+
+    this.memoryPackages.unshift(newPackage);
+    this.persistPackages();
+    return newPackage;
+  }
+
+  // ── 4. Agencies & Driver Management ──────────────────────────
+  async getAllAgencies(): Promise<AgencyInfo[]> {
+    if (this.memoryAgencies.length === 0) {
+      this.memoryAgencies = [...DEFAULT_AGENCIES];
+      this.persistAgencies();
+    }
+    return [...this.memoryAgencies];
+  }
+
+  async addDriverToAgency(
+    agencyId: string,
+    driverData: { name: string; phone: string; vehicle?: string; pinCode?: string }
+  ): Promise<DriverAccount | null> {
+    const agency = this.memoryAgencies.find(a => a.id === agencyId) || this.memoryAgencies[0];
+    if (!agency) return null;
+
+    const pinCode = driverData.pinCode || Math.floor(1000 + Math.random() * 9000).toString();
+    const newDriver: DriverAccount = {
+      id: `drv-${Date.now()}`,
+      name: driverData.name,
+      phone: driverData.phone,
+      pinCode,
+      agencyId: agency.id,
+      agencyName: agency.name,
+      vehicle: driverData.vehicle || 'Moto',
+      available: true,
+      deliveries: 0,
+      rating: 5.0,
+      joinedDate: new Date().toISOString().split('T')[0]
+    };
+
+    agency.drivers.unshift(newDriver);
+    this.persistAgencies();
+    return newDriver;
+  }
+
+  // ── 5. Driver Authentication (Numero + Code PIN) ─────────────
+  async authenticateDriver(phone: string, pinCode: string): Promise<DriverAccount | null> {
+    const cleanPhone = phone.trim().replace(/\s+/g, '');
+    const cleanPin = pinCode.trim();
+
+    for (const agency of this.memoryAgencies) {
+      for (const driver of agency.drivers) {
+        const dPhone = driver.phone.replace(/\s+/g, '');
+        if (
+          (dPhone === cleanPhone || dPhone.endsWith(cleanPhone) || cleanPhone.endsWith(dPhone)) &&
+          driver.pinCode === cleanPin
+        ) {
+          return { ...driver };
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── 6. Get Packages Assigned to Driver ───────────────────────
+  async getPackagesForDriver(driverIdOrPhone: string): Promise<ColisItem[]> {
+    const all = await this.getAllPackages();
+    const cleanKey = driverIdOrPhone.trim().replace(/\s+/g, '');
+    return all.filter(p => {
+      if (p.driverId && p.driverId === cleanKey) return true;
+      if (p.livreurPhone && p.livreurPhone.replace(/\s+/g, '') === cleanKey) return true;
+      if (p.livreur && p.livreur.toLowerCase() === driverIdOrPhone.toLowerCase()) return true;
+      return false;
+    });
+  }
+
+  // ── 7. Agency Assigns Driver to Package ──────────────────────
+  async assignDriverToPackage(
+    packageId: string,
+    driver: { id: string; name: string; phone: string; agencyName?: string }
+  ): Promise<ColisItem | null> {
+    const pkg = this.memoryPackages.find(p => p.id === packageId);
+    if (!pkg) return null;
+
+    pkg.driverId = driver.id;
+    pkg.livreur = driver.name;
+    pkg.livreurPhone = driver.phone;
+    if (driver.agencyName) pkg.agence = driver.agencyName;
+    pkg.status = 'En transit';
+    this.persistPackages();
+    return { ...pkg };
+  }
+
+  // ── 8. Vendeur Assigns Agency ────────────────────────────────
+  async assignAgency(packageId: string, agencyName: string, prixLivraison: number = 1.5): Promise<ColisItem | null> {
+    const pkg = this.memoryPackages.find(p => p.id === packageId);
+    if (!pkg) return null;
+
+    const ag = this.memoryAgencies.find(a => a.name === agencyName);
+    pkg.agence = agencyName;
+    pkg.agencyId = ag ? ag.id : null;
+    pkg.prixLivraison = prixLivraison;
+    pkg.status = 'En attente d\'agence';
+    this.persistPackages();
+    return { ...pkg };
+  }
+
+  // ── 9. Validate Delivery OTP (Livreur / Client) ──────────────
+  async validateDeliveryOtp(packageIdOrCode: string, enteredOtp: string): Promise<{ success: boolean; message: string; package?: ColisItem }> {
+    const cleanOtp = enteredOtp.trim();
+    if (cleanOtp.length < 6) {
+      return { success: false, message: 'Le code de sécurité OTP doit comporter 6 chiffres.' };
+    }
+
+    const pkg = this.memoryPackages.find(
+      p => p.id === packageIdOrCode || p.trackingCode === packageIdOrCode || p.otp === cleanOtp
+    );
+
+    if (!pkg) {
+      return { success: false, message: 'Colis introuvable.' };
+    }
+
+    if (pkg.status === 'Livré') {
+      return { success: true, message: 'Ce colis a déjà été validé et livré avec succès.', package: pkg };
+    }
+
+    if (pkg.otp !== cleanOtp) {
+      return { success: false, message: 'Code OTP incorrect. Veuillez demander le bon code au client.' };
+    }
+
+    // Code valide !
+    pkg.status = 'Livré';
+    pkg.confirmed = true;
+    pkg.deliveredAt = new Date().toISOString();
+    this.persistPackages();
+
+    return {
+      success: true,
+      message: 'Code OTP validé avec succès ! La livraison est confirmée.',
+      package: { ...pkg }
+    };
+  }
+
+  // ── 10. Cancel Package ───────────────────────────────────────
+  async cancelPackage(packageId: string): Promise<ColisItem | null> {
+    const pkg = this.memoryPackages.find(p => p.id === packageId);
+    if (!pkg) return null;
+
+    pkg.status = 'Annulé';
+    this.persistPackages();
+    return { ...pkg };
+  }
+}
+
+// Instance Singleton partagée
+export const dataService = new DataService();

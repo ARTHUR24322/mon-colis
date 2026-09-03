@@ -151,3 +151,55 @@ a {
   0%, 100% { transform: translateY(0px); }
   50%       { transform: translateY(-10px); }
 }
+
+/* ─────────────────────────────────────────────
+    Mobile First Utilities
+───────────────────────────────────────────── */
+.desktop-only {
+  display: flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+.bottom-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 600px;
+  background: var(--background);
+  border-radius: 20px;
+  border: 1px solid var(--card-border);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  
+  .mobile-only {
+    display: flex !important;
+  }
+  
+  .bottom-sheet-container {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  
+  .bottom-sheet {
+    border-radius: 24px 24px 0 0;
+    max-width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    border-bottom: none;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+

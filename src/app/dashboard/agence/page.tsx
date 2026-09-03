@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { Bell, Truck, ClipboardList, Star, Settings, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Bell, Truck, ClipboardList, Star, Settings, CheckCircle, XCircle, Clock, Copy, Check, KeyRound, LogOut, DollarSign } from 'lucide-react';
+import { useAuth } from '@/lib/use-auth';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface Livreur {
   id: string;
   name: string;
   phone: string;
+  pinCode: string;
+  vehicle: string;
   available: boolean;
   deliveries: number;
   rating: number;
@@ -41,21 +44,23 @@ interface Colis {
   prixLivraison: number | null;
   distanceKm: number;
   poids: number;
+  paidByClient: boolean;
+  vendorPaid: boolean;
   quotation?: Quotation | null;
 }
 
 // ─── Seed Data ──────────────────────────────────────────────────────────────
 const SEED_LIVREURS: Livreur[] = [
-  { id: 'L1', name: 'Trésor Makambo',  phone: '+243 81 44 55 660', available: true,  deliveries: 142, rating: 4.9, joinedDate: '2025-03-01' },
-  { id: 'L2', name: 'Papy Nsimba',     phone: '+243 99 11 22 331', available: false, deliveries:  87, rating: 4.7, joinedDate: '2025-05-12' },
-  { id: 'L3', name: 'Fally Ilunga',    phone: '+243 89 99 00 112', available: true,  deliveries: 210, rating: 5.0, joinedDate: '2025-01-20' },
+  { id: 'L1', name: 'Patrick Makiese', phone: '+243 81 44 55 660', pinCode: '1234', vehicle: 'Moto Honda 150', available: true,  deliveries: 142, rating: 4.9, joinedDate: '2026-01-15' },
+  { id: 'L2', name: 'Alain Kabongo',   phone: '+243 89 22 11 003', pinCode: '5678', vehicle: 'Van Toyota HiAce', available: true, deliveries:  88, rating: 4.8, joinedDate: '2026-02-10' },
+  { id: 'L3', name: 'Joel Tshimanga',  phone: '+243 99 33 44 551', pinCode: '9900', vehicle: 'Moto Boxer', available: false, deliveries:  64, rating: 4.6, joinedDate: '2026-03-01' },
 ];
 
 const SEED_COLIS: Colis[] = [
-  { id: 'COL-1029', trackId: 'abc123', clientName: 'Alice Dubois',     clientAddress: '15 Boulevard du 30 Juin, Gombe', clientPhone: '+243 82 10 11 123', status: 'En attente', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: null, date: '2026-07-02', otp: '847291', prixColis: 10, prixLivraison: null, distanceKm: 12, poids: 2.5 },
-  { id: 'COL-1028', trackId: 'def456', clientName: 'Jean-Pierre',      clientAddress: 'Quartier Industriel, Limete',    clientPhone: '+243 81 20 21 224', status: 'Livré',     vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: 'L1', date: '2026-07-01', otp: '192837', prixColis: 5, prixLivraison: 2, distanceKm: 8,  poids: 1.2, quotation: { basePrice: 1, commune: 'Limete', distanceTotal: 8, distancePrice: 0.5, weightTotal: 1.2, weightPrice: 0.5, totalFinale: 2} },
-  { id: 'COL-1027', trackId: 'ghi789', terminal: 'Fatou Diallo',       clientAddress: 'Rond-Point Ngaba, Lemba',        clientPhone: '+243 90 30 31 325', status: 'En transit', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: 'L3', date: '2026-06-30', otp: '563821', prixColis: 15, prixLivraison: 3, distanceKm: 18, poids: 4.0 } as any,
-  { id: 'COL-1025', trackId: 'mno345', clientName: 'Amira Saidani',    clientAddress: 'Macampagne, Ngaliema',           clientPhone: '+243 89 50 51 526', status: 'Refusé',    vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: null, date: '2026-06-28', otp: '019283', prixColis: 20, prixLivraison: null, distanceKm: 5,  poids: 10.0 },
+  { id: 'COL-1029', trackId: 'abc123', clientName: 'Alice Dubois',     clientAddress: '15 Boulevard du 30 Juin, Gombe', clientPhone: '+243 82 10 11 123', status: 'En attente', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: null, date: '2026-07-02', otp: '847291', prixColis: 10, prixLivraison: null, distanceKm: 12, poids: 2.5, paidByClient: true, vendorPaid: false },
+  { id: 'COL-1028', trackId: 'def456', clientName: 'Jean-Pierre',      clientAddress: 'Quartier Industriel, Limete',    clientPhone: '+243 81 20 21 224', status: 'Livré',     vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: 'L1', date: '2026-07-01', otp: '192837', prixColis: 5, prixLivraison: 2, distanceKm: 8,  poids: 1.2, quotation: { basePrice: 1, commune: 'Limete', distanceTotal: 8, distancePrice: 0.5, weightTotal: 1.2, weightPrice: 0.5, totalFinale: 2}, paidByClient: true, vendorPaid: false },
+  { id: 'COL-1027', trackId: 'ghi789', terminal: 'Fatou Diallo',       clientAddress: 'Rond-Point Ngaba, Lemba',        clientPhone: '+243 90 30 31 325', status: 'En transit', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: 'L3', date: '2026-06-30', otp: '563821', prixColis: 15, prixLivraison: 3, distanceKm: 18, poids: 4.0, paidByClient: true, vendorPaid: false } as any,
+  { id: 'COL-1025', trackId: 'mno345', clientName: 'Amira Saidani',    clientAddress: 'Macampagne, Ngaliema',           clientPhone: '+243 89 50 51 526', status: 'Refusé',    vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: null, date: '2026-06-28', otp: '019283', prixColis: 20, prixLivraison: null, distanceKm: 5,  poids: 10.0, paidByClient: true, vendorPaid: false },
 ];
 
 // ─── Status colors ──────────────────────────────────────────────────────────
@@ -83,14 +88,99 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AgenceDashboard() {
-  const [activeTab, setActiveTab] = useState<'demandes' | 'livreurs' | 'historique' | 'vendeurs' | 'parametres'>('demandes');
+  const { user, loading: authLoading, logout } = useAuth('agence');
+  const [activeTab, setActiveTab] = useState<'demandes' | 'livreurs' | 'historique' | 'vendeurs' | 'parametres' | 'finances'>('demandes');
   const [colis, setColis]         = useState<Colis[]>(SEED_COLIS);
   const [livreurs, setLivreurs]   = useState<Livreur[]>(SEED_LIVREURS);
 
+  // Synchronisation avec dataService — uniquement les colis assignés à cette agence
+  useEffect(() => {
+    if (!user?.agencyId) return; // wait until session is loaded
+
+    let unsubscribe: () => void;
+
+    async function loadLiveData() {
+      try {
+        const { dataService } = await import('@/lib/data-service');
+        const live = await dataService.getPackagesForAgency(user!.agencyId!);
+
+        if (live && live.length > 0) {
+          const mapped: Colis[] = live.map(p => ({
+            id: p.id,
+            trackId: p.trackingCode,
+            clientName: p.clientName,
+            clientAddress: p.clientAddress,
+            clientPhone: p.clientPhone,
+            // Only show packages that were explicitly sent to this agency
+            status: (
+              p.status === "En attente d'agence" ? 'En attente' :
+              p.status === 'Accepté'              ? 'Accepté' :
+              p.status === 'En transit'           ? 'En transit' :
+              p.status === 'Livré'                ? 'Livré' :
+              p.status === 'Annulé'               ? 'Annulé' :
+              'En attente'
+            ) as Colis['status'],
+            vendeur: p.agence || 'Boutique',
+            vendeurId: p.id,
+            driverId: p.driverId || null,
+            date: p.date,
+            otp: p.otp,
+            prixColis: p.prixColis,
+            prixLivraison: p.prixLivraison || null,
+            distanceKm: p.distance || 0,
+            poids: p.poids || 1,
+            paidByClient: p.paidByClient,
+            vendorPaid: p.vendorPaid,
+          }));
+          setColis(mapped);
+        } else {
+          setColis([]); // no packages assigned yet
+        }
+
+        const liveDrivers = await dataService.getDriversForAgency(user!.agencyId!);
+        if (liveDrivers && liveDrivers.length > 0) {
+          const mappedDrivers: Livreur[] = liveDrivers.map(d => ({
+            id: d.id,
+            name: d.name,
+            phone: d.phone,
+            deliveries: d.deliveries || 0,
+            status: d.available ? 'Actif' : 'Occupé',
+            vehicle: d.vehicle || 'Moto',
+            pinCode: '****',
+            available: d.available || false,
+            rating: 5.0,
+            joinedDate: new Date().toISOString().split('T')[0],
+          }));
+          setLivreurs(mappedDrivers);
+        } else {
+          setLivreurs([]);
+        }
+
+        unsubscribe = dataService.subscribeToPackages(() => {
+          loadLiveData();
+        });
+      } catch (err) {
+        console.error('Error loading live data:', err);
+      }
+    }
+
+    loadLiveData();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.agencyId]);
+
+
+
   // Livreur modal
   const [showAddLivreur, setShowAddLivreur] = useState(false);
-  const [newName, setNewName]   = useState('');
-  const [newPhone, setNewPhone] = useState('');
+  const [newName, setNewName]     = useState('');
+  const [newPhone, setNewPhone]   = useState('');
+  const [newVehicle, setNewVehicle] = useState('');
+  const [newPin, setNewPin]       = useState('');
+  const [createdDriver, setCreatedDriver] = useState<{ name: string; pin: string; phone: string } | null>(null);
+  const [copiedPin, setCopiedPin] = useState(false);
 
   // Formulaire de calcul tarifaire (Devis / Quotation)
   const [quotations, setQuotations] = useState<Record<string, Quotation>>({});
@@ -182,39 +272,79 @@ export default function AgenceDashboard() {
     }));
   };
 
-  const handleAction = (c: Colis, action: 'accept' | 'reject') => {
-    if (action === 'accept') {
-      const q = quotations[c.id];
-      if (!q) {
-        alert("Veuillez générer la cotation avant d'accepter.");
-        return;
+  const handleAction = async (c: Colis, action: 'accept' | 'reject') => {
+    try {
+      const { dataService } = await import('@/lib/data-service');
+      if (action === 'accept') {
+        let finalPrice = 0;
+        let q = null;
+        if (c.paidByClient !== false) {
+          q = quotations[c.id];
+          if (!q) {
+            alert("Veuillez générer la cotation avant d'accepter.");
+            return;
+          }
+          finalPrice = q.totalFinale;
+        }
+
+        await dataService.acceptPackage(c.id, finalPrice);
+        setColis(prev => prev.map(colis => colis.id === c.id
+          ? { ...colis, status: 'Accepté', prixLivraison: finalPrice, quotation: q || undefined }
+          : colis
+        ));
+      } else {
+        await dataService.rejectPackage(c.id);
+        setColis(prev => prev.map(colis => colis.id === c.id ? { ...colis, status: 'Refusé' } : colis));
       }
-      setColis(prev => prev.map(colis => colis.id === c.id
-        ? { ...colis, status: 'Accepté', prixLivraison: q.totalFinale, quotation: q }
-        : colis
-      ));
-    } else {
-      setColis(prev => prev.map(colis => colis.id === c.id ? { ...colis, status: 'Refusé' } : colis));
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'enregistrement.");
     }
   };
 
-  const assignDriver = (colisId: string, driverId: string) => {
-    setColis(prev => prev.map(c => c.id === colisId ? { ...c, status: 'Assigné', driverId } : c));
+  const assignDriver = async (colisId: string, driverId: string) => {
+    try {
+      const { dataService } = await import('@/lib/data-service');
+      await dataService.assignDriver(colisId, driverId);
+      setColis(prev => prev.map(c => c.id === colisId ? { ...c, status: 'Assigné', driverId } : c));
+    } catch (e) {
+      console.error(e);
+      alert("Impossible d'assigner le livreur.");
+    }
   };
 
   const toggleAvailable = (id: string) => {
     setLivreurs(prev => prev.map(l => l.id === id ? { ...l, available: !l.available } : l));
   };
 
-  const handleAddLivreur = (e: React.FormEvent) => {
+  const handleAddLivreur = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Generate a 4-digit PIN if not provided
+    const pin = newPin.trim() || Math.floor(1000 + Math.random() * 9000).toString();
     const newL: Livreur = {
-      id: `L${Date.now()}`, name: newName, phone: newPhone,
-      available: true, deliveries: 0, rating: 0,
+      id: `L${Date.now()}`,
+      name: newName,
+      phone: newPhone,
+      pinCode: pin,
+      vehicle: newVehicle || 'Moto',
+      available: true,
+      deliveries: 0,
+      rating: 5.0,
       joinedDate: new Date().toISOString().split('T')[0],
     };
     setLivreurs(prev => [newL, ...prev]);
-    setNewName(''); setNewPhone(''); setShowAddLivreur(false);
+    // Also register in dataService so the livreur can log in
+    try {
+      const { dataService } = await import('@/lib/data-service');
+      const savedDriver = await dataService.addDriver(user!.agencyId!, { name: newName, phone: newPhone, vehicle: newVehicle, available: true, pinCode: pin });
+      // Replace the optimistic local entry with the real DB id
+      setLivreurs(prev => prev.map(l => l.name === newName && l.phone === newPhone ? { ...l, id: savedDriver.id } : l));
+    } catch (e) {
+      console.error('Failed to save driver to DB:', e);
+    }
+    setCreatedDriver({ name: newName, pin, phone: newPhone });
+    setNewName(''); setNewPhone(''); setNewVehicle(''); setNewPin('');
+    setShowAddLivreur(false);
   };
 
   const removeLivreur = (id: string) => setLivreurs(prev => prev.filter(l => l.id !== id));
@@ -226,9 +356,22 @@ export default function AgenceDashboard() {
     { key: 'demandes',   icon: <Bell size={20} />, label: 'Demandes', badge: demandes.length },
     { key: 'livreurs',   icon: <Truck size={20} />, label: 'Flotte', badge: livreurs.length },
     { key: 'historique', icon: <ClipboardList size={20} />, label: 'Historique' },
+    { key: 'finances',   icon: <DollarSign size={20} />, label: 'Finances' },
     { key: 'vendeurs',   icon: <Star size={20} />, label: 'Fidélité' },
     { key: 'parametres', icon: <Settings size={20} />, label: 'Paramètres' },
   ];
+
+  // ── Garde : session en cours de vérification
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔐</div>
+          <p>Vérification de la session...</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -319,9 +462,14 @@ export default function AgenceDashboard() {
 
         {/* Actions bas de sidebar */}
         <div style={{ padding: '1rem 0.75rem', borderTop: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <Link href="/" className="btn btn-outline" style={{ width: '100%', fontSize: '0.85rem', padding: '0.6rem', textAlign: 'center' }}>
+          <button 
+            onClick={logout} 
+            className="btn btn-outline" 
+            style={{ width: '100%', fontSize: '0.85rem', padding: '0.6rem', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', border: '1px solid rgba(255, 255, 255, 0.1)', color: '#94a3b8', cursor: 'pointer' }}
+          >
+            <LogOut size={16} />
             Déconnexion
-          </Link>
+          </button>
         </div>
       </aside>
 
@@ -389,88 +537,107 @@ export default function AgenceDashboard() {
                     {/* Formulaire de Cotation — uniquement si En attente */}
                     {c.status === 'En attente' && (
                       <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--card-border)', borderRadius: '12px', padding: '1.5rem' }}>
-                        <p style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent)' }}>Établir le devis détaillé</p>
-
-                        {!qParams ? (
-                          <button className="btn btn-primary" onClick={() => initPricing(c.id, 'Cocody', c.distanceKm, c.poids)}>
-                            Démarrer le calculateur
-                          </button>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                            {/* Commune */}
-                            <div>
-                               <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Commune de destination</label>
-                               <select 
-                                className="input-field" 
-                                value={qParams.commune} 
-                                onChange={e => {
-                                  const commune = globalSettings.communes.find(co => co.name === e.target.value) || globalSettings.communes[0];
-                                  setPricingParams(prev => ({...prev, [c.id]: { ...qParams, commune: commune.name, basePrice: commune.base }}));
-                                  updateQuotation(c.id, commune.base, qParams.pricePerKm, c.distanceKm, qParams.pricePerKg, c.poids, commune.name);
-                                }}>
-                                 {globalSettings.communes.map(co => <option key={co.name} value={co.name}>{co.name} (Base: {co.base} USD)</option>)}
-                               </select>
-                            </div>
-
-                            {/* Prix par km */}
-                            <div>
-                               <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Tarif par Km (USD)</label>
-                               <input type="number" className="input-field" value={qParams.pricePerKm} 
-                                 onChange={e => {
-                                   const val = parseFloat(e.target.value) || 0;
-                                   setPricingParams(prev => ({...prev, [c.id]: { ...qParams, pricePerKm: val }}));
-                                   updateQuotation(c.id, qParams.basePrice, val, c.distanceKm, qParams.pricePerKg, c.poids, qParams.commune);
-                                 }} 
-                               />
-                            </div>
-                            
-                            {/* Prix par kg */}
-                            <div>
-                               <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Tarif par Kg (USD)</label>
-                               <input type="number" className="input-field" value={qParams.pricePerKg} 
-                                 onChange={e => {
-                                   const val = parseFloat(e.target.value) || 0;
-                                   setPricingParams(prev => ({...prev, [c.id]: { ...qParams, pricePerKg: val }}));
-                                   updateQuotation(c.id, qParams.basePrice, qParams.pricePerKm, c.distanceKm, val, c.poids, qParams.commune);
-                                 }} 
-                               />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Devis Résultat */}
-                        {q && (
-                          <div style={{ marginTop: '1.5rem', background: 'rgba(245,158,11,0.08)', borderRadius: '12px', padding: '1.5rem', border: '1px solid rgba(245,158,11,0.2)' }}>
-                            <p style={{ fontWeight: '700', marginBottom: '1rem', fontSize: '1rem', color: '#f59e0b' }}>Récapitulatif envoyé au vendeur</p>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ opacity: 0.8 }}>Base ({q.commune})</span>
-                                <strong>{q.basePrice.toLocaleString('fr-FR')} USD</strong>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ opacity: 0.8 }}>Distance ({q.distanceTotal} km × {qParams.pricePerKm})</span>
-                                <strong>{q.distancePrice.toLocaleString('fr-FR')} USD</strong>
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ opacity: 0.8 }}>Poids ({q.weightTotal} kg × {qParams.pricePerKg})</span>
-                                <strong>{q.weightPrice.toLocaleString('fr-FR')} USD</strong>
-                              </div>
-                              <hr style={{ border: 'none', borderTop: '1px dashed rgba(255,255,255,0.2)', margin: '0.5rem 0' }} />
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', color: '#f59e0b', fontWeight: '800' }}>
-                                <span>TOTAL LIVRAISON</span>
-                                <span>{q.totalFinale.toLocaleString('fr-FR')} USD ({Math.round(q.totalFinale * globalSettings.tauxConversionFC).toLocaleString('fr-FR')} FC)</span>
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-                              <button className="btn btn-primary" style={{ flex: 1, padding: '0.7rem' }} onClick={() => handleAction(c, 'accept')}>
-                                Accepter & Envoyer le Devis
+                        {c.paidByClient === false ? (
+                          <div style={{ textAlign: 'center' }}>
+                            <p style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.5rem', color: '#10b981' }}>Frais de livraison à la charge du Vendeur</p>
+                            <p style={{ fontSize: '0.85rem', opacity: 0.8, marginBottom: '1.5rem' }}>
+                              L'agence ne fixe pas les frais pour ce colis. Le règlement se fera avec le vendeur.
+                            </p>
+                            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                              <button className="btn btn-primary" style={{ padding: '0.7rem 1.5rem' }} onClick={() => handleAction(c, 'accept')}>
+                                Accepter le Colis
                               </button>
-                              <button className="btn btn-outline" style={{ flex: 1, padding: '0.7rem', borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => handleAction(c, 'reject')}>
+                              <button className="btn btn-outline" style={{ padding: '0.7rem 1.5rem', borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => handleAction(c, 'reject')}>
                                 Refuser
                               </button>
                             </div>
                           </div>
+                        ) : (
+                          <>
+                            <p style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent)' }}>Établir le devis détaillé</p>
+
+                            {!qParams ? (
+                              <button className="btn btn-primary" onClick={() => initPricing(c.id, 'Cocody', c.distanceKm, c.poids)}>
+                                Démarrer le calculateur
+                              </button>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                                {/* Commune */}
+                                <div>
+                                   <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Commune de destination</label>
+                                   <select 
+                                    className="input-field" 
+                                    value={qParams.commune} 
+                                    onChange={e => {
+                                      const commune = globalSettings.communes.find(co => co.name === e.target.value) || globalSettings.communes[0];
+                                      setPricingParams(prev => ({...prev, [c.id]: { ...qParams, commune: commune.name, basePrice: commune.base }}));
+                                      updateQuotation(c.id, commune.base, qParams.pricePerKm, c.distanceKm, qParams.pricePerKg, c.poids, commune.name);
+                                    }}>
+                                     {globalSettings.communes.map(co => <option key={co.name} value={co.name}>{co.name} (Base: {co.base} USD)</option>)}
+                                   </select>
+                                </div>
+
+                                {/* Prix par km */}
+                                <div>
+                                   <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Tarif par Km (USD)</label>
+                                   <input type="number" className="input-field" value={qParams.pricePerKm} 
+                                     onChange={e => {
+                                       const val = parseFloat(e.target.value) || 0;
+                                       setPricingParams(prev => ({...prev, [c.id]: { ...qParams, pricePerKm: val }}));
+                                       updateQuotation(c.id, qParams.basePrice, val, c.distanceKm, qParams.pricePerKg, c.poids, qParams.commune);
+                                     }} 
+                                   />
+                                </div>
+                                
+                                {/* Prix par kg */}
+                                <div>
+                                   <label style={{ display: 'block', fontSize: '0.8rem', opacity: 0.7, marginBottom: '0.3rem' }}>Tarif par Kg (USD)</label>
+                                   <input type="number" className="input-field" value={qParams.pricePerKg} 
+                                     onChange={e => {
+                                       const val = parseFloat(e.target.value) || 0;
+                                       setPricingParams(prev => ({...prev, [c.id]: { ...qParams, pricePerKg: val }}));
+                                       updateQuotation(c.id, qParams.basePrice, qParams.pricePerKm, c.distanceKm, val, c.poids, qParams.commune);
+                                     }} 
+                                   />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Devis Résultat */}
+                            {q && (
+                              <div style={{ marginTop: '1.5rem', background: 'rgba(245,158,11,0.08)', borderRadius: '12px', padding: '1.5rem', border: '1px solid rgba(245,158,11,0.2)' }}>
+                                <p style={{ fontWeight: '700', marginBottom: '1rem', fontSize: '1rem', color: '#f59e0b' }}>Récapitulatif envoyé au vendeur</p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ opacity: 0.8 }}>Base ({q.commune})</span>
+                                    <strong>{q.basePrice.toLocaleString('fr-FR')} USD</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ opacity: 0.8 }}>Distance ({q.distanceTotal} km × {qParams.pricePerKm})</span>
+                                    <strong>{q.distancePrice.toLocaleString('fr-FR')} USD</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ opacity: 0.8 }}>Poids ({q.weightTotal} kg × {qParams.pricePerKg})</span>
+                                    <strong>{q.weightPrice.toLocaleString('fr-FR')} USD</strong>
+                                  </div>
+                                  <hr style={{ border: 'none', borderTop: '1px dashed rgba(255,255,255,0.2)', margin: '0.5rem 0' }} />
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2rem', color: '#f59e0b', fontWeight: '800' }}>
+                                    <span>TOTAL LIVRAISON</span>
+                                    <span>{q.totalFinale.toLocaleString('fr-FR')} USD ({Math.round(q.totalFinale * globalSettings.tauxConversionFC).toLocaleString('fr-FR')} FC)</span>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                                  <button className="btn btn-primary" style={{ flex: 1, padding: '0.7rem' }} onClick={() => handleAction(c, 'accept')}>
+                                    Accepter & Envoyer le Devis
+                                  </button>
+                                  <button className="btn btn-outline" style={{ flex: 1, padding: '0.7rem', borderColor: 'var(--error)', color: 'var(--error)' }} onClick={() => handleAction(c, 'reject')}>
+                                    Refuser
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -509,6 +676,45 @@ export default function AgenceDashboard() {
             </button>
           </div>
 
+          {/* Created Driver PIN Notification */}
+          {createdDriver && (
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderRadius: '16px',
+              background: 'rgba(34, 197, 94, 0.12)',
+              border: '1px solid rgba(34, 197, 94, 0.4)',
+              marginBottom: '1rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div>
+                <p style={{ fontWeight: '800', color: '#4ade80', margin: '0 0 0.2rem' }}>✅ Livreur {createdDriver.name} ajouté !</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+                  Transmettez ces identifiants de connexion à votre livreur :
+                </p>
+                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.85rem' }}>📱 <strong style={{ color: '#fff' }}>{createdDriver.phone}</strong></span>
+                  <span style={{ fontSize: '0.85rem' }}>🔐 Code PIN : <strong style={{ color: '#fbbf24', fontSize: '1.1rem', letterSpacing: '3px' }}>{createdDriver.pin}</strong></span>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`Téléphone: ${createdDriver.phone} | Code PIN: ${createdDriver.pin}`);
+                  setCopiedPin(true);
+                  setTimeout(() => setCopiedPin(false), 2000);
+                }}
+                style={{ padding: '0.5rem 1rem', borderRadius: '8px', background: '#22c55e', border: 'none', color: '#000', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                {copiedPin ? <Check size={14} /> : <Copy size={14} />}
+                {copiedPin ? 'Copié !' : 'Copier les identifiants'}
+              </button>
+              <button onClick={() => setCreatedDriver(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.25rem' }}>
             {livreurs.map(l => (
               <div key={l.id} className="glass-panel" style={{ padding: '1.5rem', position: 'relative' }}>
@@ -521,7 +727,26 @@ export default function AgenceDashboard() {
                   <div>
                     <strong style={{ display: 'block', fontSize: '1rem' }}>{l.name}</strong>
                     <span style={{ fontSize: '0.82rem', opacity: 0.65 }}>{l.phone}</span>
+                    {l.vehicle && <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block' }}>🚗 {l.vehicle}</span>}
                   </div>
+                </div>
+
+                {/* PIN Code Box — visible only for agence manager */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '0.6rem 0.85rem',
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  border: '1px dashed rgba(245, 158, 11, 0.35)',
+                  borderRadius: '10px',
+                  marginBottom: '0.85rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <KeyRound size={14} color="#fbbf24" />
+                    <span style={{ fontSize: '0.75rem', color: '#fcd34d', fontWeight: '700' }}>Code de connexion livreur :</span>
+                  </div>
+                  <span style={{ fontSize: '1.2rem', fontWeight: '900', letterSpacing: '3px', color: '#fbbf24' }}>
+                    {l.pinCode || '????'}
+                  </span>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '1rem', textAlign: 'center' }}>
@@ -534,7 +759,7 @@ export default function AgenceDashboard() {
                     <p style={{ fontSize: '0.7rem', opacity: 0.6, margin: 0 }}>Note</p>
                   </div>
                   <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '8px' }}>
-                    <p style={{ fontSize: '0.8rem', fontWeight: '700', color: l.available ? '#10b981' : '#6b7280', margin: 0 }}>{l.available ? 'Disponible' : 'Indisponible'}</p>
+                    <p style={{ fontSize: '0.8rem', fontWeight: '700', color: l.available ? '#10b981' : '#6b7280', margin: 0 }}>{l.available ? 'Disponible' : 'Indispo'}</p>
                     <p style={{ fontSize: '0.7rem', opacity: 0.6, margin: 0 }}>Statut</p>
                   </div>
                 </div>
@@ -684,6 +909,84 @@ export default function AgenceDashboard() {
         </div>
       )}
 
+      {/* ── TAB: Finances ─────────────────────────────────────────────── */}
+      {activeTab === 'finances' && (
+        <div className="animate-fade-in">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+            <h2 style={{ fontSize: '1.3rem', margin: 0 }}>Portefeuille & Reversements</h2>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+            <StatCard 
+              label="À reverser aux vendeurs" 
+              value={`${colis.filter(c => c.status === 'Livré' && c.paidByClient && !c.vendorPaid).reduce((acc, c) => acc + c.prixColis, 0)} $`}
+              sub="Montant total en attente"
+              color="#f59e0b"
+            />
+            <StatCard 
+              label="Déjà reversé" 
+              value={`${colis.filter(c => c.status === 'Livré' && c.paidByClient && c.vendorPaid).reduce((acc, c) => acc + c.prixColis, 0)} $`}
+              sub="Historique des paiements"
+              color="#10b981"
+            />
+          </div>
+
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Colis Livrés (Argent collecté à reverser)</h3>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {colis.filter(c => c.status === 'Livré' && c.paidByClient).length === 0 ? (
+              <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', opacity: 0.6 }}>
+                Aucun colis livré où le client a payé à la livraison.
+              </div>
+            ) : (
+              colis.filter(c => c.status === 'Livré' && c.paidByClient).map(c => (
+                <div key={c.id} className="glass-panel" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '1.05rem', display: 'block', color: 'var(--accent)' }}>{c.id} — {c.vendeur}</strong>
+                    <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>Client: {c.clientName} | Livré le {c.date}</span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'block', fontSize: '0.75rem', opacity: 0.7 }}>Montant collecté</span>
+                      <strong style={{ fontSize: '1.2rem', color: '#10b981' }}>{c.prixColis + (c.prixLivraison || 0)} $</strong>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'block', fontSize: '0.75rem', opacity: 0.7 }}>À reverser</span>
+                      <strong style={{ fontSize: '1.2rem', color: c.vendorPaid ? '#6b7280' : '#f59e0b' }}>{c.prixColis} $</strong>
+                    </div>
+                    
+                    <div>
+                      {c.vendorPaid ? (
+                        <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '0.5rem 1rem', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                          ✓ Reversé
+                        </span>
+                      ) : (
+                        <button 
+                          className="btn btn-primary"
+                          onClick={async () => {
+                            try {
+                              const { dataService } = await import('@/lib/data-service');
+                              await dataService.payVendor(c.id);
+                              setColis(prev => prev.map(col => col.id === c.id ? { ...col, vendorPaid: true } : col));
+                            } catch (e) {
+                              console.error(e);
+                              alert("Erreur lors du paiement");
+                            }
+                          }}
+                        >
+                          Marquer comme reversé
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── TAB: Paramètres ─────────────────────────────────────────────── */}
       {activeTab === 'parametres' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px' }}>
@@ -788,16 +1091,37 @@ export default function AgenceDashboard() {
             </div>
             <form onSubmit={handleAddLivreur} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
-                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>Nom complet *</label>
-                <input required placeholder="Ex : Ahmed Benali" className="input-field" value={newName} onChange={e => setNewName(e.target.value)} />
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>Nom complet du livreur *</label>
+                <input required placeholder="Ex : Patrick Makiese" className="input-field" value={newName} onChange={e => setNewName(e.target.value)} />
               </div>
               <div>
-                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>Telephone *</label>
-                <input required type="tel" placeholder="Ex : +33 6 12 34 56 78" className="input-field" value={newPhone} onChange={e => setNewPhone(e.target.value)} />
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>Numéro de téléphone *</label>
+                <input required type="tel" placeholder="Ex : +243 81 44 55 660" className="input-field" value={newPhone} onChange={e => setNewPhone(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>Véhicule</label>
+                <input placeholder="Ex : Moto Honda 150, Van Toyota..." className="input-field" value={newVehicle} onChange={e => setNewVehicle(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.9rem', opacity: 0.8 }}>
+                  🔐 Code PIN de connexion (4 chiffres)
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Laissez vide pour génération automatique"
+                  className="input-field"
+                  value={newPin}
+                  onChange={e => setNewPin(e.target.value.slice(0, 6))}
+                  style={{ letterSpacing: '4px', fontWeight: '700' }}
+                />
+                <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.3rem' }}>
+                  Si vide, un code PIN sera généré automatiquement et affiché après la création.
+                </p>
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
                 <button type="button" className="btn btn-outline" style={{ flex: 1, padding: '0.65rem' }} onClick={() => setShowAddLivreur(false)}>Annuler</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '0.65rem' }}>Ajouter</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '0.65rem' }}>Créer et Générer le PIN</button>
               </div>
             </form>
           </div>
