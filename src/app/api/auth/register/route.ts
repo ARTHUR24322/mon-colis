@@ -7,17 +7,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createToken, setSessionCookie, UserRole } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
+import bcrypt from 'bcryptjs';
+import { dataService } from '@/lib/data-service';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, password, phone, address, role } = body as {
+    const { name, email, password, phone, address, role, coverageZones, fleetSize } = body as {
       name: string;
       email: string;
       password: string;
       phone: string;
       address: string;
       role: string;
+      coverageZones?: string[] | string;
+      fleetSize?: number | string;
     };
 
     if (!name || !email || !password || !phone || !role) {
@@ -39,10 +43,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Un compte avec cet email existe déjà.' }, { status: 409 });
     }
 
-    // 2. Hash the password using SHA-256 via WebCrypto API
-    const enc = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(password));
-    const passwordHash = Buffer.from(hashBuffer).toString('hex');
+    // 2. Hash the password using bcrypt (12 rounds) — résistant aux attaques GPU
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // 3. Create the shared profile record
     const profileId = crypto.randomUUID();
@@ -64,9 +66,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la création du profil.' }, { status: 500 });
     }
 
-    // 4. For agence: also create the agencies record (agencies.id = profiles.id, shared PK)
+    // 4. For agence: create agencies record with PENDING status
     let agencyId: string | undefined;
     if (role === 'agence') {
+      const parsedZones = Array.isArray(coverageZones)
+        ? coverageZones
+        : coverageZones
+        ? coverageZones.split(',').map((z: string) => z.trim()).filter(Boolean)
+        : ['Gombe', 'Limete'];
+
+      const parsedFleet = typeof fleetSize === 'number'
+        ? fleetSize
+        : parseInt(String(fleetSize || '2'), 10) || 2;
+
       const { data: agence, error: agenceError } = await supabase
         .from('agencies')
         .insert({
@@ -83,10 +95,35 @@ export async function POST(request: NextRequest) {
         await supabase.from('profiles').delete().eq('id', profile.id);
         return NextResponse.json({ error: 'Erreur lors de la création du compte agence.' }, { status: 500 });
       }
+
       agencyId = agence?.id;
+
+      // Record in pending applications state
+      dataService.recordAgencyApplication({
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        phone: phone.trim(),
+        address: address?.trim() || '',
+        coverageZones: parsedZones,
+        fleetSize: parsedFleet,
+      });
+
+      // Crucial: do NOT set session cookie for pending agency!
+      return NextResponse.json({
+        success: true,
+        status: 'PENDING',
+        message: "Votre demande d'adhésion agence a été soumise avec succès. Votre dossier est en cours d'examen par le Superadmin.",
+        user: {
+          id: profile.id,
+          role,
+          name: profile.name,
+          email: profile.email,
+        },
+      });
     }
 
-    // 5. Create and set the session cookie
+    // 5. For vendeur: create and set session cookie immediately
     const token = await createToken({
       userId: profile.id,
       role: role as UserRole,
@@ -100,6 +137,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      status: 'APPROVED',
       user: {
         id: profile.id,
         role,

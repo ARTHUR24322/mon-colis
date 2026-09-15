@@ -80,3 +80,49 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER update_packages_updated_at
 BEFORE UPDATE ON packages
 FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+
+-- 6. Table Points de Dépôt / Relais (Drop-off & Pick-up network)
+CREATE TABLE IF NOT EXISTS drop_points (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  commune TEXT NOT NULL,
+  address TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  manager_name TEXT NOT NULL,
+  opening_hours TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE drop_points ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Points de dépôt visibles publiquement" ON drop_points FOR SELECT USING (true);
+
+-- 7. Évolutions Agences (Validation Superadmin sur demande)
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'APPROVED' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'));
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS coverage_zones TEXT[] DEFAULT '{}';
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS fleet_size INTEGER DEFAULT 1;
+
+-- 8. Évolutions Colis (Mode point relais & zones inaccessibles)
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS delivery_mode TEXT DEFAULT 'DIRECT' CHECK (delivery_mode IN ('DIRECT', 'DROP_POINT_FIRST_MILE', 'DROP_POINT_LAST_MILE'));
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS origin_drop_point_id TEXT REFERENCES drop_points(id) ON DELETE SET NULL;
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS dest_drop_point_id TEXT REFERENCES drop_points(id) ON DELETE SET NULL;
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS inaccessibility_note TEXT;
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS rerouted_at TIMESTAMP WITH TIME ZONE;
+
+-- 9. Table Agents Points de Dépôt / Relais (Superadmin-managed 9-digit agents)
+CREATE TABLE IF NOT EXISTS drop_point_agents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_number CHAR(9) UNIQUE NOT NULL,
+  pin_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  drop_point_id TEXT NOT NULL REFERENCES drop_points(id) ON DELETE CASCADE,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE drop_point_agents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Agents points relais visibles publiquement ou restreints" ON drop_point_agents FOR SELECT USING (true);
+CREATE POLICY "Service role peut inserer des agents" ON drop_point_agents FOR INSERT WITH CHECK (true);
+CREATE POLICY "Service role peut modifier des agents" ON drop_point_agents FOR UPDATE USING (true) WITH CHECK (true);
+
+

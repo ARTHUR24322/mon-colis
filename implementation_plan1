@@ -1,0 +1,131 @@
+# Plan : Système Agents Points de Dépôt
+
+## Description
+
+Mise en place d'un système complet de gestion pour les agents des points de dépôt (relais) :
+- Création de comptes agent **uniquement par le Superadmin** avec attribution d'un identifiant à 9 chiffres et d'un code PIN à 6 chiffres.
+- Connexion sécurisée de l'agent avec son numéro à 9 chiffres + code PIN.
+- Tableau de bord agent permettant de confirmer la réception des colis déposés par les livreurs.
+- Côté livreur : saisie du numéro 9 chiffres de l'agent pour attribuer un colis à son point de dépôt.
+
+---
+
+## Flux Complet
+
+```
+SUPERADMIN
+  └─► Crée un agent relais (nom, point de dépôt associé)
+        → Génère un identifiant à 9 chiffres unique + code PIN à 6 chiffres
+        → L'agent peut se connecter sur /point-relais
+
+LIVREUR (arrivée au point de dépôt)
+  └─► Arrive au relais, demande à l'agent son numéro à 9 chiffres
+  └─► Sur sa session livreur, ouvre le colis à déposer → "Déposer en point relais"
+  └─► Saisit le numéro 9 chiffres de l'agent → validation → colis attribué au relais
+       Status du colis → "Déposé en point relais"
+
+AGENT POINT DE DÉPÔT
+  └─► Reçoit une notification dans son tableau de bord : colis entrant
+  └─► Vérifie physiquement la réception du colis
+  └─► Clique "Confirmer réception" → status → "Disponible au point relais"
+  └─► Client reçoit notification avec instructions de retrait + OTP
+```
+
+---
+
+## Proposed Changes
+
+### Data Layer
+
+#### [MODIFY] [data-service.ts](file:///c:/Users/Administrateur/MOI/Moncolis/src/lib/data-service.ts)
+- Ajout de l'interface `DropPointAgent` (id, agentNumber [9 chiffres], name, dropPointId, dropPointName, isActive).
+- Ajout de `dropPointAgentCache` (Map en mémoire) pour les agents créés par le Superadmin.
+- Méthodes :
+  - `createDropPointAgent(data)` → génère `agentNumber` à 9 chiffres unique, PIN hashé.
+  - `authenticateDropPointAgent(agentNumber, pin)` → vérifie identifiant + PIN, retourne l'agent.
+  - `getDropPointAgents(dropPointId?)` → liste des agents (filtrables par point).
+  - `getIncomingPackagesForDropPoint(dropPointId)` → colis avec status `DEPOSITED_AT_DROP_POINT` en attente de confirmation.
+  - `confirmDropPointReception(colisId, agentId)` → change status → `AVAILABLE_AT_PICKUP_POINT`.
+  - `assignColisToDropPoint(colisId, agentNumber, driverId)` → livreur assigne par numéro agent, status → `DEPOSITED_AT_DROP_POINT`.
+
+#### [MODIFY] [schema.sql](file:///c:/Users/Administrateur/MOI/Moncolis/schema.sql)
+- Nouvelle table `drop_point_agents` :
+  ```sql
+  id UUID PRIMARY KEY
+  agent_number CHAR(9) UNIQUE NOT NULL   -- numéro à 9 chiffres
+  pin_hash TEXT NOT NULL
+  name TEXT NOT NULL
+  drop_point_id TEXT NOT NULL            -- référence vers DEFAULT_DROP_POINTS
+  is_active BOOLEAN DEFAULT TRUE
+  created_at TIMESTAMPTZ DEFAULT NOW()
+  ```
+
+---
+
+### API Routes
+
+#### [NEW] `/api/drop-points/agents/route.ts`
+- `GET` : liste des agents (Superadmin uniquement).
+- `POST` : création d'un agent (Superadmin uniquement) avec génération auto du numéro 9 chiffres et PIN temporaire.
+
+#### [NEW] `/api/drop-points/agents/verify/route.ts`
+- `POST { agentNumber }` : vérifie qu'un numéro agent est valide et retourne le nom du point de dépôt associé (pour la confirmation livreur).
+
+#### [NEW] `/api/drop-points/agents/assign/route.ts`
+- `POST { colisId, agentNumber, driverId }` : le livreur assigne un colis à un point de dépôt via le numéro agent. Valide le numéro, change le statut du colis.
+
+#### [NEW] `/api/drop-points/agents/confirm/route.ts`
+- `POST { colisId, agentId }` : l'agent confirme physiquement la réception du colis. Change status → `Disponible au point relais`.
+
+#### [MODIFY] `/api/auth/login/route.ts`
+- Ajout du cas `role === 'point_relais'` : authentification par `agentNumber` (9 chiffres) + `pinCode` (6 chiffres).
+
+---
+
+### Pages & UI
+
+#### [NEW] `src/app/point-relais/page.tsx`
+Page dédiée aux agents des points de dépôt :
+- **Écran de connexion** :
+  - Champ "Votre identifiant à 9 chiffres" (inputMode numeric)
+  - Champ "Code PIN à 6 chiffres"
+  - Badge Moncolis + design dark glassmorphism cohérent
+- **Tableau de bord agent** :
+  - Indicateur du point de dépôt associé (nom, commune, horaires)
+  - Section **"Colis en attente de confirmation"** (entrants, déposés par livreurs)
+  - Pour chaque colis : numéro de référence, nom du destinataire, date de dépôt
+  - Bouton **"Confirmer la réception"** sur chaque colis entrant
+  - Section **"Colis disponibles au retrait"** : colis confirmés en attente d'être récupérés par le client
+  - Historique des colis traités
+
+#### [MODIFY] `src/app/livreur/page.tsx`
+Extension du modal de dépôt en point relais :
+- **Remplacer la sélection par liste déroulante** par un **champ de saisie du numéro agent à 9 chiffres**
+- Bouton "Vérifier" → appelle `/api/drop-points/agents/verify` → affiche nom du point et agent
+- Confirmation visuelle avant validation finale : "Vous allez déposer ce colis au **Point Relais Limete 7ème Rue** — Agent : **Sarah Maloba**"
+- Bouton "Confirmer le dépôt" → assigne et change le statut
+
+#### [MODIFY] `src/app/admin-x9k2/dashboard/page.tsx`
+Extension du Superadmin (onglet "Points Relais") :
+- Sous-section **"Agents Relais"** avec liste des agents par point de dépôt
+- Bouton **"Créer un agent"** → modal avec saisie du nom de l'agent + sélection du point de dépôt
+- Affichage du **numéro à 9 chiffres généré** et du **PIN initial** (à communiquer à l'agent)
+- Option désactiver/réactiver un agent
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+cmd /c npx tsc --noEmit
+cmd /c npm run build
+```
+
+### Manual Verification
+1. Superadmin crée un agent → numéro 9 chiffres et PIN affichés.
+2. Agent se connecte sur `/point-relais` avec ses identifiants → tableau de bord visible.
+3. Livreur saisit le numéro agent → confirmation du point de dépôt → colis assigné.
+4. Agent voit le colis entrant dans son tableau de bord → confirme réception.
+5. Statut du colis passe à **"Disponible au point relais"**.
+6. Client voit les instructions de retrait sur la page de suivi `/track/[id]`.

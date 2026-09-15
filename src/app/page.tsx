@@ -50,9 +50,9 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: '#07090e', color: '#f8fafc', overflowX: 'hidden' }}>
       
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           1. NAVIGATION BAR
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <nav style={{
         position: 'sticky',
         top: 0,
@@ -112,6 +112,10 @@ export default function Home() {
               <Smartphone size={15} color="#22c55e" />
               Espace Livreur
             </Link>
+            <Link href="/point-relais" style={{ color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: '700', padding: '0.4rem 0.85rem', borderRadius: '8px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)' }}>
+              <MapPin size={15} color="#3b82f6" />
+              Agent Dépôt
+            </Link>
           </div>
 
           {/* Action CTAs */}
@@ -159,9 +163,9 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           2. HERO SECTION
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section style={{
         position: 'relative',
         padding: '4.5rem 1.5rem 5rem 1.5rem',
@@ -291,6 +295,29 @@ export default function Home() {
               >
                 <Truck size={20} />
                 <span>Espace Agence</span>
+              </Link>
+
+              <Link
+                href="/point-relais"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.65rem',
+                  padding: '0.85rem 1.6rem',
+                  borderRadius: '12px',
+                  background: 'rgba(59, 130, 246, 0.1)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: '#60a5fa',
+                  fontWeight: '700',
+                  fontSize: '1rem',
+                  transition: 'all 0.2s ease',
+                  textDecoration: 'none',
+                  boxShadow: '0 4px 16px rgba(59, 130, 246, 0.2)'
+                }}
+              >
+                <MapPin size={20} />
+                <span>Agent Point Relais</span>
               </Link>
             </div>
 
@@ -484,9 +511,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           3. METRICS & TRUST COUNTERS
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section style={{
         borderTop: '1px solid rgba(255, 255, 255, 0.08)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
@@ -539,9 +566,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           4. KEY FEATURES GRID (Fonctionnalités)
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section id="fonctionnalites" style={{
         padding: '5.5rem 1.5rem',
         maxWidth: '1200px',
@@ -764,9 +791,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           5. SOLUTIONS PAR ACTEUR (Vendeur vs Agence)
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section id="solutions" style={{
         padding: '5rem 1.5rem',
         background: 'rgba(255, 255, 255, 0.01)',
@@ -1065,9 +1092,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           6. COMMENT ÇA MARCHE (Step by step)
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section id="comment-ca-marche" style={{
         padding: '5.5rem 1.5rem',
         maxWidth: '1200px',
@@ -1183,9 +1210,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           7. FAQ ACCORDION SECTION
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section id="faq" style={{
         padding: '5rem 1.5rem',
         maxWidth: '900px',
@@ -1275,9 +1302,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           8. CALL TO ACTION BANNER
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <section style={{
         padding: '5rem 1.5rem',
         maxWidth: '1200px',
@@ -1342,9 +1369,9 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           9. FOOTER
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <footer style={{
         borderTop: '1px solid rgba(255, 255, 255, 0.08)',
         background: '#040609',
@@ -1389,8 +1416,9 @@ export default function Home() {
               <li><Link href="/auth/vendeur/login" style={{ transition: 'color 0.2s' }}>Connexion Vendeur</Link></li>
               <li><Link href="/auth/agence/login" style={{ transition: 'color 0.2s' }}>Connexion Agence</Link></li>
               <li><Link href="/livreur" style={{ transition: 'color 0.2s' }}>Portail Livreur Mobile</Link></li>
+              <li><Link href="/point-relais" style={{ color: '#60a5fa', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'color 0.2s' }}><MapPin size={14} /> Agent Point Relais (Dépôt)</Link></li>
               <li><Link href="/track/c1" style={{ transition: 'color 0.2s' }}>Suivi Public de Colis</Link></li>
-              <li><Link href="/admin-x9k2" style={{ transition: 'color 0.2s', opacity: 0.5 }}>Portail Super Admin</Link></li>
+              <li><Link href="/admin-x9k2" style={{ color: '#ef4444', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'color 0.2s' }}><ShieldCheck size={14} /> Portail Super Admin</Link></li>
             </ul>
           </div>
 
@@ -1439,10 +1467,18 @@ export default function Home() {
           <div>
             © {new Date().getFullYear()} Moncolis Inc. Tous droits réservés.
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
             <span>Confidentialité</span>
             <span>Conditions d'utilisation</span>
             <span>Sécurité OTP</span>
+            <Link
+              href="/admin-x9k2"
+              style={{ color: 'rgba(239,68,68,0.4)', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'color 0.2s' }}
+              title="Accès Superadmin"
+            >
+              <Lock size={11} />
+              Admin
+            </Link>
           </div>
         </div>
       </footer>

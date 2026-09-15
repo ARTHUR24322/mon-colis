@@ -3,7 +3,19 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Store, Truck, ArrowLeft, ShieldCheck, Lock, Mail, Eye, EyeOff, Sparkles, CheckCircle2 } from 'lucide-react';
+import {
+  Store,
+  Truck,
+  ArrowLeft,
+  ShieldCheck,
+  Lock,
+  Mail,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  MapPin,
+  Smartphone,
+} from 'lucide-react';
 
 export default function GlobalLoginPage() {
   const router = useRouter();
@@ -12,29 +24,39 @@ export default function GlobalLoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const fillDemo = (selectedRole: 'vendeur' | 'agence') => {
-    setRole(selectedRole);
-    if (selectedRole === 'vendeur') {
-      setEmail('vendeur@moncolis.cd');
-      setPassword('password123');
-    } else {
-      setEmail('contact@expressdelivery.cd');
-      setPassword('password123');
-    }
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg('');
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ role, email: email.trim().toLowerCase(), password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Identifiants incorrects. Veuillez réessayer.');
+        setLoading(false);
+        return;
+      }
+
+      // Rediriger vers le bon dashboard
       if (role === 'vendeur') {
         router.push('/dashboard/vendeur');
       } else {
         router.push('/dashboard/agence');
       }
-    }, 800);
+    } catch {
+      setErrorMsg('Impossible de joindre le serveur. Vérifiez votre connexion.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -64,7 +86,7 @@ export default function GlobalLoginPage() {
           alignSelf: 'flex-start'
         }}>
           <ArrowLeft size={16} />
-          Retour à l'accueil
+          Retour à l&apos;accueil
         </Link>
 
         {/* Card */}
@@ -82,22 +104,22 @@ export default function GlobalLoginPage() {
               width: '48px',
               height: '48px',
               borderRadius: '14px',
-              background: role === 'vendeur' 
-                ? 'linear-gradient(135deg, #22c55e, #10b981)' 
+              background: role === 'vendeur'
+                ? 'linear-gradient(135deg, #22c55e, #10b981)'
                 : 'linear-gradient(135deg, #2563eb, #3b82f6)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#fff',
               margin: '0 auto 1rem auto',
-              boxShadow: role === 'vendeur' 
-                ? '0 8px 20px rgba(34, 197, 94, 0.35)' 
+              boxShadow: role === 'vendeur'
+                ? '0 8px 20px rgba(34, 197, 94, 0.35)'
                 : '0 8px 20px rgba(37, 99, 235, 0.35)',
               transition: 'all 0.3s ease'
             }}>
               {role === 'vendeur' ? <Store size={26} /> : <Truck size={26} />}
             </div>
-            
+
             <h1 style={{ fontSize: '1.75rem', fontWeight: '800', color: '#fff', marginBottom: '0.5rem' }}>
               Espace {role === 'vendeur' ? 'Vendeur' : 'Agence'}
             </h1>
@@ -119,23 +141,15 @@ export default function GlobalLoginPage() {
           }}>
             <button
               type="button"
-              onClick={() => setRole('vendeur')}
+              onClick={() => { setRole('vendeur'); setErrorMsg(''); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                padding: '0.65rem',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: '600',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '0.65rem', borderRadius: '10px',
+                border: 'none', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '600',
                 transition: 'all 0.2s ease',
                 background: role === 'vendeur' ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
                 color: role === 'vendeur' ? '#4ade80' : '#94a3b8',
-                borderWidth: '1px',
-                borderStyle: 'solid',
+                borderWidth: '1px', borderStyle: 'solid',
                 borderColor: role === 'vendeur' ? 'rgba(34, 197, 94, 0.4)' : 'transparent'
               }}
             >
@@ -145,23 +159,15 @@ export default function GlobalLoginPage() {
 
             <button
               type="button"
-              onClick={() => setRole('agence')}
+              onClick={() => { setRole('agence'); setErrorMsg(''); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                padding: '0.65rem',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: '600',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '0.65rem', borderRadius: '10px',
+                border: 'none', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '600',
                 transition: 'all 0.2s ease',
                 background: role === 'agence' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
                 color: role === 'agence' ? '#60a5fa' : '#94a3b8',
-                borderWidth: '1px',
-                borderStyle: 'solid',
+                borderWidth: '1px', borderStyle: 'solid',
                 borderColor: role === 'agence' ? 'rgba(59, 130, 246, 0.4)' : 'transparent'
               }}
             >
@@ -169,6 +175,19 @@ export default function GlobalLoginPage() {
               Agence
             </button>
           </div>
+
+          {/* Error Message */}
+          {errorMsg && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+              background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '10px', padding: '0.85rem 1rem', marginBottom: '1.25rem',
+              fontSize: '0.875rem', color: '#fca5a5'
+            }}>
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
           {/* Login Form */}
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -186,19 +205,15 @@ export default function GlobalLoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   style={{ paddingLeft: '2.75rem' }}
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
-                  Mot de passe
-                </label>
-                <a href="#" onClick={(e) => { e.preventDefault(); alert('Fonctionnalité de réinitialisation disponible prochainement'); }} style={{ fontSize: '0.8rem', color: '#22c55e', opacity: 0.9 }}>
-                  Mot de passe oublié ?
-                </a>
-              </div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
+                Mot de passe
+              </label>
               <div style={{ position: 'relative' }}>
                 <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                 <input
@@ -209,20 +224,15 @@ export default function GlobalLoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   style={{ paddingLeft: '2.75rem', paddingRight: '2.75rem' }}
                   required
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   style={{
-                    position: 'absolute',
-                    right: '1rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: '#64748b',
-                    cursor: 'pointer',
-                    padding: 0
+                    position: 'absolute', right: '1rem', top: '50%',
+                    transform: 'translateY(-50%)', background: 'none', border: 'none',
+                    color: '#64748b', cursor: 'pointer', padding: 0
                   }}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -234,80 +244,28 @@ export default function GlobalLoginPage() {
               type="submit"
               disabled={loading}
               style={{
-                marginTop: '0.5rem',
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '12px',
-                border: 'none',
-                fontWeight: '600',
-                fontSize: '1rem',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                color: '#fff',
+                marginTop: '0.5rem', width: '100%', padding: '0.85rem',
+                borderRadius: '12px', border: 'none', fontWeight: '600', fontSize: '1rem',
+                cursor: loading ? 'not-allowed' : 'pointer', color: '#fff',
                 background: role === 'vendeur'
                   ? 'linear-gradient(135deg, #22c55e, #16a34a)'
                   : 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                 boxShadow: role === 'vendeur'
                   ? '0 4px 14px rgba(34, 197, 94, 0.4)'
                   : '0 4px 14px rgba(37, 99, 235, 0.4)',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                opacity: loading ? 0.7 : 1,
               }}
             >
               {loading ? 'Connexion en cours...' : `Se connecter comme ${role === 'vendeur' ? 'Vendeur' : 'Agence'}`}
             </button>
           </form>
 
-          {/* Quick Demo Test Access */}
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '0.85rem 1rem',
-            borderRadius: '12px',
-            background: 'rgba(255, 255, 255, 0.02)',
-            border: '1px dashed rgba(255, 255, 255, 0.12)',
-            textAlign: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-              <Sparkles size={14} color="#f59e0b" />
-              <span>Accès rapide de démonstration :</span>
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-              <button
-                type="button"
-                onClick={() => fillDemo('vendeur')}
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: '0.78rem',
-                  borderRadius: '8px',
-                  background: 'rgba(34, 197, 94, 0.1)',
-                  color: '#4ade80',
-                  border: '1px solid rgba(34, 197, 94, 0.25)',
-                  cursor: 'pointer'
-                }}
-              >
-                Démo Vendeur
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo('agence')}
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  fontSize: '0.78rem',
-                  borderRadius: '8px',
-                  background: 'rgba(59, 130, 246, 0.1)',
-                  color: '#60a5fa',
-                  border: '1px solid rgba(59, 130, 246, 0.25)',
-                  cursor: 'pointer'
-                }}
-              >
-                Démo Agence
-              </button>
-            </div>
-          </div>
-
           {/* Register switch */}
           <div style={{ textAlign: 'center', marginTop: '1.75rem', fontSize: '0.9rem', color: '#94a3b8' }}>
             Pas encore de compte ?{' '}
             <Link
-              href={role === 'vendeur' ? '/auth/vendeur/register' : '/auth/agence/register'}
+              href="/register"
               style={{
                 color: role === 'vendeur' ? '#4ade80' : '#60a5fa',
                 fontWeight: '600',
@@ -317,6 +275,54 @@ export default function GlobalLoginPage() {
               Créer un compte {role === 'vendeur' ? 'Vendeur' : 'Agence'}
             </Link>
           </div>
+        </div>
+
+        {/* Quick Access to other spaces: Livreur, Point Relais, Super Admin */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '0.6rem', width: '100%'
+        }}>
+          <Link
+            href="/point-relais"
+            style={{
+              padding: '0.75rem 0.5rem', borderRadius: '12px',
+              background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+              color: '#93c5fd', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '700',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+              textAlign: 'center'
+            }}
+          >
+            <MapPin size={15} color="#3b82f6" />
+            <span>Agent Relais</span>
+          </Link>
+
+          <Link
+            href="/livreur"
+            style={{
+              padding: '0.75rem 0.5rem', borderRadius: '12px',
+              background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)',
+              color: '#86efac', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '700',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+              textAlign: 'center'
+            }}
+          >
+            <Smartphone size={15} color="#22c55e" />
+            <span>Livreur</span>
+          </Link>
+
+          <Link
+            href="/admin-x9k2"
+            style={{
+              padding: '0.75rem 0.5rem', borderRadius: '12px',
+              background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)',
+              color: '#fca5a5', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '700',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+              textAlign: 'center'
+            }}
+          >
+            <Lock size={15} color="#ef4444" />
+            <span>Super Admin</span>
+          </Link>
         </div>
 
         {/* Security badge */}

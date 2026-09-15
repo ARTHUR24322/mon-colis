@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { Lock, XCircle, CheckCircle, Package, ArrowLeft, Truck, Phone, MapPin, DollarSign, ShieldCheck } from 'lucide-react';
 import { dataService, ColisItem } from '@/lib/data-service';
 
-/* ─────────────────────────────────────────────
+/* ---------------------------------------------
    Wrapper Suspense pour useSearchParams
-───────────────────────────────────────────── */
+--------------------------------------------- */
 export default function TrackingPageWrapper() {
   return (
     <Suspense fallback={<PageLoader />}>
@@ -25,9 +25,9 @@ function PageLoader() {
   );
 }
 
-/* ─────────────────────────────────────────────
+/* ---------------------------------------------
    Page principale
-───────────────────────────────────────────── */
+--------------------------------------------- */
 function TrackingPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -78,7 +78,7 @@ function TrackingPage() {
     setChecking(false);
   };
 
-  /* ── LOADING ── */
+  /* -- LOADING -- */
   if (loading) {
     return (
       <PageShell role={role}>
@@ -90,7 +90,7 @@ function TrackingPage() {
     );
   }
 
-  /* ── INTROUVABLE ── */
+  /* -- INTROUVABLE -- */
   if (!colis) {
     return (
       <PageShell role={role}>
@@ -119,7 +119,7 @@ function TrackingPage() {
     );
   }
 
-  /* ── CONFIRMATION RÉUSSIE ── */
+  /* -- CONFIRMATION RÉUSSIE -- */
   if (confirmed || colis.status === 'Livré') {
     return (
       <PageShell role={role}>
@@ -150,8 +150,10 @@ function TrackingPage() {
     );
   }
 
-  /* ── VUE CLIENT (Par défaut) ── */
+  /* -- VUE CLIENT (Par défaut) -- */
   if (role === 'client' || !role) {
+    const isAvailableAtRelais = colis.status === 'Disponible au point relais' || Boolean(colis.destDropPoint);
+
     return (
       <PageShell role="client">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -161,19 +163,117 @@ function TrackingPage() {
             justifyContent: 'space-between',
             alignItems: 'center',
             padding: '0.75rem 1rem',
-            background: 'rgba(34, 197, 94, 0.1)',
-            border: '1px solid rgba(34, 197, 94, 0.3)',
+            background: isAvailableAtRelais ? 'rgba(59, 130, 246, 0.12)' : 'rgba(34, 197, 94, 0.1)',
+            border: `1px solid ${isAvailableAtRelais ? 'rgba(59, 130, 246, 0.35)' : 'rgba(34, 197, 94, 0.3)'}`,
             borderRadius: '12px'
           }}>
             <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Statut du colis :</span>
-            <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#4ade80' }}>
-              {colis.status === 'En transit' ? '🚚 En cours de livraison' : `📦 ${colis.status}`}
+            <span style={{ fontSize: '0.9rem', fontWeight: '700', color: isAvailableAtRelais ? '#60a5fa' : '#4ade80' }}>
+              {isAvailableAtRelais ? '🏪 Disponible en Point Relais' : colis.status === 'En transit' ? '🚚 En cours de livraison' : `📦 ${colis.status}`}
             </span>
           </div>
 
+          {/* Reroute Alert / Point Relais Retrieval Card */}
+          {colis.destDropPoint && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(15, 23, 42, 0.7))',
+              border: '1px solid rgba(59, 130, 246, 0.35)',
+              borderRadius: '16px',
+              padding: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.85rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <div style={{
+                  width: '36px', height: '36px', borderRadius: '10px',
+                  background: 'rgba(59, 130, 246, 0.2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#60a5fa'
+                }}>
+                  <MapPin size={20} />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700', color: '#fff' }}>
+                    {colis.status === 'Disponible au point relais' ? 'Colis prêt à être retiré !' : 'Point Relais de destination'}
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
+                    {colis.inaccessibilityNote ? 'Réacheminé suite à une zone difficilement accessible' : 'Retrait sécurisé en agence partenaire'}
+                  </p>
+                </div>
+              </div>
+
+              {colis.inaccessibilityNote && (
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  borderRadius: '8px',
+                  padding: '0.6rem 0.75rem',
+                  fontSize: '0.78rem',
+                  color: '#fca5a5',
+                  lineHeight: 1.5
+                }}>
+                  <strong>Note du livreur :</strong> {colis.inaccessibilityNote}
+                </div>
+              )}
+
+              <div style={{
+                background: 'rgba(0, 0, 0, 0.25)',
+                borderRadius: '10px',
+                padding: '0.85rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+                fontSize: '0.85rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Point Relais :</span>
+                  <strong style={{ color: '#fff' }}>{colis.destDropPoint.name}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Commune :</span>
+                  <span style={{ color: '#e2e8f0', fontWeight: '600' }}>{colis.destDropPoint.commune}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                  <span style={{ color: '#94a3b8', flexShrink: 0 }}>Adresse :</span>
+                  <span style={{ color: '#e2e8f0', textAlign: 'right' }}>{colis.destDropPoint.address}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>Horaires :</span>
+                  <span style={{ color: '#38bdf8', fontWeight: '600' }}>{colis.destDropPoint.openingHours}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#94a3b8' }}>Responsable :</span>
+                  <a href={`tel:${colis.destDropPoint.phone}`} style={{ color: '#4ade80', textDecoration: 'none', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Phone size={13} /> {colis.destDropPoint.managerName} ({colis.destDropPoint.phone})
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* First mile origin drop point notice */}
+          {colis.originDropPoint && !colis.destDropPoint && (
+            <div style={{
+              background: 'rgba(168, 85, 247, 0.08)',
+              border: '1px solid rgba(168, 85, 247, 0.25)',
+              borderRadius: '12px',
+              padding: '0.85rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              fontSize: '0.85rem'
+            }}>
+              <MapPin size={18} style={{ color: '#c084fc', flexShrink: 0 }} />
+              <span style={{ color: '#e2e8f0' }}>
+                Colis déposé au <strong>{colis.originDropPoint.name}</strong> ({colis.originDropPoint.commune}) par le vendeur.
+              </span>
+            </div>
+          )}
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
             <InfoRow label="Destinataire" value={colis.clientName} />
-            <InfoRow label="Adresse de livraison" value={colis.clientAddress} />
+            <InfoRow label={isAvailableAtRelais ? "Adresse initiale" : "Adresse de livraison"} value={colis.clientAddress} />
             <InfoRow label="Agence responsable" value={colis.agence || 'Non assignée'} />
             <InfoRow label="Livreur assigné" value={colis.livreur ? `${colis.livreur} (${colis.livreurPhone || 'En route'})` : 'En attente d\'un livreur'} />
             <InfoRow
@@ -193,13 +293,15 @@ function TrackingPage() {
             marginTop: '0.5rem',
           }}>
             <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.5rem', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: '700' }}>
-              Votre Code Secret de Livraison (OTP)
+              {isAvailableAtRelais ? 'Code Secret de Retrait en Point Relais (OTP)' : 'Votre Code Secret de Livraison (OTP)'}
             </p>
             <p style={{ fontSize: '2.5rem', fontWeight: '900', letterSpacing: '8px', color: '#3b82f6', margin: '0 0 0.5rem' }}>
               {colis.otp}
             </p>
             <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
-              Ne donnez ce code au livreur qu'au moment précis de la réception de votre colis.
+              {isAvailableAtRelais
+                ? 'Présentez ce code secret au gestionnaire du point relais pour retirer votre colis en toute sécurité.'
+                : 'Ne donnez ce code au livreur qu\'au moment précis de la réception de votre colis.'}
             </p>
           </div>
 
@@ -212,14 +314,14 @@ function TrackingPage() {
             lineHeight: 1.6,
             color: '#f59e0b',
           }}>
-            <strong>Sécurité Moncolis :</strong> La saisie de ce code par le livreur garantit la validation immédiate et définitive de votre livraison.
+            <strong>Sécurité Moncolis :</strong> La saisie de ce code par {isAvailableAtRelais ? 'le gestionnaire du point relais' : 'le livreur'} garantit la validation immédiate et définitive de votre réception.
           </div>
         </div>
       </PageShell>
     );
   }
 
-  /* ── VUE LIVREUR ── */
+  /* -- VUE LIVREUR -- */
   return (
     <PageShell role="livreur">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -298,9 +400,9 @@ function TrackingPage() {
   );
 }
 
-/* ─────────────────────────────────────────────
+/* ---------------------------------------------
    Composants UI partagés
-───────────────────────────────────────────── */
+--------------------------------------------- */
 function PageShell({ children, role }: { children: React.ReactNode; role?: string | null }) {
   return (
     <div style={{

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifyToken } from '@/lib/session-server';
 
-// ── Routes protégées et les rôles autorisés pour chacune
+// -- Routes protégées et les rôles autorisés pour chacune ---------------------
 const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] = [
   {
     prefix: '/dashboard/vendeur',
@@ -15,51 +15,57 @@ const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] 
     redirect: '/auth/agence/login',
   },
   {
+    // C3 FIX: /livreur était entièrement public — maintenant protégé
+    prefix: '/livreur',
+    roles: ['livreur'],
+    redirect: '/auth/livreur/login',
+  },
+  {
+    // C3 FIX: /point-relais était entièrement public — maintenant protégé
+    prefix: '/point-relais',
+    roles: ['point_relais'],
+    redirect: '/auth/point-relais/login',
+  },
+  {
     prefix: '/admin-x9k2/dashboard',
-    roles: ['admin'],
+    roles: ['superadmin'],
     redirect: '/admin-x9k2',
   },
 ];
 
 const SESSION_COOKIE = 'mc_session';
 
+// -- Headers de sécurité appliqués à toutes les réponses ----------------------
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // ── Sécurité Headers sur toutes les réponses ──────────────────────────────
-  const baseResponse = NextResponse.next();
-  baseResponse.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  baseResponse.headers.set('X-Content-Type-Options', 'nosniff');
-  baseResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-  // ── Vérification des routes protégées ─────────────────────────────────────
+  // -- Vérifier si la route est protégée -------------------------------------
   const matched = PROTECTED_ROUTES.find((r) => pathname.startsWith(r.prefix));
 
   if (!matched) {
-    return baseResponse;
+    return applySecurityHeaders(NextResponse.next());
   }
 
-  // Admin dashboard: legacy header-based check (plus la session cookie)
-  if (matched.prefix === '/admin-x9k2/dashboard') {
-    const sentinel = request.headers.get('x-admin-token');
-    const isBot = !request.headers.get('accept')?.includes('text/html');
-    if (isBot && (!sentinel || sentinel !== process.env.ADMIN_SENTINEL_TOKEN)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-    const cacheResponse = NextResponse.next();
-    cacheResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    cacheResponse.headers.set('X-Frame-Options', 'DENY');
-    return cacheResponse;
-  }
+  // C4 FIX: Pour le dashboard admin, les headers no-cache sont ajoutés en fin de fonction
+  // après vérification de la session (plus de return anticipé qui court-circuitait l'auth).
 
-  // ── Vérification cookie de session ────────────────────────────────────────
+  // -- Vérification cookie de session ----------------------------------------
   const token = request.cookies.get(SESSION_COOKIE)?.value;
 
   if (!token) {
     // Pas de session — redirection vers la page de connexion
     const loginUrl = new URL(matched.redirect, request.url);
     loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    applySecurityHeaders(redirectResponse);
+    return redirectResponse;
   }
 
   // Vérification signature et expiration du token
@@ -75,6 +81,7 @@ export async function proxy(request: NextRequest) {
       maxAge: 0,
       path: '/',
     });
+    applySecurityHeaders(redirectResponse);
     return redirectResponse;
   }
 
@@ -83,7 +90,9 @@ export async function proxy(request: NextRequest) {
     // Mauvais rôle — redirection vers la bonne page de connexion
     const loginUrl = new URL(matched.redirect, request.url);
     loginUrl.searchParams.set('error', 'role_mismatch');
-    return NextResponse.redirect(loginUrl);
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    applySecurityHeaders(redirectResponse);
+    return redirectResponse;
   }
 
   // ✅ Session valide — laisser passer, injecter les infos dans les headers
@@ -92,6 +101,13 @@ export async function proxy(request: NextRequest) {
   response.headers.set('x-user-role', payload.role);
   response.headers.set('x-user-name', encodeURIComponent(payload.name));
   response.headers.set('Cache-Control', 'no-store');
+
+  // Headers de sécurité spécifiques au dashboard admin
+  if (matched.prefix === '/admin-x9k2/dashboard') {
+    response.headers.set('X-Frame-Options', 'DENY');
+  }
+
+  applySecurityHeaders(response);
   return response;
 }
 
@@ -99,6 +115,8 @@ export const config = {
   matcher: [
     '/dashboard/vendeur/:path*',
     '/dashboard/agence/:path*',
+    '/livreur/:path*',
+    '/point-relais/:path*',
     '/admin-x9k2/dashboard/:path*',
   ],
 };

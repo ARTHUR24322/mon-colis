@@ -6,7 +6,7 @@
 
 import { cookies } from 'next/headers';
 
-export type UserRole = 'vendeur' | 'agence' | 'livreur';
+export type UserRole = 'vendeur' | 'agence' | 'livreur' | 'point_relais' | 'superadmin';
 
 export interface SessionPayload {
   userId: string;
@@ -16,22 +16,32 @@ export interface SessionPayload {
   phone?: string;
   agencyId?: string;
   driverId?: string;
+  dropPointId?: string;
+  agentNumber?: string;
   iat: number; // issued at (timestamp ms)
   exp: number; // expiration (timestamp ms)
 }
 
-// ── Secret key (en production: utiliser une variable d'environnement forte)
-const SECRET = process.env.SESSION_SECRET || 'moncolis-secret-key-change-in-prod-2026-very-long-random-string-xyz';
+// -- Secret key — OBLIGATOIRE via variable d'environnement
+// En développement : définir SESSION_SECRET dans .env.local
+// En production   : définir SESSION_SECRET dans les secrets du serveur (min 64 chars)
+const SECRET = process.env.SESSION_SECRET;
+if (!SECRET || SECRET.length < 32) {
+  throw new Error(
+    '[Moncolis] SESSION_SECRET est absent ou trop court (min 32 caractères). ' +
+    'Définissez SESSION_SECRET dans votre fichier .env.local ou les variables du serveur.'
+  );
+}
 
 const COOKIE_NAME = 'mc_session';
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
 
-// ── Encode base64url (URL-safe)
+// -- Encode base64url (URL-safe)
 function b64url(buf: ArrayBuffer): string {
   return Buffer.from(buf).toString('base64url');
 }
 
-// ── HMAC-SHA256 signing
+// -- HMAC-SHA256 signing
 async function sign(data: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -45,7 +55,7 @@ async function sign(data: string): Promise<string> {
   return b64url(sig);
 }
 
-// ── HMAC-SHA256 verification (constant-time safe via crypto.subtle)
+// -- HMAC-SHA256 verification (constant-time safe via crypto.subtle)
 async function verify(data: string, signature: string): Promise<boolean> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -63,7 +73,7 @@ async function verify(data: string, signature: string): Promise<boolean> {
   }
 }
 
-// ── Create a signed session token: payload.signature
+// -- Create a signed session token: payload.signature
 export async function createToken(payload: Omit<SessionPayload, 'iat' | 'exp'>): Promise<string> {
   const now = Date.now();
   const full: SessionPayload = {
@@ -76,7 +86,7 @@ export async function createToken(payload: Omit<SessionPayload, 'iat' | 'exp'>):
   return `${encoded}.${sig}`;
 }
 
-// ── Verify and decode a token, returning null if invalid/expired
+// -- Verify and decode a token, returning null if invalid/expired
 export async function verifyToken(token: string): Promise<SessionPayload | null> {
   try {
     const dotIdx = token.lastIndexOf('.');
@@ -99,7 +109,7 @@ export async function verifyToken(token: string): Promise<SessionPayload | null>
   }
 }
 
-// ── Read the current session from the request cookie (Server Component / Route Handler)
+// -- Read the current session from the request cookie (Server Component / Route Handler)
 export async function getSession(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
@@ -107,7 +117,7 @@ export async function getSession(): Promise<SessionPayload | null> {
   return verifyToken(token);
 }
 
-// ── Set the session cookie (used in API Route Handlers)
+// -- Set the session cookie (used in API Route Handlers)
 export async function setSessionCookie(token: string) {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
@@ -119,7 +129,7 @@ export async function setSessionCookie(token: string) {
   });
 }
 
-// ── Clear the session cookie (logout)
+// -- Clear the session cookie (logout)
 export async function clearSessionCookie() {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, '', {

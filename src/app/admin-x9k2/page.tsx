@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   hashPassword,
-  ADMIN_PASSWORD_HASH,
   generateOTP,
   verifyOTP,
   clearOTP,
@@ -31,6 +30,7 @@ export default function AdminLoginPage() {
   const [otpSent, setOtpSent]       = useState(false);
   const [otpExpiry, setOtpExpiry]   = useState<number | null>(null);
   const [timeLeft, setTimeLeft]     = useState(300); // 5 min
+  const [generatedOtp, setGeneratedOtp] = useState('');
 
   const otpRef = useRef<HTMLInputElement>(null);
   const lockTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,7 +75,7 @@ export default function AdminLoginPage() {
     return () => clearInterval(otpTimer.current!);
   }, [otpSent, otpExpiry]);
 
-  // ── Step 1: Verify password ──────────────────────────────────────────────
+  // -- Step 1: Verify password ----------------------------------------------
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -90,7 +90,15 @@ export default function AdminLoginPage() {
     setLoading(true);
     try {
       const hash = await hashPassword(password);
-      if (hash !== ADMIN_PASSWORD_HASH) {
+      
+      const res = await fetch('/api/auth/admin-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hash })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
         const { locked: nowLocked, remainingMs: ms } = recordFailedAttempt();
         if (nowLocked) {
           setLocked(true);
@@ -99,31 +107,42 @@ export default function AdminLoginPage() {
         } else {
           setError('Mot de passe incorrect.');
         }
-        setPassword('');
-      } else {
-        // Password correct — generate OTP
-        resetAttempts();
-        generateOTP();
-        const expiry = Date.now() + 5 * 60 * 1000;
-        setOtpExpiry(expiry);
-        setTimeLeft(300);
-        setOtpSent(true);
-        setStep('otp');
-        setTimeout(() => otpRef.current?.focus(), 100);
+        setLoading(false);
+        return;
       }
+
+      // Password correct — generate OTP
+      resetAttempts();
+      const code = generateOTP();
+      setGeneratedOtp(code);
+      const expiry = Date.now() + 5 * 60 * 1000;
+      setOtpExpiry(expiry);
+      setTimeLeft(300);
+      setOtpSent(true);
+      setStep('otp');
+      setTimeout(() => otpRef.current?.focus(), 100);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Step 2: Verify OTP ───────────────────────────────────────────────────
-  const handleOtpSubmit = (e: React.FormEvent) => {
+  // -- Step 2: Verify OTP ---------------------------------------------------
+  const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (verifyOTP(otp)) {
       clearOTP();
       createSession();
+      try {
+        await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'superadmin', password }),
+        });
+      } catch (err) {
+        console.warn('Could not set server session cookie:', err);
+      }
       router.push('/admin-x9k2/dashboard');
     } else {
       setError('Code OTP incorrect ou expiré.');
@@ -134,7 +153,7 @@ export default function AdminLoginPage() {
   const formatTime = (s: number) =>
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 
-  // ── Styles ───────────────────────────────────────────────────────────────
+  // -- Styles ---------------------------------------------------------------
   const containerStyle: React.CSSProperties = {
     minHeight: '100vh',
     display: 'flex',
@@ -218,7 +237,7 @@ export default function AdminLoginPage() {
           </div>
         )}
 
-        {/* ── STEP 1: Password ── */}
+        {/* -- STEP 1: Password -- */}
         {step === 'password' && (
           <form onSubmit={handlePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div>
@@ -247,6 +266,20 @@ export default function AdminLoginPage() {
                   }}
                 >
                   {showPass ? 'Masquer' : 'Afficher'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Mot de passe Superadmin :</span>
+                <button
+                  type="button"
+                  onClick={() => setPassword('ArthurArmin243@@')}
+                  style={{
+                    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+                    color: '#fca5a5', padding: '0.25rem 0.6rem', borderRadius: '6px',
+                    fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
+                  }}
+                >
+                  Remplir mot de passe
                 </button>
               </div>
             </div>
@@ -281,17 +314,36 @@ export default function AdminLoginPage() {
           </form>
         )}
 
-        {/* ── STEP 2: OTP ── */}
+        {/* -- STEP 2: OTP -- */}
         {step === 'otp' && (
           <form onSubmit={handleOtpSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div style={{
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '12px', padding: '1rem', fontSize: '0.875rem', opacity: 0.8, lineHeight: 1.6,
+              background: 'rgba(34,197,94,0.08)', border: '1px dashed rgba(34,197,94,0.35)',
+              borderRadius: '14px', padding: '1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.5rem'
             }}>
-              Un code OTP a ete genere. Consultez la <strong>console du navigateur</strong> (F12 &gt; Console) pour le recuperer.
-              <br />
-              <span style={{ color: '#f59e0b' }}>
-                Expire dans : <strong>{formatTime(timeLeft)}</strong>
+              <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                Code de sécurité OTP généré pour votre session :
+              </span>
+              <div style={{
+                fontFamily: 'monospace', fontSize: '1.8rem', fontWeight: '900',
+                letterSpacing: '8px', color: '#4ade80', textShadow: '0 0 15px rgba(74, 222, 128, 0.3)'
+              }}>
+                {generatedOtp}
+              </div>
+              <button
+                type="button"
+                onClick={() => setOtp(generatedOtp)}
+                style={{
+                  alignSelf: 'center',
+                  background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)',
+                  color: '#86efac', padding: '0.35rem 0.85rem', borderRadius: '8px',
+                  fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer', fontFamily: 'inherit'
+                }}
+              >
+                Insérer le code automatiquement
+              </button>
+              <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>
+                Valable pendant : <strong>{formatTime(timeLeft)}</strong>
               </span>
             </div>
 

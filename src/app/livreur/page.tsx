@@ -18,15 +18,12 @@ import {
   EyeOff,
   AlertCircle
 } from 'lucide-react';
-import { dataService, ColisItem, DriverAccount } from '@/lib/data-service';
+import { dataService, ColisItem, DriverAccount, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
-
-type ScreenState = 'login' | 'dashboard';
 
 export default function LivreurPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
   
-  const [screen, setScreen] = useState<ScreenState>('login');
   const [driver, setDriver] = useState<DriverAccount | null>(null);
 
   // Auto-login if session exists
@@ -46,22 +43,14 @@ export default function LivreurPage() {
         joinedDate: ''
       };
       setDriver(d);
-      setScreen('dashboard');
       loadCourses(d);
     }
   }, [user, sessionChecked]);
 
-  // Login form state
-  const [phone, setPhone] = useState('');
-  const [pin, setPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
-  const [loginError, setLoginError] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
-
   // Realtime updates
   useEffect(() => {
     let unsubscribe: () => void;
-    if (screen === 'dashboard' && driver) {
+    if (driver) {
       unsubscribe = dataService.subscribeToPackages(() => {
         loadCourses(driver);
       });
@@ -69,7 +58,7 @@ export default function LivreurPage() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [screen, driver]);
+  }, [driver]);
 
   // Dashboard state
   const [courses, setCourses] = useState<ColisItem[]>([]);
@@ -79,42 +68,74 @@ export default function LivreurPage() {
   const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<'active' | 'done'>('active');
 
-  /* ─── Login Handler ─── */
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginLoading(true);
-    setLoginError('');
+  // Drop Point rerouting state (zone inaccessible)
+  const [rerouteModalColis, setRerouteModalColis] = useState<ColisItem | null>(null);
+  const [agentNumberInput, setAgentNumberInput] = useState('');
+  const [verifiedAgent, setVerifiedAgent] = useState<{ name: string; dropPointName: string; dropPointId: string; agentNumber: string } | null>(null);
+  const [verifyingAgent, setVerifyingAgent] = useState(false);
+  const [agentVerifyError, setAgentVerifyError] = useState('');
+  const [rerouteReason, setRerouteReason] = useState('Route impraticable / inondée');
+  const [customReason, setCustomReason] = useState('');
+  const [rerouteLoading, setRerouteLoading] = useState(false);
+  const [rerouteToast, setRerouteToast] = useState<string | null>(null);
 
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, pinCode: pin, role: 'livreur' }),
-        credentials: 'same-origin',
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setLoginError(data.error || 'Numéro de téléphone ou code PIN incorrect.');
-        setLoginLoading(false);
-        return;
-      }
-
-      // Successful login, set driver based on response
-      const found = await dataService.authenticateDriver(phone, pin);
-      if (found) {
-        setDriver(found);
-        setScreen('dashboard');
-        loadCourses(found);
-      }
-    } catch {
-      setLoginError('Impossible de joindre le serveur. Vérifiez votre connexion.');
-    }
-    setLoginLoading(false);
+  const handleOpenRerouteModal = (colis: ColisItem) => {
+    setRerouteModalColis(colis);
+    setAgentNumberInput('');
+    setVerifiedAgent(null);
+    setAgentVerifyError('');
+    setRerouteReason('Route impraticable / inondée');
+    setCustomReason('');
   };
 
-  /* ─── Load Deliveries for this Driver ─── */
+  const handleVerifyAgent = async () => {
+    if (agentNumberInput.length !== 9) return;
+    setVerifyingAgent(true);
+    setAgentVerifyError('');
+    setVerifiedAgent(null);
+    try {
+      const res = await fetch('/api/drop-points/agents/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentNumber: agentNumberInput }),
+      });
+      const json = await res.json();
+      if (res.ok && json.agent) {
+        setVerifiedAgent({
+          name: json.agent.name,
+          dropPointName: json.agent.dropPointName,
+          dropPointId: json.agent.dropPointId,
+          agentNumber: json.agent.agentNumber,
+        });
+      } else {
+        setAgentVerifyError(json.error || 'Numéro agent introuvable.');
+      }
+    } catch {
+      setAgentVerifyError('Erreur réseau. Réessayez.');
+    } finally {
+      setVerifyingAgent(false);
+    }
+  };
+
+  const handleConfirmReroute = async () => {
+    if (!rerouteModalColis || !verifiedAgent || !driver) return;
+    setRerouteLoading(true);
+    const note = rerouteReason === 'Autre motif' ? (customReason || 'Zone inaccessible') : rerouteReason;
+    const res = await dataService.assignColisToDropPoint(rerouteModalColis.id, verifiedAgent.agentNumber, driver.id);
+    if (res.success) {
+      // Also record inaccessibility note in cache
+      await dataService.rerouteToDropPoint(rerouteModalColis.id, verifiedAgent.dropPointId, note);
+      setRerouteToast(`Colis #${rerouteModalColis.id.substring(0, 8)} déposé au ${verifiedAgent.dropPointName} — agent notifié !`);
+      await loadCourses();
+      setTimeout(() => {
+        setRerouteModalColis(null);
+        setRerouteToast(null);
+      }, 2000);
+    }
+    setRerouteLoading(false);
+  };
+
+  /* --- Load Deliveries for this Driver --- */
   const loadCourses = async (d?: DriverAccount) => {
     const driverInfo = d || driver;
     if (!driverInfo) return;
@@ -130,7 +151,7 @@ export default function LivreurPage() {
     setCoursesLoading(false);
   };
 
-  /* ─── OTP Validation ─── */
+  /* --- OTP Validation --- */
   const handleValidateOtp = async (colisId: string) => {
     const code = otpInputs[colisId] || '';
     if (code.length < 6) {
@@ -151,11 +172,7 @@ export default function LivreurPage() {
   const handleLogout = async () => {
     await logout();
     setDriver(null);
-    setScreen('login');
     setCourses([]);
-    setPhone('');
-    setPin('');
-    setLoginError('');
   };
 
   if (authLoading && !sessionChecked) {
@@ -173,174 +190,7 @@ export default function LivreurPage() {
   const doneCourses = courses.filter(c => c.status === 'Livré');
 
   /* ═══════════════════════════════════════════════════════════
-     SCREEN 1: LOGIN (Numéro + Code PIN)
-  ═══════════════════════════════════════════════════════════ */
-  if (screen === 'login') {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(160deg, #07090e 0%, #0d1520 50%, #070e14 100%)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1.5rem 1rem',
-        color: '#f8fafc'
-      }}>
-        <div style={{ width: '100%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-
-          {/* Back link */}
-          <Link href="/" style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-            color: '#94a3b8', fontSize: '0.85rem', textDecoration: 'none'
-          }}>
-            <ArrowLeft size={16} />
-            Retour à l'accueil
-          </Link>
-
-          {/* Logo + Title */}
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              width: '70px', height: '70px', borderRadius: '20px',
-              background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 1rem',
-              boxShadow: '0 10px 30px rgba(59, 130, 246, 0.4)'
-            }}>
-              <Truck size={36} color="#fff" />
-            </div>
-            <h1 style={{ fontSize: '1.75rem', fontWeight: '900', margin: 0, color: '#fff' }}>
-              Espace Livreur
-            </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0.5rem 0 0' }}>
-              Connectez-vous avec votre numéro et votre code PIN pour accéder à vos courses.
-            </p>
-          </div>
-
-          {/* Login Card */}
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.04)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '24px',
-            padding: '2rem',
-            backdropFilter: 'blur(20px)'
-          }}>
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-              {/* Phone Input */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.5rem' }}>
-                  📱 Votre Numéro de Téléphone
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Phone size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                  <input
-                    type="tel"
-                    placeholder="Ex : +243 81 44 55 660"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    required
-                    style={{
-                      width: '100%',
-                      padding: '0.8rem 1rem 0.8rem 2.75rem',
-                      borderRadius: '12px',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
-                      color: '#fff',
-                      fontSize: '1rem',
-                      outline: 'none'
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* PIN Input */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.5rem' }}>
-                  🔐 Votre Code PIN (attribué par votre agence)
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                  <input
-                    type={showPin ? 'text' : 'password'}
-                    placeholder="••••"
-                    value={pin}
-                    onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    required
-                    inputMode="numeric"
-                    style={{
-                      width: '100%',
-                      padding: '0.8rem 3rem 0.8rem 2.75rem',
-                      borderRadius: '12px',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
-                      color: '#fff',
-                      fontSize: '1.25rem',
-                      letterSpacing: '4px',
-                      outline: 'none'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPin(!showPin)}
-                    style={{
-                      position: 'absolute', right: '0.85rem', top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem'
-                    }}
-                  >
-                    {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Error */}
-              {loginError && (
-                <div style={{
-                  padding: '0.85rem 1rem',
-                  borderRadius: '10px',
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  color: '#fca5a5',
-                  fontSize: '0.85rem',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '0.5rem'
-                }}>
-                  <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-                  <span>{loginError}</span>
-                </div>
-              )}
-
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={loginLoading || phone.length < 8 || pin.length < 4}
-                style={{
-                  padding: '0.9rem',
-                  borderRadius: '12px',
-                  background: loginLoading || phone.length < 8 || pin.length < 4
-                    ? 'rgba(59, 130, 246, 0.4)'
-                    : 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                  border: 'none',
-                  color: '#fff',
-                  fontWeight: '700',
-                  fontSize: '1rem',
-                  cursor: loginLoading || phone.length < 8 || pin.length < 4 ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 4px 14px rgba(59, 130, 246, 0.35)',
-                  transition: 'all 0.2s'
-                }}
-              >
-                {loginLoading ? 'Verification...' : 'Acceder a mes livraisons'}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* ═══════════════════════════════════════════════════════════
-     SCREEN 2: DRIVER DASHBOARD
+     DASHBOARD
   ═══════════════════════════════════════════════════════════ */
   return (
     <div style={{
@@ -351,7 +201,7 @@ export default function LivreurPage() {
       flexDirection: 'column'
     }}>
 
-      {/* ── Header ── */}
+      {/* -- Header -- */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 40,
         backdropFilter: 'blur(16px)',
@@ -392,7 +242,7 @@ export default function LivreurPage() {
         </div>
       </header>
 
-      {/* ── Main Content ── */}
+      {/* -- Main Content -- */}
       <div style={{ maxWidth: '720px', margin: '0 auto', width: '100%', padding: '1.25rem 1rem 6rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
         {/* Driver Info Banner */}
@@ -505,26 +355,225 @@ export default function LivreurPage() {
                 otpValue={otpInputs[c.id] || ''}
                 onOtpChange={(val) => setOtpInputs(prev => ({ ...prev, [c.id]: val }))}
                 onValidate={() => handleValidateOtp(c.id)}
+                onOpenReroute={() => handleOpenRerouteModal(c)}
                 error={otpErrors[c.id]}
                 success={otpSuccess[c.id]}
               />
             ))}
           </div>
         )}
+
+        {/* Toast Notification */}
+        {rerouteToast && (
+          <div style={{
+            position: 'fixed', bottom: '2rem', left: '50%', transform: 'translateX(-50%)',
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff', padding: '0.85rem 1.5rem', borderRadius: '14px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)', zIndex: 9999,
+            display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: '700', fontSize: '0.9rem'
+          }}>
+            <CheckCircle2 size={18} />
+            <span>{rerouteToast}</span>
+          </div>
+        )}
+
+        {/* -- Modal Redirection Point Relais (Zone Inaccessible) -- */}
+        {rerouteModalColis && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+            background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 999, padding: '1rem'
+          }}>
+            <div style={{
+              width: '100%', maxWidth: '480px',
+              background: '#0d1117', border: '1px solid rgba(245, 158, 11, 0.4)',
+              borderRadius: '24px', padding: '1.75rem',
+              display: 'flex', flexDirection: 'column', gap: '1.25rem',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.8)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '42px', height: '42px', borderRadius: '12px',
+                  background: 'rgba(245, 158, 11, 0.15)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', color: '#fbbf24', flexShrink: 0
+                }}>
+                  <MapPin size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>
+                    Déposer en Point Relais
+                  </h3>
+                  <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                    Zone inaccessible · Colis #{rerouteModalColis.id.substring(0, 8)}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.2)',
+                borderRadius: '12px', padding: '0.85rem', fontSize: '0.8rem', color: '#fde047', lineHeight: 1.5
+              }}>
+                ℹ️ Le colis sera déposé en sécurité au Point Relais. Le client <strong>{rerouteModalColis.clientName}</strong> pourra aller le récupérer avec son code secret OTP.
+              </div>
+
+              {/* Agent Number Input */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                  Numéro à 9 chiffres de l'agent du point relais :
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={9}
+                    placeholder="• • • • • • • • •"
+                    value={agentNumberInput}
+                    disabled={rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais'}
+                    onChange={e => {
+                      setAgentNumberInput(e.target.value.replace(/\D/g, ''));
+                      setVerifiedAgent(null);
+                      setAgentVerifyError('');
+                    }}
+                    style={{
+                      flex: 1, padding: '0.75rem 0.85rem', borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${verifiedAgent ? 'rgba(34,197,94,0.5)' : agentVerifyError ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.3)'}`,
+                      color: (rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? '#64748b' : '#fff', 
+                      fontSize: '1.1rem', letterSpacing: '4px',
+                      fontFamily: 'monospace', fontWeight: '700',
+                      cursor: (rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 'not-allowed' : 'text'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifyAgent}
+                    disabled={agentNumberInput.length !== 9 || verifyingAgent || rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais'}
+                    style={{
+                      padding: '0.75rem 1.1rem', borderRadius: '10px', border: 'none',
+                      background: verifiedAgent ? 'rgba(34,197,94,0.2)' : 'rgba(59,130,246,0.2)',
+                      color: verifiedAgent ? '#4ade80' : '#60a5fa',
+                      fontWeight: '700', fontSize: '0.82rem', cursor: (rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 'not-allowed' : 'pointer',
+                      opacity: (agentNumberInput.length !== 9 || rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 0.5 : 1, fontFamily: 'inherit',
+                    }}
+                  >
+                    {verifyingAgent ? '...' : verifiedAgent ? 'Vérifié ✓' : 'Vérifier'}
+                  </button>
+                </div>
+
+                {agentVerifyError && (
+                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#fca5a5' }}>{agentVerifyError}</p>
+                )}
+
+                {verifiedAgent && (
+                  <div style={{
+                    marginTop: '0.6rem', padding: '0.65rem 0.85rem', borderRadius: '10px',
+                    background: 'rgba(34,197,94,0.09)', border: '1px solid rgba(34,197,94,0.3)',
+                    fontSize: '0.82rem', color: '#4ade80',
+                  }}>
+                    <strong>Agent :</strong> {verifiedAgent.name}<br />
+                    <strong>Point Relais :</strong> {verifiedAgent.dropPointName}
+                  </div>
+                )}
+              </div>
+
+              {/* Inaccessibility Reason */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                  Motif d'inaccessibilité de l'adresse :
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {[
+                    'Route impraticable / inondée',
+                    'Quartier enclavé / hors piste praticable',
+                    'Client absent / injoignable après plusieurs appels',
+                    'Autre motif'
+                  ].map(motif => (
+                    <label key={motif} style={{
+                      display: 'flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.45rem 0.65rem', borderRadius: '8px',
+                      background: rerouteReason === motif ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                      cursor: 'pointer', fontSize: '0.82rem', color: '#fff'
+                    }}>
+                      <input
+                        type="radio"
+                        name="rerouteReason"
+                        checked={rerouteReason === motif}
+                        onChange={() => setRerouteReason(motif)}
+                        style={{ accentColor: '#f59e0b' }}
+                      />
+                      {motif}
+                    </label>
+                  ))}
+                </div>
+
+                {rerouteReason === 'Autre motif' && (
+                  <input
+                    type="text"
+                    placeholder="Précisez la situation..."
+                    value={customReason}
+                    onChange={e => setCustomReason(e.target.value)}
+                    style={{
+                      marginTop: '0.5rem', width: '100%', padding: '0.65rem',
+                      borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '0.85rem'
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setRerouteModalColis(null)}
+                  style={{
+                    flex: 1, padding: '0.75rem', borderRadius: '10px',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    background: 'transparent', color: '#cbd5e1',
+                    fontSize: '0.88rem', fontWeight: '600', cursor: 'pointer'
+                  }}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="button"
+                  disabled={rerouteLoading || !verifiedAgent || rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais'}
+                  onClick={handleConfirmReroute}
+                  style={{
+                    flex: 1, padding: '0.75rem', borderRadius: '10px',
+                    border: 'none',
+                    background: (verifiedAgent && rerouteModalColis.status !== 'Déposé en point relais' && rerouteModalColis.status !== 'En attente de confirmation relais') ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(255,255,255,0.08)',
+                    color: (verifiedAgent && rerouteModalColis.status !== 'Déposé en point relais' && rerouteModalColis.status !== 'En attente de confirmation relais') ? '#000' : '#475569',
+                    fontSize: '0.88rem', fontWeight: '800',
+                    cursor: (rerouteLoading || !verifiedAgent || rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 'not-allowed' : 'pointer',
+                    boxShadow: (verifiedAgent && rerouteModalColis.status !== 'Déposé en point relais' && rerouteModalColis.status !== 'En attente de confirmation relais') ? '0 4px 14px rgba(245, 158, 11, 0.4)' : 'none',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {(rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 'Déjà Déposé' : rerouteLoading ? 'Enregistrement...' : 'Confirmer le Dépôt'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
 
-/* ─────────────────────────────────────────────
+/* ---------------------------------------------
    Delivery Card Component
-───────────────────────────────────────────── */
+--------------------------------------------- */
 function DeliveryCard({
   colis,
   isDone,
   otpValue,
   onOtpChange,
   onValidate,
+  onOpenReroute,
   error,
   success
 }: {
@@ -533,6 +582,7 @@ function DeliveryCard({
   otpValue: string;
   onOtpChange: (val: string) => void;
   onValidate: () => void;
+  onOpenReroute?: () => void;
   error?: string;
   success?: boolean;
 }) {
@@ -662,8 +712,69 @@ function DeliveryCard({
         );
       })()}
 
+      {/* Point Relais Redirection Details (if rerouted) */}
+      {(colis.destDropPoint || colis.status === 'Disponible au point relais') && (
+        <div style={{
+          padding: '0.9rem 1rem',
+          background: 'rgba(16, 185, 129, 0.1)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.35rem',
+          fontSize: '0.84rem'
+        }}>
+          <div style={{ color: '#34d399', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <CheckCircle2 size={16} />
+            <span>Déposé au Point Relais (Zone inaccessible)</span>
+          </div>
+          <div style={{ color: '#fff', fontWeight: '700' }}>
+            {colis.destDropPoint ? `${colis.destDropPoint.name} — ${colis.destDropPoint.commune}` : 'Point Relais du secteur client'}
+          </div>
+          {colis.destDropPoint && (
+            <div style={{ color: '#cbd5e1', fontSize: '0.78rem' }}>
+              📍 {colis.destDropPoint.address} · 📞 {colis.destDropPoint.phone}
+            </div>
+          )}
+          {colis.inaccessibilityNote && (
+            <div style={{ color: '#fcd34d', fontSize: '0.75rem', marginTop: '0.15rem' }}>
+              Motif : {colis.inaccessibilityNote}
+            </div>
+          )}
+          <div style={{ color: '#86efac', fontSize: '0.75rem', marginTop: '0.15rem' }}>
+            Le destinataire est notifié pour le retrait sur présentation de son code secret OTP.
+          </div>
+        </div>
+      )}
+
+      {/* Button to reroute to Drop Point if zone is inaccessible */}
+      {!isDone && colis.status !== 'Disponible au point relais' && onOpenReroute && (
+        <button
+          type="button"
+          onClick={onOpenReroute}
+          style={{
+            padding: '0.75rem 1rem',
+            borderRadius: '12px',
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.35)',
+            color: '#fbbf24',
+            fontSize: '0.85rem',
+            fontWeight: '700',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.2s'
+          }}
+        >
+          <MapPin size={16} />
+          Zone Inaccessible ? Déposer en Point Relais
+        </button>
+      )}
+
       {/* OTP Section — only for active deliveries */}
-      {!isDone && (
+      {!isDone && colis.status !== 'Déposé en point relais' && colis.status !== 'Disponible au point relais' && (
         <div style={{
           background: 'rgba(59, 130, 246, 0.08)',
           border: '1px solid rgba(59, 130, 246, 0.3)',

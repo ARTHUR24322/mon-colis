@@ -26,7 +26,7 @@ import {
   ShieldCheck,
   LogOut
 } from 'lucide-react';
-import { dataService, ColisItem, DEFAULT_AGENCIES } from '@/lib/data-service';
+import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 
 type Colis = ColisItem;
@@ -37,6 +37,8 @@ const STATUS_COLOR: Record<string, string> = {
   'En transit': '#3b82f6',
   "En attente d'agence": '#f59e0b',
   'Créé': '#a855f7',
+  'Déposé en point relais': '#06b6d4',
+  'Disponible au point relais': '#10b981',
   'Annulé': '#ef4444',
 };
 
@@ -48,6 +50,7 @@ export default function VendeurDashboard() {
   const [showModal, setShowModal] = useState(false);
   const [createdPackage, setCreatedPackage] = useState<Colis | null>(null);
   const [agencyModalColisId, setAgencyModalColisId] = useState<string | null>(null);
+  const [qrScanColisId, setQrScanColisId] = useState<string | null>(null);
   const [agencies, setAgencies] = useState<import('@/lib/data-service').AgencyInfo[]>([]);
   const [loadingAgencies, setLoadingAgencies] = useState(false);
 
@@ -64,6 +67,8 @@ export default function VendeurDashboard() {
   const [poids, setPoids] = useState('1.5');
   const [paidByClient, setPaidByClient] = useState(true);
   const [isPrepaid, setIsPrepaid] = useState(false);
+  const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE'>('DIRECT');
+  const [originDropPointId, setOriginDropPointId] = useState('DP-GOM-01');
 
   // Profil Vendeur — initialisé depuis la session
   const [profil, setProfil] = useState({
@@ -117,7 +122,7 @@ export default function VendeurDashboard() {
     setTimeout(() => setToastMessage(null), 2500);
   };
 
-  /* ─── Calculs Statistiques ─── */
+  /* --- Calculs Statistiques --- */
   const colisLivres = colis.filter(c => c.status === 'Livré');
   const colisEnCours = colis.filter(c => c.status === 'En transit' || c.status === "En attente d'agence" || c.status === 'Créé');
 
@@ -166,7 +171,7 @@ export default function VendeurDashboard() {
     });
   }, [colis, searchQuery, statusFilter]);
 
-  /* ─── Handlers ─── */
+  /* --- Handlers --- */
   const handleCreateColis = async (e: React.FormEvent) => {
     e.preventDefault();
     const newPkg = await dataService.createPackage({
@@ -178,6 +183,8 @@ export default function VendeurDashboard() {
       vendeurId: user?.id ?? '',
       paidByClient,
       isPrepaid,
+      deliveryMode,
+      originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
     });
     await refreshColis();
     setShowModal(false);
@@ -187,6 +194,7 @@ export default function VendeurDashboard() {
     setClientPhone('');
     setPrixColis('');
     setIsPrepaid(false);
+    setDeliveryMode('DIRECT');
     setActiveTab('historique');
   };
 
@@ -199,10 +207,35 @@ export default function VendeurDashboard() {
   };
 
   const handleSelectAgency = async (colisId: string, agencyId: string, agencyName: string) => {
-    await dataService.assignAgencyById(colisId, agencyId);
-    await refreshColis();
-    setAgencyModalColisId(null);
-    showToast(`Colis confié à ${agencyName} !`);
+    try {
+      await dataService.assignAgencyById(colisId, agencyId);
+      showToast(`Colis confié à l'agence ${agencyName}`);
+      refreshColis();
+      setAgencyModalColisId(null);
+    } catch (err: any) {
+      showToast(err.message || 'Erreur lors de l\'assignation à l\'agence.');
+    }
+  };
+
+  const handleAssignToDropPoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qrScanColisId || !originDropPointId) return;
+
+    // Simulate scanning: we use the selected originDropPointId
+    const res = await dataService.assignPackageToDropPointByVendor(
+      qrScanColisId,
+      originDropPointId,
+      profil.nom,
+      profil.telephone
+    );
+
+    if (res.success) {
+      showToast(res.message);
+      refreshColis();
+      setQrScanColisId(null);
+    } else {
+      showToast(res.message);
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -225,7 +258,7 @@ export default function VendeurDashboard() {
     { key: 'profil', icon: <User size={18} />, label: 'Boutique' },
   ];
 
-  // ── Garde : session en cours de vérification (déplacé après tous les hooks)
+  // -- Garde : session en cours de vérification (déplacé après tous les hooks)
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -264,9 +297,9 @@ export default function VendeurDashboard() {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           1. HEADER
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <header style={{
         position: 'sticky',
         top: 0,
@@ -286,7 +319,7 @@ export default function VendeurDashboard() {
         }}>
           {/* Brand & Boutique */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textDecoration: 'none' }}>
               <div style={{
                 width: '36px',
                 height: '36px',
@@ -301,7 +334,7 @@ export default function VendeurDashboard() {
                 <Package size={20} />
               </div>
               <span style={{ fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>Moncolis</span>
-            </Link>
+            </div>
 
             <div style={{ height: '18px', width: '1px', background: 'rgba(255,255,255,0.15)' }} className="desktop-divider" />
 
@@ -371,9 +404,9 @@ export default function VendeurDashboard() {
         </div>
       </header>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           2. MAIN WRAPPER
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <div style={{
         display: 'flex',
         flex: 1,
@@ -586,7 +619,8 @@ export default function VendeurDashboard() {
                       key={c.id}
                       colis={c}
                       onSelectAgency={() => openAgencyModal(c.id)}
-                      onCopyText={(text, label) => copyToClipboard(text, label)}
+                      onAssignToDropPoint={() => setQrScanColisId(c.id)}
+                      onCopyText={copyToClipboard}
                       onShareWhatsApp={() => shareOnWhatsApp(c)}
                     />
                   ))}
@@ -712,6 +746,7 @@ export default function VendeurDashboard() {
                       key={c.id}
                       colis={c}
                       onSelectAgency={() => openAgencyModal(c.id)}
+                      onAssignToDropPoint={() => setQrScanColisId(c.id)}
                       onCopyText={(text, label) => copyToClipboard(text, label)}
                       onShareWhatsApp={() => shareOnWhatsApp(c)}
                     />
@@ -1010,9 +1045,9 @@ export default function VendeurDashboard() {
         </main>
       </div>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           3. BOTTOM NAVIGATION BAR (Mobile App Feel)
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -1079,9 +1114,9 @@ export default function VendeurDashboard() {
         })}
       </nav>
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           4. MODAL NOUVEAU COLIS
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       {showModal && (
         <div style={{
           position: 'fixed',
@@ -1243,6 +1278,84 @@ export default function VendeurDashboard() {
                 </div>
               </div>
 
+              {/* Mode de Prise en Charge */}
+              <div style={{ marginTop: '0.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.5rem' }}>
+                  Mode d'Expédition & Prise en Charge *
+                </label>
+                <div style={{ display: 'flex', gap: '0.75rem', flexDirection: 'column' }}>
+                  <label style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                    padding: '0.65rem 0.85rem', borderRadius: '10px',
+                    background: deliveryMode === 'DIRECT' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+                    border: `1px solid ${deliveryMode === 'DIRECT' ? 'rgba(34, 197, 94, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="radio"
+                      name="deliveryMode"
+                      checked={deliveryMode === 'DIRECT'}
+                      onChange={() => setDeliveryMode('DIRECT')}
+                      style={{ accentColor: '#22c55e', marginTop: '2px' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff' }}>🚚 Enlèvement à domicile / boutique (Standard)</div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>Le coursier se déplace à votre adresse pour récupérer le colis.</div>
+                    </div>
+                  </label>
+
+                  <label style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                    padding: '0.65rem 0.85rem', borderRadius: '10px',
+                    background: deliveryMode === 'DROP_POINT_FIRST_MILE' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                    border: `1px solid ${deliveryMode === 'DROP_POINT_FIRST_MILE' ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="radio"
+                      name="deliveryMode"
+                      checked={deliveryMode === 'DROP_POINT_FIRST_MILE'}
+                      onChange={() => setDeliveryMode('DROP_POINT_FIRST_MILE')}
+                      style={{ accentColor: '#3b82f6', marginTop: '2px' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff' }}>📍 Dépôt par le vendeur en Point Relais Moncolis (Recommandé)</div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>Déposez le colis au point de votre commune sans attendre. Le livreur le récupère là-bas.</div>
+                    </div>
+                  </label>
+                </div>
+
+                {deliveryMode === 'DROP_POINT_FIRST_MILE' && (
+                  <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.06)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '600', color: '#93c5fd', marginBottom: '0.35rem' }}>
+                      Sélectionnez le Point Relais de dépôt à Kinshasa :
+                    </label>
+                    <select
+                      value={originDropPointId}
+                      onChange={e => setOriginDropPointId(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.75rem',
+                        borderRadius: '8px',
+                        background: '#0d1117',
+                        border: '1px solid rgba(59, 130, 246, 0.4)',
+                        color: '#fff',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      {DEFAULT_DROP_POINTS.map(dp => (
+                        <option key={dp.id} value={dp.id}>
+                          {dp.name} — {dp.commune} ({dp.address})
+                        </option>
+                      ))}
+                    </select>
+                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.72rem', color: '#94a3b8' }}>
+                      Ouvert : {DEFAULT_DROP_POINTS.find(d => d.id === originDropPointId)?.openingHours} · Contact : {DEFAULT_DROP_POINTS.find(d => d.id === originDropPointId)?.phone}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div style={{ marginTop: '0.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.5rem' }}>
                   Paiement de la Marchandise *
@@ -1293,9 +1406,9 @@ export default function VendeurDashboard() {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           4.2 MODAL SUCCÈS APRÈS CRÉATION DE COLIS
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       {createdPackage && (
         <div style={{
           position: 'fixed',
@@ -1359,6 +1472,29 @@ export default function VendeurDashboard() {
               flexDirection: 'column',
               gap: '0.75rem'
             }}>
+              {createdPackage.originDropPoint && (
+                <div style={{
+                  padding: '0.75rem',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  borderRadius: '10px',
+                  fontSize: '0.82rem'
+                }}>
+                  <div style={{ color: '#93c5fd', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                    <span>📍 Point Relais où déposer ce colis :</span>
+                  </div>
+                  <div style={{ color: '#fff', fontWeight: '700', fontSize: '0.9rem' }}>
+                    {createdPackage.originDropPoint.name} ({createdPackage.originDropPoint.commune})
+                  </div>
+                  <div style={{ color: '#cbd5e1', fontSize: '0.78rem', marginTop: '0.15rem' }}>
+                    {createdPackage.originDropPoint.address}
+                  </div>
+                  <div style={{ color: '#38bdf8', fontSize: '0.75rem', marginTop: '0.2rem' }}>
+                    📞 Gérant : {createdPackage.originDropPoint.managerName} · {createdPackage.originDropPoint.phone} · Ouvert : {createdPackage.originDropPoint.openingHours}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>🔗 Lien de suivi public (sans compte) :</span>
                 <div style={{
@@ -1474,9 +1610,9 @@ export default function VendeurDashboard() {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────
+      {/* ---------------------------------------------
           5. MODAL CHOIX AGENCE
-      ───────────────────────────────────────────── */}
+      --------------------------------------------- */}
       {agencyModalColisId && (
         <div style={{
           position: 'fixed',
@@ -1576,6 +1712,86 @@ export default function VendeurDashboard() {
         </div>
       )}
 
+      {/* ---------------------------------------------
+          6. MODAL SCAN QR POINT RELAIS (Simulation)
+      --------------------------------------------- */}
+      {qrScanColisId && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          padding: '1rem'
+        }} className="bottom-sheet-container">
+          <div style={{
+            width: '100%',
+            maxWidth: '500px',
+            background: '#0d1117',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '24px',
+            padding: '1.75rem'
+          }} className="bottom-sheet">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <MapPin size={22} color="#3b82f6" />
+                Déposer au Point Relais
+              </h2>
+              <button
+                onClick={() => setQrScanColisId(null)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 1.25rem 0' }}>
+              Scannez le QR Code du point relais pour attribuer le colis #{qrScanColisId}. (Simulation par sélection dans la liste)
+            </p>
+
+            <form onSubmit={handleAssignToDropPoint} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="form-group">
+                <label>Point Relais (QR Scanné)</label>
+                <select 
+                  className="input-field" 
+                  value={originDropPointId}
+                  onChange={(e) => setOriginDropPointId(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  {DEFAULT_DROP_POINTS.map(dp => (
+                    <option key={dp.id} value={dp.id}>{dp.name} ({dp.commune})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setQrScanColisId(null)}
+                  className="btn btn-outline"
+                  style={{ flex: 1 }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                >
+                  Confirmer Dépôt
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Responsive Styles */}
       <style jsx global>{`
         @media (min-width: 1024px) {
@@ -1614,17 +1830,19 @@ export default function VendeurDashboard() {
   );
 }
 
-/* ─────────────────────────────────────────────
+/* ---------------------------------------------
    Composant Card Colis avec Zone Lien & Code Suivi
-───────────────────────────────────────────── */
+--------------------------------------------- */
 function PackageCard({
   colis,
   onSelectAgency,
+  onAssignToDropPoint,
   onCopyText,
   onShareWhatsApp
 }: {
   colis: Colis;
   onSelectAgency: () => void;
+  onAssignToDropPoint: () => void;
   onCopyText: (text: string, label: string) => void;
   onShareWhatsApp: () => void;
 }) {
@@ -1715,7 +1933,7 @@ function PackageCard({
         </div>
       </div>
 
-      {/* ── 🔗 SECTION SPÉCIALE : LIEN DE SUIVI & CODE OTP ── */}
+      {/* -- 🔗 SECTION SPÉCIALE : LIEN DE SUIVI & CODE OTP -- */}
       <div style={{
         background: 'rgba(59, 130, 246, 0.05)',
         border: '1px solid rgba(59, 130, 246, 0.25)',
@@ -1843,29 +2061,71 @@ function PackageCard({
       </div>
 
       {/* Agency selection or assigned agency badge */}
-      {!colis.agence ? (
-        <button
-          type="button"
-          onClick={onSelectAgency}
-          style={{
-            width: '100%',
-            padding: '0.65rem',
-            borderRadius: '10px',
-            background: 'rgba(255, 255, 255, 0.05)',
-            border: '1px solid rgba(59, 130, 246, 0.4)',
-            color: '#93c5fd',
-            fontWeight: '700',
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.4rem'
-          }}
-        >
-          <Truck size={16} />
-          <span>Sélectionner une agence de livraison</span>
-        </button>
+      {!colis.agence && !colis.originDropPointId ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {colis.status === 'Créé' && (
+            <button
+              type="button"
+              onClick={onAssignToDropPoint}
+              style={{
+                width: '100%',
+                padding: '0.65rem',
+                borderRadius: '10px',
+                background: 'rgba(59, 130, 246, 0.15)',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                color: '#93c5fd',
+                fontWeight: '700',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.4rem',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <MapPin size={16} />
+              <span>Déposer au Point Relais (Scan QR)</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onSelectAgency}
+            style={{
+              width: '100%',
+              padding: '0.65rem',
+              borderRadius: '10px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              color: '#cbd5e1',
+              fontWeight: '600',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Truck size={16} />
+            <span>Remettre directement à une Agence</span>
+          </button>
+        </div>
+      ) : colis.originDropPointId && colis.status === 'En attente de confirmation relais' ? (
+        <div style={{
+          padding: '0.75rem',
+          background: 'rgba(59, 130, 246, 0.1)',
+          border: '1px dashed rgba(59, 130, 246, 0.3)',
+          borderRadius: '8px',
+          textAlign: 'center',
+          color: '#93c5fd',
+          fontSize: '0.85rem',
+          fontWeight: '600'
+        }}>
+          En attente de confirmation par le Point Relais
+        </div>
       ) : (
         <div style={{
           display: 'flex',

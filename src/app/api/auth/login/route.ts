@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createToken, setSessionCookie, UserRole } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
+import bcrypt from 'bcryptjs';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Le rôle est requis.' }, { status: 400 });
     }
 
-    // ── LIVREUR: authenticate by phone + PIN ──────────────────────
+    // -- LIVREUR: authenticate by phone + PIN ----------------------
     if (role === 'livreur') {
       const { phone, pinCode } = body as { phone: string; pinCode: string };
       if (!phone || !pinCode) {
@@ -51,7 +52,77 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── VENDEUR / AGENCE: authenticate by email + password ────────
+    // -- POINT RELAIS AGENT: authenticate by agentNumber + PIN -----
+    if (role === 'point_relais') {
+      const { agentNumber, pinCode } = body as { agentNumber: string; pinCode: string };
+      if (!agentNumber || !pinCode) {
+        return NextResponse.json({ error: 'Numéro agent et code PIN requis.' }, { status: 400 });
+      }
+      if (!/^\d{9}$/.test(agentNumber)) {
+        return NextResponse.json({ error: 'Le numéro agent doit contenir exactement 9 chiffres.' }, { status: 400 });
+      }
+      if (!/^\d{6}$/.test(pinCode)) {
+        return NextResponse.json({ error: 'Le code PIN doit contenir exactement 6 chiffres.' }, { status: 400 });
+      }
+
+      const { dataService } = await import('@/lib/data-service');
+      const agent = await dataService.authenticateDropPointAgent(agentNumber, pinCode);
+
+      if (!agent) {
+        return NextResponse.json(
+          { error: 'Numéro agent ou code PIN incorrect.' },
+          { status: 401 }
+        );
+      }
+
+      const token = await createToken({
+        userId: agent.id,
+        role: 'point_relais' as any,
+        name: agent.name,
+        agencyId: agent.dropPointId, // reuse agencyId field to store dropPointId
+      });
+      await setSessionCookie(token);
+
+      return NextResponse.json({
+        success: true,
+        user: {
+          id: agent.id,
+          role: 'point_relais',
+          name: agent.name,
+          agentNumber: agent.agentNumber,
+          dropPointId: agent.dropPointId,
+          dropPointName: agent.dropPointName,
+          dropPointCommune: agent.dropPointCommune,
+        },
+      });
+    }
+
+    // -- SUPERADMIN: authenticate by password ----------------------
+    if (role === 'superadmin') {
+      const { password } = body as { password?: string };
+      if (!password) {
+        return NextResponse.json({ error: 'Mot de passe requis.' }, { status: 400 });
+      }
+      const { getAdminPasswordHash, hashPassword } = await import('@/utils/adminAuth');
+      const hash = await hashPassword(password);
+      if (hash !== getAdminPasswordHash()) {
+        return NextResponse.json({ error: 'Mot de passe administrateur incorrect.' }, { status: 401 });
+      }
+
+      const token = await createToken({
+        userId: 'superadmin-master-id',
+        role: 'superadmin',
+        name: 'Super Admin Moncolis',
+      });
+      await setSessionCookie(token);
+
+      return NextResponse.json({
+        success: true,
+        user: { id: 'superadmin-master-id', role: 'superadmin', name: 'Super Admin Moncolis' },
+      });
+    }
+
+    // -- VENDEUR / AGENCE: authenticate by email + password --------
     const { email, password } = body as { email: string; password: string };
     if (!email || !password) {
       return NextResponse.json({ error: 'Email et mot de passe requis.' }, { status: 400 });
@@ -76,27 +147,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Hash submitted password and compare
-    const enc = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(password));
-    const submittedHash = Buffer.from(hashBuffer).toString('hex');
+    // 2. Vérification du mot de passe avec bcrypt
+    //    Compatibilité ascendante : si l'ancien hash est en SHA-256 (64 chars hex),
+    //    on vérifie l'ancien format puis on rehache automatiquement en bcrypt.
+    let passwordValid = false;
+    let needsRehash   = false;
 
-    if (submittedHash !== profile.password_hash) {
+    if (profile.password_hash && profile.password_hash.startsWith('$2b$')) {
+      // Hash bcrypt — vérification standard
+      passwordValid = await bcrypt.compare(password, profile.password_hash);
+    } else if (profile.password_hash && /^[0-9a-f]{64}$/i.test(profile.password_hash)) {
+      // Hash SHA-256 legacy — vérification temporaire pour migration
+      const enc = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(password));
+      const sha256Hash = Buffer.from(hashBuffer).toString('hex');
+      passwordValid = sha256Hash === profile.password_hash;
+      if (passwordValid) needsRehash = true; // Rehacher en bcrypt après connexion réussie
+    }
+
+    if (!passwordValid) {
       return NextResponse.json(
         { error: 'Identifiants incorrects. Vérifiez votre email et mot de passe.' },
         { status: 401 }
       );
     }
 
-    // 3. For agence role, fetch the agency id (agencies.id = profiles.id via shared PK)
+    // Rehachage automatique SHA-256 → bcrypt (migration transparente)
+    if (needsRehash) {
+      const newBcryptHash = await bcrypt.hash(password, 12);
+      await supabase
+        .from('profiles')
+        .update({ password_hash: newBcryptHash })
+        .eq('id', profile.id);
+    }
+
+    // 3. For agence role, fetch the agency and verify validation status
     let agencyId: string | undefined;
     if (role === 'agence') {
-      const { data: agence } = await supabase
-        .from('agencies')
-        .select('id')
-        .eq('id', profile.id)
-        .maybeSingle();
-      agencyId = agence?.id;
+      const { dataService } = await import('@/lib/data-service');
+      const allAgencies = await dataService.getAgencies();
+      const agInfo = allAgencies.find(a => a.id === profile.id);
+
+      if (agInfo) {
+        if (agInfo.status === 'PENDING') {
+          return NextResponse.json(
+            { error: "Votre compte agence est en cours d'examen par le Superadmin. Dès validation de votre dossier, vous pourrez vous connecter." },
+            { status: 403 }
+          );
+        }
+        if (agInfo.status === 'REJECTED') {
+          return NextResponse.json(
+            { error: "Votre demande d'adhésion agence a été refusée par la direction Moncolis. Veuillez contacter le support." },
+            { status: 403 }
+          );
+        }
+        if (agInfo.status === 'SUSPENDED') {
+          return NextResponse.json(
+            { error: "Votre compte agence a été suspendu par l'administrateur. Veuillez contacter le support." },
+            { status: 403 }
+          );
+        }
+        agencyId = agInfo.id;
+      } else {
+        const { data: agence } = await supabase
+          .from('agencies')
+          .select('id')
+          .eq('id', profile.id)
+          .maybeSingle();
+        agencyId = agence?.id;
+      }
     }
 
     // 4. Create session

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Bell, Truck, ClipboardList, Star, Settings, CheckCircle, XCircle, Clock, Copy, Check, KeyRound, LogOut, DollarSign } from 'lucide-react';
 import { useAuth } from '@/lib/use-auth';
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// --- Types -----------------------------------------------------------------
 interface Livreur {
   id: string;
   name: string;
@@ -49,21 +49,8 @@ interface Colis {
   quotation?: Quotation | null;
 }
 
-// ─── Seed Data ──────────────────────────────────────────────────────────────
-const SEED_LIVREURS: Livreur[] = [
-  { id: 'L1', name: 'Patrick Makiese', phone: '+243 81 44 55 660', pinCode: '1234', vehicle: 'Moto Honda 150', available: true,  deliveries: 142, rating: 4.9, joinedDate: '2026-01-15' },
-  { id: 'L2', name: 'Alain Kabongo',   phone: '+243 89 22 11 003', pinCode: '5678', vehicle: 'Van Toyota HiAce', available: true, deliveries:  88, rating: 4.8, joinedDate: '2026-02-10' },
-  { id: 'L3', name: 'Joel Tshimanga',  phone: '+243 99 33 44 551', pinCode: '9900', vehicle: 'Moto Boxer', available: false, deliveries:  64, rating: 4.6, joinedDate: '2026-03-01' },
-];
 
-const SEED_COLIS: Colis[] = [
-  { id: 'COL-1029', trackId: 'abc123', clientName: 'Alice Dubois',     clientAddress: '15 Boulevard du 30 Juin, Gombe', clientPhone: '+243 82 10 11 123', status: 'En attente', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: null, date: '2026-07-02', otp: '847291', prixColis: 10, prixLivraison: null, distanceKm: 12, poids: 2.5, paidByClient: true, vendorPaid: false },
-  { id: 'COL-1028', trackId: 'def456', clientName: 'Jean-Pierre',      clientAddress: 'Quartier Industriel, Limete',    clientPhone: '+243 81 20 21 224', status: 'Livré',     vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: 'L1', date: '2026-07-01', otp: '192837', prixColis: 5, prixLivraison: 2, distanceKm: 8,  poids: 1.2, quotation: { basePrice: 1, commune: 'Limete', distanceTotal: 8, distancePrice: 0.5, weightTotal: 1.2, weightPrice: 0.5, totalFinale: 2}, paidByClient: true, vendorPaid: false },
-  { id: 'COL-1027', trackId: 'ghi789', terminal: 'Fatou Diallo',       clientAddress: 'Rond-Point Ngaba, Lemba',        clientPhone: '+243 90 30 31 325', status: 'En transit', vendeur: 'Boutique Express', vendeurId: 'V1', driverId: 'L3', date: '2026-06-30', otp: '563821', prixColis: 15, prixLivraison: 3, distanceKm: 18, poids: 4.0, paidByClient: true, vendorPaid: false } as any,
-  { id: 'COL-1025', trackId: 'mno345', clientName: 'Amira Saidani',    clientAddress: 'Macampagne, Ngaliema',           clientPhone: '+243 89 50 51 526', status: 'Refusé',    vendeur: 'Mode & Co',        vendeurId: 'V2', driverId: null, date: '2026-06-28', otp: '019283', prixColis: 20, prixLivraison: null, distanceKm: 5,  poids: 10.0, paidByClient: true, vendorPaid: false },
-];
-
-// ─── Status colors ──────────────────────────────────────────────────────────
+// --- Status colors ----------------------------------------------------------
 const statusStyle: Record<string, string> = {
   'En attente': '#f59e0b',
   'Accepté':    '#3b82f6',
@@ -74,7 +61,7 @@ const statusStyle: Record<string, string> = {
   'Annulé':     '#6b7280',
 };
 
-// ─── Sub-components ─────────────────────────────────────────────────────────
+// --- Sub-components ---------------------------------------------------------
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
     <div className="glass-panel" style={{ padding: '1.5rem', position: 'relative', overflow: 'hidden' }}>
@@ -86,12 +73,12 @@ function StatCard({ label, value, sub, color }: { label: string; value: string |
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 export default function AgenceDashboard() {
   const { user, loading: authLoading, logout } = useAuth('agence');
   const [activeTab, setActiveTab] = useState<'demandes' | 'livreurs' | 'historique' | 'vendeurs' | 'parametres' | 'finances'>('demandes');
-  const [colis, setColis]         = useState<Colis[]>(SEED_COLIS);
-  const [livreurs, setLivreurs]   = useState<Livreur[]>(SEED_LIVREURS);
+  const [colis, setColis]         = useState<Colis[]>([]);
+  const [livreurs, setLivreurs]   = useState<Livreur[]>([]);
 
   // Synchronisation avec dataService — uniquement les colis assignés à cette agence
   useEffect(() => {
@@ -207,7 +194,7 @@ export default function AgenceDashboard() {
   const [filterStatus, setFilterStatus]   = useState('Tous');
   const [filterVendeur, setFilterVendeur] = useState('Tous');
 
-  // ── Derived data ──────────────────────────────────────────────────────────
+  // -- Derived data ----------------------------------------------------------
   const demandes   = colis.filter(c => c.status === 'En attente' || c.status === 'Accepté');
   const historique = colis.filter(c => !['En attente', 'Accepté'].includes(c.status));
 
@@ -240,7 +227,7 @@ export default function AgenceDashboard() {
   const tauxLivraison = colis.length > 0 ? Math.round((totalLivres / colis.length) * 100) : 0;
   const revenuAgence  = colis.filter(c => c.status === 'Livré').reduce((s, c) => s + (c.prixLivraison ?? 0), 0);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // -- Handlers -------------------------------------------------------------
   
   const initPricing = (id: string, communeName: string, distanceKm: number, poids: number) => {
     const commune = globalSettings.communes.find(c => c.name === communeName) || globalSettings.communes[0];
@@ -361,7 +348,7 @@ export default function AgenceDashboard() {
     { key: 'parametres', icon: <Settings size={20} />, label: 'Paramètres' },
   ];
 
-  // ── Garde : session en cours de vérification
+  // -- Garde : session en cours de vérification
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -373,7 +360,7 @@ export default function AgenceDashboard() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // -- Render ----------------------------------------------------------------
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
     
@@ -501,7 +488,7 @@ export default function AgenceDashboard() {
           </div>
         )}
 
-      {/* ── TAB: Demandes ─────────────────────────────────────────────────── */}
+      {/* -- TAB: Demandes --------------------------------------------------- */}
       {activeTab === 'demandes' && (
         <div className="animate-fade-in">
           <h2 style={{ marginBottom: '1.5rem', fontSize: '1.3rem' }}>Demandes en attente / acceptées</h2>
@@ -666,7 +653,7 @@ export default function AgenceDashboard() {
         </div>
       )}
 
-      {/* ── TAB: Livreurs ─────────────────────────────────────────────────── */}
+      {/* -- TAB: Livreurs --------------------------------------------------- */}
       {activeTab === 'livreurs' && (
         <div className="animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -787,7 +774,7 @@ export default function AgenceDashboard() {
         </div>
       )}
 
-      {/* ── TAB: Historique ───────────────────────────────────────────────── */}
+      {/* -- TAB: Historique ------------------------------------------------- */}
       {activeTab === 'historique' && (
         <div className="animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -856,7 +843,7 @@ export default function AgenceDashboard() {
         </div>
       )}
 
-      {/* ── TAB: Vendeurs Fidèles ─────────────────────────────────────────── */}
+      {/* -- TAB: Vendeurs Fidèles ------------------------------------------- */}
       {activeTab === 'vendeurs' && (
         <div className="animate-fade-in">
           <h2 style={{ fontSize: '1.3rem', marginBottom: '0.5rem' }}>Vendeurs Fidèles</h2>
@@ -909,7 +896,7 @@ export default function AgenceDashboard() {
         </div>
       )}
 
-      {/* ── TAB: Finances ─────────────────────────────────────────────── */}
+      {/* -- TAB: Finances ----------------------------------------------- */}
       {activeTab === 'finances' && (
         <div className="animate-fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -987,7 +974,7 @@ export default function AgenceDashboard() {
         </div>
       )}
 
-      {/* ── TAB: Paramètres ─────────────────────────────────────────────── */}
+      {/* -- TAB: Paramètres ----------------------------------------------- */}
       {activeTab === 'parametres' && (
         <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '800px' }}>
           
@@ -1081,7 +1068,7 @@ export default function AgenceDashboard() {
 
       </main>
 
-      {/* ── Modal: Ajouter un livreur ────────────────────────────────────── */}
+      {/* -- Modal: Ajouter un livreur -------------------------------------- */}
       {showAddLivreur && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
           <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '440px', padding: '2rem' }}>

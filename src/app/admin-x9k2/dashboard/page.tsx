@@ -3,15 +3,21 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, destroySession } from '@/utils/adminAuth';
+import { DEFAULT_DROP_POINTS, DropPoint, DropPointAgent, dataService } from '@/lib/data-service';
+import { KINSHASA_COMMUNES, KINSHASA_DATA } from '@/utils/kinshasa';
+import {
+  CheckCircle2, XCircle, Clock, MapPin, Phone, Mail, Building2, ShieldCheck,
+  AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User
+} from 'lucide-react';
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// --- Types -----------------------------------------------------------------
 interface Agence {
   id: string;
   name: string;
   email: string;
   phone: string;
   address: string;
-  status: 'active' | 'suspended';
+  status: 'active' | 'suspended' | 'pending' | 'rejected';
   joinedDate: string;
   totalColis: number;
   tauxLivraison: number;
@@ -20,6 +26,9 @@ interface Agence {
   commissionRate: number;
   /** Le taux de conversion FC appliqué par l'agence */
   tauxConversionFC?: number;
+  managerName?: string;
+  coverageZones?: string[];
+  fleetSize?: number;
 }
 
 interface Vendeur {
@@ -43,34 +52,8 @@ interface ColisAdmin {
   montant: number;
 }
 
-// ─── Seed Data ──────────────────────────────────────────────────────────────
-// Commission Moncolis : prélevée sur chaque colis LIVRE par l'agence
-const AGENCES: Agence[] = [
-  { id: 'A1', name: 'Express Delivery',   email: 'contact@express.fr',    phone: '+33 1 10 20 30 40', address: '12 Rue Rivoli, Paris',          status: 'active',    joinedDate: '2025-01-10', totalColis: 842, tauxLivraison: 96, livreurs: 8, commissionRate: 0.12, tauxConversionFC: 2850 },
-  { id: 'A2', name: 'Mondial Logistique', email: 'info@mondial-log.fr',   phone: '+33 4 50 60 70 80', address: '5 Place Bellecour, Lyon',       status: 'active',    joinedDate: '2025-02-15', totalColis: 613, tauxLivraison: 91, livreurs: 5, commissionRate: 0.10, tauxConversionFC: 2800 },
-  { id: 'A3', name: 'Chronopost Local',   email: 'admin@chrono-local.fr', phone: '+33 9 90 80 70 60', address: '3 Av. du Port, Marseille',      status: 'suspended', joinedDate: '2025-04-01', totalColis: 204, tauxLivraison: 78, livreurs: 2, commissionRate: 0.08, tauxConversionFC: 2850 },
-  { id: 'A4', name: 'Relais Colis Pro',   email: 'rcp@relaiscolis.fr',    phone: '+33 5 30 40 50 60', address: '8 Cours Victor Hugo, Bordeaux', status: 'active',    joinedDate: '2025-06-20', totalColis: 118, tauxLivraison: 88, livreurs: 3, commissionRate: 0.09, tauxConversionFC: 2820 },
-];
-
-const VENDEURS: Vendeur[] = [
-  { id: 'V1', name: 'Boutique Express',   email: 'boutique@express.fr',  status: 'active',    joinedDate: '2025-01-20', totalColis: 312, revenu: 1404 },
-  { id: 'V2', name: 'Mode & Co',          email: 'mode@co.fr',           status: 'active',    joinedDate: '2025-03-05', totalColis: 187, revenu:  841 },
-  { id: 'V3', name: 'Tech Shop DZ',       email: 'tech@shopdz.com',      status: 'active',    joinedDate: '2025-05-12', totalColis:  98, revenu:  441 },
-  { id: 'V4', name: 'Bio Nature',         email: 'contact@bionature.fr', status: 'suspended', joinedDate: '2025-07-01', totalColis:  43, revenu:  193 },
-];
-
-const COLIS_ADMIN: ColisAdmin[] = [
-  { id: 'COL-1029', clientName: 'Alice Dubois',     vendeur: 'Boutique Express', agence: 'Express Delivery',   agenceId: 'A1', status: 'En attente',  date: '2026-07-02', montant: 4.50 },
-  { id: 'COL-1028', clientName: 'Jean-Pierre Noir', vendeur: 'Mode & Co',        agence: 'Mondial Logistique', agenceId: 'A2', status: 'Livre',       date: '2026-07-01', montant: 3.90 },
-  { id: 'COL-1027', clientName: 'Fatou Diallo',     vendeur: 'Boutique Express', agence: 'Express Delivery',   agenceId: 'A1', status: 'En transit',  date: '2026-06-30', montant: 4.50 },
-  { id: 'COL-1026', clientName: 'Thomas Remy',      vendeur: 'Tech Shop DZ',     agence: 'Mondial Logistique', agenceId: 'A2', status: 'Livre',       date: '2026-06-29', montant: 3.90 },
-  { id: 'COL-1025', clientName: 'Amira Saidani',    vendeur: 'Mode & Co',        agence: 'Chronopost Local',   agenceId: 'A3', status: 'Refuse',      date: '2026-06-28', montant: 5.20 },
-  { id: 'COL-1024', clientName: 'Lucas Bernard',    vendeur: 'Boutique Express', agence: 'Express Delivery',   agenceId: 'A1', status: 'Livre',       date: '2026-06-27', montant: 4.50 },
-  { id: 'COL-1023', clientName: 'Nadia Hamdi',      vendeur: 'Tech Shop DZ',     agence: 'Relais Colis Pro',   agenceId: 'A4', status: 'Livre',       date: '2026-06-26', montant: 3.00 },
-  { id: 'COL-1022', clientName: 'Pierre Legrand',   vendeur: 'Mode & Co',        agence: 'Express Delivery',   agenceId: 'A1', status: 'Accepte',     date: '2026-06-25', montant: 4.50 },
-];
-
-// ─── Status colors ─────────────────────────────────────────────────────────
+// --- Status colors ---------------------------------------------------------
+// --- Status colors ---------------------------------------------------------
 const statusColor: Record<string, string> = {
   'En attente': '#f59e0b',
   'Accepte':    '#3b82f6',
@@ -81,7 +64,7 @@ const statusColor: Record<string, string> = {
   'Annule':     '#6b7280',
 };
 
-// ─── Sub-component: KPI Card ────────────────────────────────────────────────
+// --- Sub-component: KPI Card ------------------------------------------------
 function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
   return (
     <div style={{
@@ -96,7 +79,7 @@ function KpiCard({ label, value, sub, color }: { label: string; value: string | 
   );
 }
 
-// ─── Sub-component: Status badge ────────────────────────────────────────────
+// --- Sub-component: Status badge --------------------------------------------
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span style={{
@@ -111,8 +94,8 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
-// ─── Diagnostics types ─────────────────────────────────────────────────────
+// --- Main Component ---------------------------------------------------------
+// --- Diagnostics types -----------------------------------------------------
 interface ServiceCheck {
   name: string;
   status: 'ok' | 'warn' | 'error';
@@ -127,7 +110,7 @@ interface LogEntry {
   time: string;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// --- Helpers ----------------------------------------------------------------
 function randomLatency(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -147,28 +130,150 @@ function buildServices(): ServiceCheck[] {
 }
 
 const INITIAL_LOGS: LogEntry[] = [
-  { id: 1, level: 'INFO',  message: 'Connexion admin etablie depuis 127.0.0.1',           time: '02:07:14' },
-  { id: 2, level: 'INFO',  message: 'Colis COL-1029 cree par Boutique Express',            time: '02:04:52' },
-  { id: 3, level: 'WARN',  message: 'Agence Chronopost Local — taux livraison sous 80%',   time: '01:58:33' },
-  { id: 4, level: 'INFO',  message: 'Livreur Marc Dupont : statut passe a Indisponible',   time: '01:47:10' },
-  { id: 5, level: 'ERROR', message: 'Tentative de connexion admin echouee (3/3) — IP bloquee 30s', time: '01:41:05' },
-  { id: 6, level: 'INFO',  message: 'Colis COL-1028 marque Livre par Sophie Martin',       time: '01:30:21' },
-  { id: 7, level: 'WARN',  message: 'Memoire heap > 70% — surveillance activee',           time: '01:22:47' },
-  { id: 8, level: 'INFO',  message: 'Nouveau vendeur inscrit : Bio Nature',                time: '00:55:03' },
+  { id: 1, level: 'INFO',  message: 'Tableau de bord admin chargé.', time: new Date().toLocaleTimeString('fr-FR') },
 ];
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'agences' | 'vendeurs' | 'colis' | 'diagnostique'>('overview');
-  const [agences, setAgences]     = useState<Agence[]>(AGENCES);
-  const [vendeurs, setVendeurs]   = useState<Vendeur[]>(VENDEURS);
-  const [colis]                   = useState<ColisAdmin[]>(COLIS_ADMIN);
+  const [activeTab, setActiveTab] = useState<'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'diagnostique'>('overview');
+  const [agences, setAgences]     = useState<Agence[]>([]);
+  const [vendeurs, setVendeurs]   = useState<Vendeur[]>([]);
+  const [colis, setColis]         = useState<ColisAdmin[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [dropPoints, setDropPoints] = useState<DropPoint[]>([]);
   const [colisFilter, setColisFilter] = useState('Tous');
   const [searchColis, setSearchColis] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [plafondFC, setPlafondFC] = useState(2850);
+  const [toast, setToast]         = useState<string | null>(null);
 
-  // ── Diagnostics state ────────────────────────────────────────────────────
+  // -- Drop point agents state --
+  const [agents, setAgents] = useState<DropPointAgent[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
+  const [newAgentName, setNewAgentName] = useState('');
+  const [newAgentDropPointId, setNewAgentDropPointId] = useState('');
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [agentCreatedCredentials, setAgentCreatedCredentials] = useState<{ agent: DropPointAgent; plainPin: string } | null>(null);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
+  // Keeps plainPins in memory for the current session so admin can re-view them
+  const [sessionPins, setSessionPins] = useState<Map<string, string>>(new Map());
+
+  // -- Drop points creation state --
+  const [showCreateDropPointModal, setShowCreateDropPointModal] = useState(false);
+  const [creatingDropPoint, setCreatingDropPoint] = useState(false);
+  const [newDpName, setNewDpName] = useState('');
+  const [newDpPhone, setNewDpPhone] = useState('');
+  const [newDpCommune, setNewDpCommune] = useState('');
+  const [newDpQuartier, setNewDpQuartier] = useState('');
+  const [newDpQuartierCustom, setNewDpQuartierCustom] = useState('');
+  const [newDpAvenue, setNewDpAvenue] = useState('');
+  const [newDpNumero, setNewDpNumero] = useState('');
+  const [newDpManager, setNewDpManager] = useState('');
+  // Credentials affichés après création du point relais + son premier agent
+  const [newDpCredentials, setNewDpCredentials] = useState<{ dropPointName: string; agentNumber: string; plainPin: string; agentName: string } | null>(null);
+  const [copiedDpCredentials, setCopiedDpCredentials] = useState(false);
+
+  const loadAgents = useCallback(async () => {
+    setLoadingAgents(true);
+    try {
+      const res = await fetch('/api/drop-points/agents', {
+        headers: { 'x-admin-auth': 'authenticated_superadmin_v1' }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setAgents(json.agents || []);
+      } else {
+        setAgents(await dataService.getDropPointAgents());
+      }
+    } catch {
+      setAgents(await dataService.getDropPointAgents());
+    } finally {
+      setLoadingAgents(false);
+    }
+  }, []);
+
+  // Charger les vraies données Supabase au montage
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAllData() {
+      setLoadingData(true);
+      try {
+        // Charger les agences
+        const realAgencies = await dataService.getAgencies();
+        if (!cancelled) {
+          setAgences(realAgencies.map(ra => ({
+            id: ra.id,
+            name: ra.name,
+            email: ra.email || 'contact@agence.cd',
+            phone: ra.phone || '',
+            address: ra.address || '',
+            status: ra.status === 'APPROVED' ? 'active' : ra.status === 'PENDING' ? 'pending' : ra.status === 'REJECTED' ? 'rejected' : 'suspended',
+            joinedDate: ra.createdAt ? new Date(ra.createdAt).toLocaleDateString('fr-FR') : '—',
+            totalColis: 0,
+            tauxLivraison: 0,
+            livreurs: ra.fleetSize || 0,
+            commissionRate: 0.10,
+            tauxConversionFC: 2850,
+            coverageZones: ra.coverageZones || [],
+            fleetSize: ra.fleetSize || 0,
+            managerName: ra.managerName,
+          })));
+        }
+
+        // Charger les vendeurs depuis Supabase
+        const { supabase } = await import('@/utils/supabase/client');
+        let profiles = null;
+        try {
+          const res = await supabase
+            .from('profiles')
+            .select('id, name, email, created_at')
+            .eq('role', 'vendeur');
+          profiles = res.data;
+        } catch (e) {
+          console.error("Erreur réseau profils", e);
+        }
+        if (!cancelled && profiles) {
+          setVendeurs(profiles.map(p => ({
+            id: p.id,
+            name: p.name,
+            email: p.email || '',
+            status: 'active',
+            joinedDate: new Date(p.created_at).toLocaleDateString('fr-FR'),
+            totalColis: 0,
+            revenu: 0,
+          })));
+        }
+
+        // Charger les points relais
+        const realDropPoints = await dataService.getDropPoints();
+        if (!cancelled) setDropPoints(realDropPoints);
+
+        // Charger les colis
+        const allPackages = await dataService.getAllPackages();
+        if (!cancelled) {
+          setColis(allPackages.slice(0, 100).map(p => ({
+            id: p.id,
+            clientName: p.clientName,
+            vendeur: p.vendeurName || '—',
+            agence: p.agence || '—',
+            agenceId: p.agencyId || '',
+            status: p.status,
+            date: p.date,
+            montant: p.prixLivraison || 0,
+          })));
+        }
+      } catch (err) {
+        console.error('[AdminDashboard] loadAllData error:', err);
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
+    }
+    loadAllData();
+    return () => { cancelled = true; };
+  }, []);
+
+  // -- Diagnostics state ----------------------------------------------------
   const [services, setServices]   = useState<ServiceCheck[]>(buildServices);
   const [logs, setLogs]           = useState<LogEntry[]>(INITIAL_LOGS);
   const [uptime, setUptime]       = useState(0); // seconds since tab open
@@ -222,10 +327,11 @@ export default function AdminDashboard() {
     }, 900);
   }, []);
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
+  // -- Derived stats ---------------------------------------------------------
   const totalColis    = useMemo(() => colis.length, [colis]);
   const totalLivres   = useMemo(() => colis.filter(c => c.status === 'Livre').length, [colis]);
   const activeAgences = useMemo(() => agences.filter(a => a.status === 'active').length, [agences]);
+  const pendingAgencesCount = useMemo(() => agences.filter(a => a.status === 'pending').length, [agences]);
 
   // Revenu = somme des commissions sur colis LIVRES uniquement
   const commissionByAgence = useMemo(() => {
@@ -263,9 +369,164 @@ export default function AdminDashboard() {
     });
   }, [colis, colisFilter, searchColis]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // -- Handlers -------------------------------------------------------------
   const toggleAgenceStatus = (id: string) => {
     setAgences(prev => prev.map(a => a.id === id ? { ...a, status: a.status === 'active' ? 'suspended' : 'active' } : a));
+  };
+
+  const handleApproveAgency = async (id: string) => {
+    await dataService.approveAgency(id);
+    setAgences(prev => prev.map(a => a.id === id ? { ...a, status: 'active' } : a));
+    const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: `Superadmin a approuvé l'agence #${id}`, time: now }, ...prev.slice(0, 19)]);
+    setToast("Compte agence validé et activé avec succès !");
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleRejectAgency = async (id: string) => {
+    await dataService.rejectAgency(id);
+    setAgences(prev => prev.map(a => a.id === id ? { ...a, status: 'rejected' } : a));
+    const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLogs(prev => [{ id: logIdRef.current++, level: 'WARN', message: `Superadmin a refusé la demande agence #${id}`, time: now }, ...prev.slice(0, 19)]);
+    setToast("Demande d'adhésion agence refusée.");
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const toggleDropPointStatus = (id: string) => {
+    setDropPoints(prev => prev.map(dp => dp.id === id ? { ...dp, isActive: !dp.isActive } : dp));
+  };
+
+  const handleCreateAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAgentName.trim() || !newAgentDropPointId) return;
+    setCreatingAgent(true);
+    try {
+      const res = await fetch('/api/drop-points/agents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-auth': 'authenticated_superadmin_v1'
+        },
+        body: JSON.stringify({
+          name: newAgentName.trim(),
+          dropPointId: newAgentDropPointId,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        // Save PIN in session memory so admin can re-view it later
+        setSessionPins(prev => new Map(prev).set(json.agent.agentNumber, json.plainPin));
+        setAgentCreatedCredentials({ agent: json.agent, plainPin: json.plainPin });
+        setNewAgentName('');
+        setShowCreateAgentModal(false);
+        loadAgents();
+        const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: `Superadmin a créé l'agent relais #${json.agent.agentNumber} (${json.agent.name})`, time: now }, ...prev.slice(0, 19)]);
+        setToast(`Agent ${json.agent.name} créé avec succès !`);
+        setTimeout(() => setToast(null), 4000);
+      } else {
+        alert(json.error || "Erreur lors de la création de l'agent.");
+      }
+    } catch {
+      alert("Erreur réseau lors de la création de l'agent.");
+    } finally {
+      setCreatingAgent(false);
+    }
+  };
+
+  const handleCreateDropPoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalQuartier = newDpQuartier === 'AUTRE' ? newDpQuartierCustom.trim() : newDpQuartier;
+    if (!newDpCommune || !finalQuartier || !newDpAvenue.trim() || !newDpNumero.trim()) {
+      alert("L'adresse complète est requise (Commune, Quartier, Avenue, Numéro).");
+      return;
+    }
+    if (!newDpManager.trim()) {
+      alert("Le nom du gérant est requis pour créer les identifiants de l'agent.");
+      return;
+    }
+    setCreatingDropPoint(true);
+    try {
+      // 1. Créer le Point Relais
+      const dpRes = await fetch('/api/drop-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-auth': 'authenticated_superadmin_v1' },
+        body: JSON.stringify({
+          name: newDpName,
+          commune: newDpCommune,
+          quartier: finalQuartier,
+          avenue: newDpAvenue,
+          numero: newDpNumero,
+          phone: newDpPhone,
+          managerName: newDpManager,
+        }),
+      });
+      const dpJson = await dpRes.json();
+      if (!dpRes.ok || !dpJson.dropPoint) {
+        alert(dpJson.error || "Erreur lors de la création du point relais.");
+        return;
+      }
+      const createdDp = dpJson.dropPoint;
+      setDropPoints(prev => [createdDp, ...prev]);
+
+      // 2. Créer automatiquement l'agent associé (gérant)
+      const agentRes = await fetch('/api/drop-points/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-auth': 'authenticated_superadmin_v1' },
+        body: JSON.stringify({ name: newDpManager.trim(), dropPointId: createdDp.id }),
+      });
+      const agentJson = await agentRes.json();
+
+      setShowCreateDropPointModal(false);
+      // 3. Afficher les identifiants générés
+      if (agentRes.ok && agentJson.success) {
+        setNewDpCredentials({
+          dropPointName: createdDp.name,
+          agentName: agentJson.agent.name,
+          agentNumber: agentJson.agent.agentNumber,
+          plainPin: agentJson.plainPin,
+        });
+        loadAgents();
+      } else {
+        setToast(`✅ Point Relais créé ! Mais erreur agent: ${agentJson.error || 'Inconnue'}`);
+        setTimeout(() => setToast(null), 5000);
+      }
+      // Réinitialisation
+      setNewDpName(''); setNewDpPhone(''); setNewDpCommune('');
+      setNewDpQuartier(''); setNewDpQuartierCustom('');
+      setNewDpAvenue(''); setNewDpNumero(''); setNewDpManager('');
+    } catch {
+      alert("Erreur réseau lors de la création du point relais.");
+    } finally {
+      setCreatingDropPoint(false);
+    }
+  };
+
+  const handleToggleAgentStatus = async (agent: DropPointAgent) => {
+    const newStatus = !agent.isActive;
+    try {
+      const res = await fetch('/api/drop-points/agents', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-auth': 'authenticated_superadmin_v1'
+        },
+        body: JSON.stringify({
+          agentId: agent.id,
+          isActive: newStatus,
+        }),
+      });
+      if (res.ok) {
+        setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, isActive: newStatus } : a));
+        const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLogs(prev => [{ id: logIdRef.current++, level: 'WARN', message: `Superadmin a ${newStatus ? 'activé' : 'désactivé'} l'agent relais #${agent.agentNumber}`, time: now }, ...prev.slice(0, 19)]);
+        setToast(`Agent ${agent.name} ${newStatus ? 'activé' : 'désactivé'}.`);
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch {
+      await dataService.setDropPointAgentStatus(agent.id, newStatus);
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, isActive: newStatus } : a));
+    }
   };
 
   const toggleVendeurStatus = (id: string) => {
@@ -277,13 +538,15 @@ export default function AdminDashboard() {
     router.replace('/admin-x9k2');
   };
 
-  // ── Layout ────────────────────────────────────────────────────────────────
+  // -- Layout ----------------------------------------------------------------
   const tabs = [
     { key: 'overview',      label: 'Vue globale' },
-    { key: 'agences',       label: `Agences (${agences.length})` },
+    { key: 'demandes',      label: `Adhésions Agences (${pendingAgencesCount})` },
+    { key: 'relais',        label: `Points Relais (${dropPoints.length})` },
+    { key: 'agences',       label: `Agences Actives (${agences.filter(a => a.status === 'active' || a.status === 'suspended').length})` },
     { key: 'vendeurs',      label: `Vendeurs (${vendeurs.length})` },
     { key: 'colis',         label: `Tous les colis (${colis.length})` },
-    { key: 'diagnostique',  label: 'Diagnostique Systeme' },
+    { key: 'diagnostique',  label: 'Diagnostique Système' },
   ] as const;
 
   return (
@@ -377,9 +640,16 @@ export default function AdminDashboard() {
           </p>
         </div>
 
-        {/* ── TAB: Overview ────────────────────────────────────────────────── */}
-        {activeTab === 'overview' && (
-          <div className="animate-fade-in">
+        {/* -- TAB: Overview -------------------------------------------------- */}
+        {loadingData ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '4rem', opacity: 0.6 }}>
+            <RefreshCw className="animate-spin" size={24} style={{ marginRight: '0.75rem' }} />
+            <span>Chargement des données...</span>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'overview' && (
+              <div className="animate-fade-in">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
               <KpiCard label="Total colis"       value={totalColis}    sub="Depuis le debut"                       color="#22c55e" />
               <KpiCard label="Livres"             value={totalLivres}   sub={`${Math.round(totalLivres/totalColis*100)}% de taux`} color="#10b981" />
@@ -448,7 +718,7 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {COLIS_ADMIN.slice(0, 5).map((c, i) => {
+                  {colis.slice(0, 5).map((c, i) => {
                     const comm = getCommission(c);
                     return (
                       <tr key={c.id}
@@ -497,10 +767,820 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── TAB: Agences ─────────────────────────────────────────────────── */}
+        {/* Toast notification */}
+        {toast && (
+          <div style={{
+            position: 'fixed', top: '1.5rem', right: '1.5rem', zIndex: 9999,
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff', padding: '0.85rem 1.4rem', borderRadius: '12px',
+            boxShadow: '0 10px 25px rgba(16, 185, 129, 0.4)',
+            display: 'flex', alignItems: 'center', gap: '0.6rem',
+            fontWeight: '600', fontSize: '0.9rem',
+          }}>
+            <CheckCircle2 size={18} />
+            <span>{toast}</span>
+          </div>
+        )}
+
+        {/* -- TAB: Demandes d'Adhésion Agences ------------------------------- */}
+        {activeTab === 'demandes' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* Context Notice */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(245, 158, 11, 0.05))',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '16px', padding: '1.25rem 1.5rem',
+              display: 'flex', alignItems: 'flex-start', gap: '1rem',
+            }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                background: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#ef4444', flexShrink: 0, marginTop: '2px'
+              }}>
+                <ShieldCheck size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: '0 0 0.3rem', fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                  Contrôle d'Accès & Habilitation des Agences Partenaires
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                  À Kinshasa, la création de compte agence est strictement soumise à la validation préalable du <strong>Superadmin</strong>. Vérifiez la flotte déclarée, les zones de couverture et l'adresse du siège avant d'octroyer les droits opérationnels.
+                </p>
+              </div>
+            </div>
+
+            {/* List of Applications */}
+            {agences.filter(a => a.status === 'pending' || a.status === 'rejected').length === 0 ? (
+              <div style={{
+                textAlign: 'center', padding: '3.5rem 1.5rem',
+                background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)',
+                borderRadius: '16px', color: '#94a3b8'
+              }}>
+                <CheckCircle2 size={42} color="#22c55e" style={{ margin: '0 auto 1rem' }} />
+                <h3 style={{ color: '#fff', fontSize: '1.1rem', margin: '0 0 0.35rem' }}>Toutes les demandes ont été traitées</h3>
+                <p style={{ fontSize: '0.85rem', margin: 0 }}>Aucun dossier d'agence en attente de validation.</p>
+              </div>
+            ) : (
+              agences.filter(a => a.status === 'pending' || a.status === 'rejected').map(a => (
+                <div key={a.id} style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: a.status === 'pending' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '16px', padding: '1.5rem',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem',
+                  boxShadow: a.status === 'pending' ? '0 10px 30px rgba(245, 158, 11, 0.05)' : 'none'
+                }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div style={{
+                        width: '48px', height: '48px', borderRadius: '12px',
+                        background: a.status === 'pending' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(239, 68, 68, 0.2)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', fontWeight: '800', fontSize: '1.2rem', flexShrink: 0
+                      }}>
+                        {a.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>{a.name}</h3>
+                          <span style={{
+                            padding: '0.2rem 0.65rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: '800',
+                            background: a.status === 'pending' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            color: a.status === 'pending' ? '#f59e0b' : '#ef4444',
+                            border: `1px solid ${a.status === 'pending' ? '#f59e0b' : '#ef4444'}`,
+                          }}>
+                            {a.status === 'pending' ? 'EN ATTENTE DE VALIDATION' : 'REFUSÉE'}
+                          </span>
+                        </div>
+                        <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>
+                          Responsable : <strong style={{ color: '#cbd5e1' }}>{a.managerName || 'Gérant'}</strong> · Déposée : {a.joinedDate}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    {a.status === 'pending' && (
+                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => handleApproveAgency(a.id)}
+                          style={{
+                            padding: '0.6rem 1.25rem', borderRadius: '10px', border: 'none',
+                            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                            color: '#fff', fontWeight: '700', fontSize: '0.85rem',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                            boxShadow: '0 4px 14px rgba(34, 197, 94, 0.35)', transition: 'all 0.2s'
+                          }}
+                        >
+                          <CheckCircle2 size={16} />
+                          Approuver et Habiliter
+                        </button>
+
+                        <button
+                          onClick={() => handleRejectAgency(a.id)}
+                          style={{
+                            padding: '0.6rem 1.1rem', borderRadius: '10px',
+                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            color: '#fca5a5', fontWeight: '700', fontSize: '0.85rem',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <XCircle size={16} />
+                          Refuser
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Applicant details */}
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '1rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '12px',
+                    fontSize: '0.82rem', color: '#cbd5e1'
+                  }}>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>CONTACT WHATSAPP & APPELS</span>
+                      <strong style={{ color: '#38bdf8' }}>{a.phone}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>EMAIL PROFESSIONNEL</span>
+                      <span>{a.email}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>ADRESSE DU SIÈGE / DÉPÔT</span>
+                      <span>{a.address}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>FLOTTE ESTIMÉE</span>
+                      <strong style={{ color: '#4ade80' }}>{a.fleetSize || a.livreurs} coursiers / motos</strong>
+                    </div>
+                  </div>
+
+                  {/* Coverage zones */}
+                  {a.coverageZones && a.coverageZones.length > 0 && (
+                    <div>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Communes de Kinshasa desservies déclarées :
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {a.coverageZones.map(zone => (
+                          <span key={zone} style={{
+                            padding: '0.25rem 0.65rem', borderRadius: '8px',
+                            background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.3)',
+                            color: '#93c5fd', fontSize: '0.78rem', fontWeight: '600'
+                          }}>
+                            📍 {zone}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* -- TAB: Points de Dépôt / Relais ---------------------------------- */}
+        {activeTab === 'relais' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* Header banner */}
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(34, 197, 94, 0.08))',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: '16px', padding: '1.25rem 1.5rem',
+              display: 'flex', alignItems: 'flex-start', gap: '1rem',
+            }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                background: 'rgba(59, 130, 246, 0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#60a5fa', flexShrink: 0, marginTop: '2px'
+              }}>
+                <MapPin size={22} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.3rem', fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                      Maillage des Points de Dépôt & Relais — Kinshasa
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                      1. <strong>Premier Kilomètre (Vendeurs) :</strong> Les vendeurs peuvent déposer leurs colis directement au point relais de leur quartier pour un enlèvement rapide par un livreur.<br />
+                      2. <strong>Dernier Kilomètre (Zones Inaccessibles) :</strong> En cas de secteur enclavé ou route impraticable, le livreur transfère le colis au point relais du secteur client pour retrait sécurisé via code OTP.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowCreateDropPointModal(true)}
+                    style={{
+                      padding: '0.6rem 1.25rem', borderRadius: '10px', border: 'none',
+                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      color: '#fff', fontSize: '0.85rem', fontWeight: '800', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0,
+                      boxShadow: '0 4px 14px rgba(34, 197, 94, 0.4)', fontFamily: 'inherit'
+                    }}
+                  >
+                    <MapPin size={16} />
+                    Créer Point Relais
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Drop points grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+              {dropPoints.map(dp => (
+                <div key={dp.id} style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: dp.isActive ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '16px', padding: '1.25rem',
+                  display: 'flex', flexDirection: 'column', gap: '1rem',
+                  opacity: dp.isActive ? 1 : 0.65
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{
+                          padding: '0.2rem 0.55rem', borderRadius: '6px', fontSize: '0.7rem',
+                          fontWeight: '800', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80'
+                        }}>
+                          {dp.commune}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{dp.id}</span>
+                      </div>
+                      <h4 style={{ margin: '0.35rem 0 0', fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                        {dp.name}
+                      </h4>
+                    </div>
+
+                    <button
+                      onClick={() => toggleDropPointStatus(dp.id)}
+                      style={{
+                        padding: '0.3rem 0.75rem', borderRadius: '20px', border: 'none',
+                        background: dp.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                        color: dp.isActive ? '#4ade80' : '#ef4444',
+                        fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
+                      }}
+                    >
+                      {dp.isActive ? 'Actif' : 'Désactivé'}
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.82rem', color: '#94a3b8' }}>
+                    <div>📍 <strong>Adresse :</strong> <span style={{ color: '#cbd5e1' }}>{dp.address}</span></div>
+                    <div>👤 <strong>Gérant :</strong> <span style={{ color: '#cbd5e1' }}>{dp.managerName}</span></div>
+                    <div>📞 <strong>Contact :</strong> <span style={{ color: '#38bdf8' }}>{dp.phone}</span></div>
+                    <div>⏰ <strong>Horaires :</strong> <span style={{ color: '#fcd34d' }}>{dp.openingHours}</span></div>
+                  </div>
+
+                  <div style={{
+                    padding: '0.6rem 0.85rem', background: 'rgba(0,0,0,0.25)',
+                    borderRadius: '8px', fontSize: '0.75rem', color: '#64748b',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  }}>
+                    <span>Disponibilité retrait colis</span>
+                    <span style={{ color: '#4ade80', fontWeight: '700' }}>Ouvert 6j/7</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Modal: Créer un Point Relais */}
+            {showCreateDropPointModal && (
+              <div style={{
+                position: 'fixed', inset: 0, zIndex: 9999,
+                background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', overflowY: 'auto'
+              }}>
+                <div style={{
+                  maxWidth: '550px', width: '100%',
+                  background: '#0d1117', border: '1px solid rgba(34, 197, 94, 0.3)',
+                  borderRadius: '24px', padding: '2rem',
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem',
+                  maxHeight: '90vh', overflowY: 'auto'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{
+                      width: '42px', height: '42px', borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                    }}>
+                      <MapPin size={22} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: '#fff' }}>
+                        Nouveau Point Relais
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+                        Ajoutez un nouveau point physique de dépôt/retrait.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCreateDropPoint} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Nom du Point Relais *</label>
+                        <input type="text" required value={newDpName} onChange={e => setNewDpName(e.target.value)} placeholder="Ex: Boutique Sarah" className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Téléphone de contact *</label>
+                        <input type="tel" required value={newDpPhone} onChange={e => setNewDpPhone(e.target.value)} placeholder="+243..." className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Nom du Gérant (= Premier Agent) *</label>
+                      <input type="text" required value={newDpManager} onChange={e => setNewDpManager(e.target.value)} placeholder="Ex: Jean Mukanya" className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }} />
+                      <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>Le gérant recevra un identifiant à 9 chiffres et un code PIN à 6 chiffres automatiquement générés.</p>
+                    </div>
+
+                    <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '0.5rem 0' }}></div>
+
+                    <h4 style={{ margin: '0', fontSize: '0.95rem', fontWeight: '700', color: '#e2e8f0' }}>Adresse détaillée</h4>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Commune *</label>
+                        <select required value={newDpCommune} onChange={e => { setNewDpCommune(e.target.value); setNewDpQuartier(''); }} className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }}>
+                          <option value="">Sélectionnez...</option>
+                          {KINSHASA_COMMUNES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Quartier *</label>
+                        <select required value={newDpQuartier} onChange={e => setNewDpQuartier(e.target.value)} disabled={!newDpCommune} className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box', opacity: !newDpCommune ? 0.5 : 1 }}>
+                          <option value="">Sélectionnez...</option>
+                          {newDpCommune && KINSHASA_DATA[newDpCommune]?.map(q => <option key={q} value={q}>{q}</option>)}
+                          <option value="AUTRE">Autre (saisir manuellement)</option>
+                        </select>
+                        {newDpQuartier === 'AUTRE' && (
+                          <input type="text" required value={newDpQuartierCustom} onChange={e => setNewDpQuartierCustom(e.target.value)} placeholder="Nom du quartier..." className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box', marginTop: '0.5rem' }} />
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>Avenue *</label>
+                        <input type="text" required value={newDpAvenue} onChange={e => setNewDpAvenue(e.target.value)} placeholder="Ex: Kasa-Vubu" className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>N° *</label>
+                        <input type="text" required value={newDpNumero} onChange={e => setNewDpNumero(e.target.value)} placeholder="Ex: 45A" className="input-field" style={{ width: '100%', padding: '0.65rem', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                      <button type="button" onClick={() => setShowCreateDropPointModal(false)} style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#cbd5e1', fontSize: '0.88rem', fontWeight: '600', cursor: 'pointer' }}>Annuler</button>
+                      <button type="submit" disabled={creatingDropPoint} style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', fontSize: '0.88rem', fontWeight: '800', cursor: creatingDropPoint ? 'not-allowed' : 'pointer', boxShadow: '0 4px 14px rgba(34, 197, 94, 0.4)', opacity: creatingDropPoint ? 0.6 : 1 }}>{creatingDropPoint ? 'Création...' : 'Créer'}</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: Identifiants de l'agent créé */}
+            {newDpCredentials && (
+              <div style={{
+                position: 'fixed', inset: 0, zIndex: 10000,
+                background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+              }}>
+                <div style={{
+                  maxWidth: '480px', width: '100%',
+                  background: '#0d1117', border: '1px solid rgba(34, 197, 94, 0.4)',
+                  borderRadius: '24px', padding: '2rem',
+                  boxShadow: '0 25px 50px rgba(0,0,0,0.8)',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🎉</div>
+                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#fff' }}>Point Relais créé !</h3>
+                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>Transmettez ces identifiants au gérant <strong style={{ color: '#e2e8f0' }}>{newDpCredentials.agentName}</strong>.</p>
+                  </div>
+
+                  <div style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <p style={{ margin: '0 0 0.3rem', fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Identifiant (9 chiffres)</p>
+                      <p style={{ margin: 0, fontSize: '2rem', fontWeight: '900', color: '#4ade80', letterSpacing: '0.15em', fontFamily: 'monospace' }}>{newDpCredentials.agentNumber}</p>
+                    </div>
+                    <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }}></div>
+                    <div style={{ textAlign: 'center' }}>
+                      <p style={{ margin: '0 0 0.3rem', fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Code PIN (6 chiffres)</p>
+                      <p style={{ margin: 0, fontSize: '2rem', fontWeight: '900', color: '#fbbf24', letterSpacing: '0.25em', fontFamily: 'monospace' }}>{newDpCredentials.plainPin}</p>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                    ⚠️ Ces identifiants ne seront <strong style={{ color: '#fbbf24' }}>affichés qu'une seule fois</strong>. Notez-les ou copiez-les avant de fermer.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      onClick={() => {
+                        const text = `Point Relais: ${newDpCredentials.dropPointName}\nAgent: ${newDpCredentials.agentName}\nIdentifiant: ${newDpCredentials.agentNumber}\nCode PIN: ${newDpCredentials.plainPin}`;
+                        navigator.clipboard.writeText(text).then(() => { setCopiedDpCredentials(true); setTimeout(() => setCopiedDpCredentials(false), 2000); });
+                      }}
+                      style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', color: '#cbd5e1', fontSize: '0.88rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                    >
+                      {copiedDpCredentials ? <Check size={16} /> : <Copy size={16} />}
+                      {copiedDpCredentials ? 'Copié !' : 'Copier'}
+                    </button>
+                    <button
+                      onClick={() => setNewDpCredentials(null)}
+                      style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', fontSize: '0.88rem', fontWeight: '800', cursor: 'pointer', boxShadow: '0 4px 14px rgba(34,197,94,0.4)' }}
+                    >
+                      J'ai noté, fermer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -- SUB-SECTION: Agents Relais -- */}
+            <div style={{
+              marginTop: '1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '1.5rem',
+            }}>
+              {/* Header */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem',
+                marginBottom: '1.25rem',
+                paddingBottom: '1rem',
+                borderBottom: '1px solid rgba(255,255,255,0.06)'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{
+                      width: '32px', height: '32px', borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                    }}>
+                      <UserCheck size={18} />
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>
+                      Agents des Points Relais
+                    </h3>
+                    <span style={{
+                      padding: '0.2rem 0.6rem', borderRadius: '999px',
+                      background: 'rgba(59,130,246,0.15)', color: '#60a5fa',
+                      fontSize: '0.75rem', fontWeight: '800'
+                    }}>
+                      {agents.length} agent(s)
+                    </span>
+                  </div>
+                  <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: '#94a3b8' }}>
+                    Chaque agent dispose d'un identifiant unique à 9 chiffres et d'un code PIN à 6 chiffres pour se connecter sur <code style={{ color: '#60a5fa', background: 'rgba(59,130,246,0.1)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>/point-relais</code>.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.6rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => loadAgents()}
+                    disabled={loadingAgents}
+                    style={{
+                      padding: '0.6rem 0.9rem', borderRadius: '10px',
+                      border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                      color: '#cbd5e1', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: 'inherit'
+                    }}
+                  >
+                    <RefreshCw size={14} style={{ animation: loadingAgents ? 'spin 1s linear infinite' : 'none' }} />
+                    Actualiser
+                  </button>
+                </div>
+              </div>
+
+              {/* Agent list */}
+              {agents.length === 0 && !loadingAgents ? (
+                <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#64748b' }}>
+                  <User size={36} style={{ margin: '0 auto 0.75rem', display: 'block', opacity: 0.4 }} />
+                  <p style={{ margin: '0 0 0.4rem', fontWeight: '700', color: '#cbd5e1' }}>Aucun agent créé pour le moment</p>
+                  <p style={{ margin: 0, fontSize: '0.8rem' }}>Cliquez sur "Créer un Agent" pour générer les identifiants d'un gérant de point relais.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '1rem' }}>
+                  {agents.map(ag => (
+                    <div key={ag.id} style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: ag.isActive ? '1px solid rgba(59,130,246,0.25)' : '1px solid rgba(239,68,68,0.25)',
+                      borderRadius: '16px', padding: '1.1rem',
+                      display: 'flex', flexDirection: 'column', gap: '0.85rem',
+                      opacity: ag.isActive ? 1 : 0.6
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{
+                              fontFamily: 'monospace', fontSize: '0.92rem', fontWeight: '900',
+                              letterSpacing: '1px', color: '#60a5fa',
+                              background: 'rgba(59,130,246,0.12)', padding: '0.2rem 0.55rem', borderRadius: '6px',
+                              border: '1px solid rgba(59,130,246,0.3)'
+                            }}>
+                              #{ag.agentNumber}
+                            </span>
+                            <span style={{
+                              padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: '800',
+                              background: ag.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                              color: ag.isActive ? '#4ade80' : '#ef4444'
+                            }}>
+                              {ag.isActive ? 'Actif' : 'Désactivé'}
+                            </span>
+                          </div>
+                          <h4 style={{ margin: '0.4rem 0 0.1rem', fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                            {ag.name}
+                          </h4>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
+                            📍 {ag.dropPointName} ({ag.dropPointCommune})
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleToggleAgentStatus(ag)}
+                          style={{
+                            padding: '0.35rem 0.75rem', borderRadius: '8px', border: 'none',
+                            background: ag.isActive ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                            color: ag.isActive ? '#ef4444' : '#4ade80',
+                            fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
+                          }}
+                        >
+                          {ag.isActive ? 'Désactiver' : 'Réactiver'}
+                        </button>
+                      </div>
+
+                      <div style={{
+                        padding: '0.5rem 0.75rem', borderRadius: '8px',
+                        background: 'rgba(0,0,0,0.25)', fontSize: '0.74rem', color: '#64748b',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}>
+                        <span>Créé le {ag.createdAt ? new Date(ag.createdAt).toLocaleDateString('fr-FR') : 'Récemment'}</span>
+                        <span style={{ color: '#94a3b8' }}>Réf: {ag.dropPointId}</span>
+                      </div>
+
+                      {/* Bouton Voir accès — visible si PIN encore en session */}
+                      {sessionPins.has(ag.agentNumber) && (
+                        <button
+                          onClick={() => {
+                            setAgentCreatedCredentials({ agent: ag, plainPin: sessionPins.get(ag.agentNumber)! });
+                            setCopiedCredentials(false);
+                          }}
+                          style={{
+                            width: '100%', padding: '0.55rem', borderRadius: '8px',
+                            border: '1px solid rgba(250, 204, 21, 0.4)',
+                            background: 'rgba(250, 204, 21, 0.08)',
+                            color: '#fbbf24', fontSize: '0.8rem', fontWeight: '700',
+                            cursor: 'pointer', fontFamily: 'inherit',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
+                          }}
+                        >
+                          👁 Voir les accès (session active)
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal: Créer un Agent */}
+            {showCreateAgentModal && (
+              <div style={{
+                position: 'fixed', inset: 0, zIndex: 9999,
+                background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+              }}>
+                <div style={{
+                  maxWidth: '460px', width: '100%',
+                  background: '#0d1117', border: '1px solid rgba(59, 130, 246, 0.3)',
+                  borderRadius: '24px', padding: '2rem',
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{
+                      width: '42px', height: '42px', borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
+                    }}>
+                      <UserPlus size={22} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: '#fff' }}>
+                        Créer un Agent Relais
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+                        Un identifiant à 9 chiffres et un PIN seront générés automatiquement.
+                      </p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCreateAgent} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                        Nom et prénom de l'agent :
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Sarah Maloba"
+                        value={newAgentName}
+                        onChange={e => setNewAgentName(e.target.value)}
+                        style={{
+                          width: '100%', padding: '0.75rem 1rem',
+                          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: '10px', color: '#fff', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                        Point Relais associé :
+                      </label>
+                      <select
+                        value={newAgentDropPointId}
+                        onChange={e => setNewAgentDropPointId(e.target.value)}
+                        style={{
+                          width: '100%', padding: '0.75rem 1rem',
+                          background: '#161b22', border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: '10px', color: '#fff', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box'
+                        }}
+                      >
+                        {dropPoints.map(dp => (
+                          <option key={dp.id} value={dp.id}>
+                            {dp.name} — {dp.commune}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateAgentModal(false)}
+                        style={{
+                          flex: 1, padding: '0.75rem', borderRadius: '10px',
+                          border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                          color: '#cbd5e1', fontSize: '0.88rem', fontWeight: '600', cursor: 'pointer'
+                        }}
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={creatingAgent || !newAgentName.trim()}
+                        style={{
+                          flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none',
+                          background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                          color: '#fff', fontSize: '0.88rem', fontWeight: '800',
+                          cursor: creatingAgent || !newAgentName.trim() ? 'not-allowed' : 'pointer',
+                          boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
+                          opacity: creatingAgent || !newAgentName.trim() ? 0.6 : 1
+                        }}
+                      >
+                        {creatingAgent ? 'Génération...' : 'Générer les accès'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: Identifiants générés */}
+            {agentCreatedCredentials && (
+              <div style={{
+                position: 'fixed', inset: 0, zIndex: 9999,
+                background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(10px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+              }}>
+                <div style={{
+                  maxWidth: '480px', width: '100%',
+                  background: '#0d1117', border: '1px solid rgba(34, 197, 94, 0.35)',
+                  borderRadius: '24px', padding: '2rem',
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
+                  display: 'flex', flexDirection: 'column', gap: '1.25rem'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      width: '60px', height: '60px', borderRadius: '20px',
+                      background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.3)',
+                      margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#4ade80'
+                    }}>
+                      <CheckCircle2 size={32} />
+                    </div>
+                    <h3 style={{ margin: '0 0 0.35rem', fontSize: '1.3rem', fontWeight: '900', color: '#fff' }}>
+                      Agent Créé avec Succès !
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+                      Voici les accès confidentiels pour <strong>{agentCreatedCredentials.agent.name}</strong> ({agentCreatedCredentials.agent.dropPointName}).
+                    </p>
+                  </div>
+
+                  <div style={{
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem'
+                  }}>
+                    <div>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700' }}>
+                        Identifiant Agent (9 chiffres)
+                      </span>
+                      <div style={{
+                        marginTop: '0.3rem', padding: '0.75rem', borderRadius: '10px',
+                        background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+                        fontFamily: 'monospace', fontSize: '1.5rem', fontWeight: '900', color: '#60a5fa',
+                        letterSpacing: '5px', textAlign: 'center'
+                      }}>
+                        {agentCreatedCredentials.agent.agentNumber}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700' }}>
+                        Code PIN Initial (6 chiffres)
+                      </span>
+                      <div style={{
+                        marginTop: '0.3rem', padding: '0.75rem', borderRadius: '10px',
+                        background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
+                        fontFamily: 'monospace', fontSize: '1.5rem', fontWeight: '900', color: '#4ade80',
+                        letterSpacing: '7px', textAlign: 'center'
+                      }}>
+                        {agentCreatedCredentials.plainPin}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '0.65rem 0.85rem', borderRadius: '10px',
+                      background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)',
+                      fontSize: '0.78rem', color: '#fcd34d', display: 'flex', gap: '0.5rem', alignItems: 'center'
+                    }}>
+                      <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                      <span>Notez bien ce code PIN car il ne sera plus réaffiché dans cette interface.</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = `Moncolis — Accès Agent Point Relais\nAgent : ${agentCreatedCredentials.agent.name}\nPoint Relais : ${agentCreatedCredentials.agent.dropPointName}\nIdentifiant : ${agentCreatedCredentials.agent.agentNumber}\nCode PIN : ${agentCreatedCredentials.plainPin}\nConnexion : https://moncolis.cd/point-relais`;
+                        navigator.clipboard.writeText(text);
+                        setCopiedCredentials(true);
+                        setTimeout(() => setCopiedCredentials(false), 3000);
+                      }}
+                      style={{
+                        flex: 1, padding: '0.75rem', borderRadius: '10px',
+                        border: '1px solid rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.15)',
+                        color: '#60a5fa', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                        fontFamily: 'inherit'
+                      }}
+                    >
+                      {copiedCredentials ? <><Check size={16} /> Copié !</> : <><Copy size={16} /> Copier les accès</>}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAgentCreatedCredentials(null);
+                        setCopiedCredentials(false);
+                      }}
+                      style={{
+                        padding: '0.75rem 1.5rem', borderRadius: '10px', border: 'none',
+                        background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                        color: '#fff', fontSize: '0.88rem', fontWeight: '800', cursor: 'pointer',
+                        fontFamily: 'inherit'
+                      }}
+                    >
+                      Terminer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* -- TAB: Agences --------------------------------------------------- */}
         {activeTab === 'agences' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {agences.map(a => (
+            {agences.filter(a => a.status === 'active' || a.status === 'suspended').length === 0 ? (
+              <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.5 }}>Aucune agence active pour le moment.</p>
+            ) : (
+              agences.filter(a => a.status === 'active' || a.status === 'suspended').map(a => (
               <div key={a.id} style={{
                 background: 'rgba(255,255,255,0.03)', border: `1px solid ${a.status === 'suspended' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: '14px', padding: '1.5rem',
@@ -570,11 +1650,11 @@ export default function AdminDashboard() {
                   {a.status === 'active' ? 'Suspendre' : 'Reactiver'}
                 </button>
               </div>
-            ))}
+            )))}
           </div>
         )}
 
-        {/* ── TAB: Vendeurs ────────────────────────────────────────────────── */}
+        {/* -- TAB: Vendeurs -------------------------------------------------- */}
         {activeTab === 'vendeurs' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {vendeurs.map(v => (
@@ -631,7 +1711,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── TAB: Colis ───────────────────────────────────────────────────── */}
+        {/* -- TAB: Colis ----------------------------------------------------- */}
         {activeTab === 'colis' && (
           <div className="animate-fade-in">
             {/* Filters */}
@@ -698,7 +1778,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ── TAB: Diagnostique ────────────────────────────────────────────── */}
+        {/* -- TAB: Diagnostique ---------------------------------------------- */}
         {activeTab === 'diagnostique' && (
           <div className="animate-fade-in">
 
@@ -853,6 +1933,8 @@ export default function AdminDashboard() {
             </div>
 
           </div>
+        )}
+        </>
         )}
 
       </main>
