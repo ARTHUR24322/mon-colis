@@ -1446,15 +1446,17 @@ export default function VendeurDashboard() {
         bottom: 0,
         left: 0,
         right: 0,
-        height: '64px',
-        background: 'rgba(7, 9, 14, 0.95)',
+        height: 'calc(62px + env(safe-area-inset-bottom, 0px))',
+        background: 'rgba(7, 9, 14, 0.96)',
         backdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
         zIndex: 50,
         padding: '0 0.5rem',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }} className="mobile-bottom-nav">
         {tabs.map(t => {
           const isActive = activeTab === t.key;

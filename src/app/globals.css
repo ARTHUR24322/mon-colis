@@ -196,6 +196,49 @@ a {
     border-bottom: none;
     animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
+
+  /* Prevent auto-zoom on iOS when tapping inputs */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch Ergonomics & Safe Areas */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Micro-feedback for interactive mobile elements */
+button:active, a:active, [role="button"]:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
+}
+
+/* Hide scrollbar for smooth horizontal pill navigation */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Mobile clean card utilities */
+.mobile-card {
+  background: #0d121c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.mobile-card:active {
+  background: #111827;
 }
 
 @keyframes slideUp {
@@ -212,4 +255,5 @@ a {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.85); }
 }
+
 

@@ -381,125 +381,99 @@ export default function LivreurPage() {
       {/* -- Main Content -- */}
       <div style={{ maxWidth: '720px', margin: '0 auto', width: '100%', padding: '1.25rem 1rem 6rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-        {/* Driver Info Banner */}
+        {/* Mobile-Optimized Driver Summary Strip */}
         <div style={{
-          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(59, 130, 246, 0.1))',
-          border: '1px solid rgba(59, 130, 246, 0.35)',
-          borderRadius: '20px',
-          padding: '1.25rem 1.5rem',
+          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9))',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: '18px',
+          padding: '1rem',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem'
+          flexDirection: 'column',
+          gap: '0.85rem'
         }}>
-          <div>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: 0 }}>
-              Bonjour, {driver?.name?.split(' ')[0]}
-            </h1>
-            <p style={{ color: '#93c5fd', fontSize: '0.85rem', margin: '0.2rem 0 0' }}>
-              {driver?.vehicle} · {activeCourses.length} course(s) active(s) en attente
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <div style={{
-              textAlign: 'center',
-              padding: '0.65rem 1rem',
-              background: 'rgba(255, 255, 255, 0.07)',
-              borderRadius: '12px'
-            }}>
-              <div style={{ fontSize: '1.35rem', fontWeight: '800', color: '#60a5fa' }}>{activeCourses.length}</div>
-              <div style={{ fontSize: '0.7rem', color: '#93c5fd' }}>À livrer</div>
-            </div>
-            <div style={{
-              textAlign: 'center',
-              padding: '0.65rem 1rem',
-              background: 'rgba(34, 197, 94, 0.1)',
-              borderRadius: '12px',
-              border: '1px solid rgba(34, 197, 94, 0.2)'
-            }}>
-              <div style={{ fontSize: '1.35rem', fontWeight: '800', color: '#4ade80' }}>{doneCourses.length}</div>
-              <div style={{ fontSize: '0.7rem', color: '#86efac' }}>Livrées</div>
-            </div>
-          </div>
-        </div>
-
-        {/* ─── Dépôt Agence Banner ─── */}
-        <div style={{
-          background: cashCollected > 0
-            ? 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(234,179,8,0.06))'
-            : 'rgba(34,197,94,0.06)',
-          border: cashCollected > 0
-            ? '1px solid rgba(245,158,11,0.4)'
-            : '1px solid rgba(34,197,94,0.25)',
-          borderRadius: '20px',
-          padding: '1.25rem 1.5rem'
-        }}>
-          {/* Titre */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.85rem' }}>
-            <div style={{
-              width: '36px', height: '36px', borderRadius: '10px',
-              background: cashCollected > 0 ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.15)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0
-            }}>
-              <Building2 size={18} color={cashCollected > 0 ? '#fbbf24' : '#4ade80'} />
-            </div>
+          {/* Driver Name & Status */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', color: cashCollected > 0 ? '#fbbf24' : '#86efac' }}>
-                Montant à déposer à l'agence
+              <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                Bonjour, {driver?.name?.split(' ')[0]} 👋
               </div>
-              <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.05rem' }}>
-                {doneCourses.length} livraison(s) effectuée(s)
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                {driver?.vehicle || 'Moto'} &bull; {driver?.agencyName || 'Agence'}
+              </div>
+            </div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+              padding: '0.25rem 0.65rem', borderRadius: '999px',
+              background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)',
+              color: '#4ade80', fontSize: '0.72rem', fontWeight: '700'
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', animation: 'pulse 2s infinite' }} />
+              En service
+            </div>
+          </div>
+
+          {/* Quick Metrics Row (3 compact pills) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: '12px', padding: '0.6rem 0.4rem', textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#60a5fa' }}>{activeCourses.length}</div>
+              <div style={{ fontSize: '0.68rem', color: '#93c5fd', fontWeight: '600' }}>À livrer</div>
+            </div>
+
+            <div style={{
+              background: 'rgba(34, 197, 94, 0.08)',
+              border: '1px solid rgba(34, 197, 94, 0.2)',
+              borderRadius: '12px', padding: '0.6rem 0.4rem', textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#4ade80' }}>{doneCourses.length}</div>
+              <div style={{ fontSize: '0.68rem', color: '#86efac', fontWeight: '600' }}>Livrées</div>
+            </div>
+
+            <div 
+              onClick={() => {
+                if (cashCollected > 0) {
+                  setShowQrModal(true);
+                  handleGenerateDepositQr();
+                }
+              }}
+              style={{
+                background: cashCollected > 0 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                border: cashCollected > 0 ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(255, 255, 255, 0.06)',
+                borderRadius: '12px', padding: '0.6rem 0.4rem', textAlign: 'center',
+                cursor: cashCollected > 0 ? 'pointer' : 'default'
+              }}
+            >
+              <div style={{ fontSize: '1rem', fontWeight: '900', color: cashCollected > 0 ? '#fbbf24' : '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {cashCollected > 0 ? formatPrice(cashCollected) : '0'}
+              </div>
+              <div style={{ fontSize: '0.68rem', color: cashCollected > 0 ? '#fcd34d' : '#64748b', fontWeight: '600' }}>
+                {cashCollected > 0 ? 'À déposer' : 'Caisse'}
               </div>
             </div>
           </div>
 
-          {/* Montant */}
-          <div style={{
-            fontSize: '2rem', fontWeight: '900',
-            color: cashCollected > 0 ? '#fbbf24' : '#4ade80',
-            letterSpacing: '-0.02em', marginBottom: '1rem'
-          }}>
-            {cashCollected > 0
-              ? formatPrice(cashCollected)
-              : 'Solde à zéro'}
-          </div>
-
-          {/* Bouton Remettre à l'agence */}
-          {cashCollected > 0 ? (
+          {/* Quick Cash Remise Action (Only if cashCollected > 0) */}
+          {cashCollected > 0 && (
             <button
               onClick={() => { setShowQrModal(true); handleGenerateDepositQr(); }}
               style={{
                 width: '100%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.55rem',
-                padding: '0.9rem 1rem', borderRadius: '14px', border: 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                padding: '0.75rem', borderRadius: '12px', border: 'none',
                 background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                color: '#000', fontWeight: '800', fontSize: '0.95rem', cursor: 'pointer',
+                color: '#000', fontWeight: '800', fontSize: '0.88rem', cursor: 'pointer',
                 fontFamily: 'inherit',
-                boxShadow: '0 4px 20px rgba(245,158,11,0.4)',
-                transition: 'transform 0.15s',
+                boxShadow: '0 4px 14px rgba(245,158,11,0.35)',
               }}
             >
-              <QrCode size={20} />
-              Remettre à l'agence
+              <QrCode size={18} />
+              Déposer le cash à l'agence ({formatPrice(cashCollected)})
             </button>
-          ) : (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.65rem 1rem', borderRadius: '12px',
-              background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)'
-            }}>
-              <CheckCircle size={16} color="#4ade80" />
-              <span style={{ fontSize: '0.82rem', color: '#86efac', fontWeight: '600' }}>
-                Aucun cash à remettre — tout est à jour !
-              </span>
-            </div>
           )}
         </div>
-
-        {/* (Tabs removed here, moved to Bottom Navigation Bar) */}
 
         {/* Courses List */}
         {coursesLoading ? (
@@ -1195,29 +1169,60 @@ function DeliveryCard({
 
         {/* Suivi Livraison : adresse du client */}
         <div style={{
-          display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
-          padding: '0.75rem', background: 'rgba(34, 197, 94, 0.05)',
+          display: 'flex', flexDirection: 'column', gap: '0.65rem',
+          padding: '0.85rem', background: 'rgba(34, 197, 94, 0.05)',
           border: '1px solid rgba(34, 197, 94, 0.2)',
-          borderRadius: '12px'
+          borderRadius: '14px'
         }}>
-          <div style={{
-            width: '28px', height: '28px', borderRadius: '8px',
-            background: 'rgba(34, 197, 94, 0.15)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <MapPin size={14} color="#4ade80" />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+            <div style={{
+              width: '28px', height: '28px', borderRadius: '8px',
+              background: 'rgba(34, 197, 94, 0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <MapPin size={14} color="#4ade80" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.68rem', color: '#4ade80', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                LIVRAISON DESTINATAIRE
+              </div>
+              <div style={{ fontSize: '0.92rem', color: '#fff', fontWeight: '700', marginTop: '0.15rem' }}>
+                {colis.clientName}
+              </div>
+              <div style={{ fontSize: '0.84rem', color: '#cbd5e1', marginTop: '0.1rem' }}>
+                {colis.clientAddress}
+              </div>
+            </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.7rem', color: '#4ade80', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
-              LIVRAISON (destination finale)
-            </div>
-            <div style={{ fontSize: '0.88rem', color: '#e2e8f0', fontWeight: '600' }}>
-              {colis.clientAddress}
-            </div>
-            <a href={`tel:${colis.clientPhone}`} style={{ fontSize: '0.8rem', color: '#4ade80', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.25rem' }}>
-              <Phone size={12} />
-              {colis.clientPhone} · {colis.clientName}
+
+          {/* 1-Tap Mobile Action Buttons for Couriers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.2rem' }}>
+            <a
+              href={`tel:${colis.clientPhone}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                padding: '0.6rem 0.75rem', borderRadius: '10px',
+                background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.35)',
+                color: '#4ade80', fontSize: '0.82rem', fontWeight: '700', textDecoration: 'none'
+              }}
+            >
+              <Phone size={14} />
+              Appeler
+            </a>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(colis.clientAddress + ' Kinshasa')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                padding: '0.6rem 0.75rem', borderRadius: '10px',
+                background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.35)',
+                color: '#60a5fa', fontSize: '0.82rem', fontWeight: '700', textDecoration: 'none'
+              }}
+            >
+              <MapPin size={14} />
+              Itinéraire
             </a>
           </div>
         </div>

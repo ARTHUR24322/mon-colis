@@ -363,86 +363,122 @@ export default function PointRelaisPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#07090e', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
 
-      {/* Topbar */}
-      <div style={{
-        background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)',
-        padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem',
+      {/* Topbar Mobile-First */}
+      <header style={{
+        background: 'rgba(7, 9, 14, 0.95)',
+        backdropFilter: 'blur(16px)',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        position: 'sticky', top: 0, zIndex: 40,
+        padding: '0.75rem 1rem',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <MapPin size={18} color="white" />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontWeight: '800', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {agent?.dropPointName}
-              {dropPointCredits !== null && (
-                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: dropPointCredits > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: dropPointCredits > 0 ? '#4ade80' : '#ef4444', borderRadius: '4px', border: `1px solid ${dropPointCredits > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
-                  {dropPointCredits} Crédit{dropPointCredits > 1 ? 's' : ''}
-                </span>
-              )}
-            </p>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{agent?.dropPointCommune} · Agent : {agent?.name}</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            onClick={() => setShowQrModal(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.3rem 0.75rem', borderRadius: '10px',
-              background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.4)',
-              color: '#4ade80', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
-            }}
-          >
-            <QrCode size={16} /> Mon QR Code
-          </button>
-          <div style={{
-            padding: '0.3rem 0.75rem', borderRadius: '999px',
-            background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)',
-            fontSize: '0.75rem', color: '#60a5fa', fontWeight: '700', fontFamily: 'monospace',
-          }}>
-            #{agent?.agentNumber}
-          </div>
-          <button onClick={handleLogout} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '0.5rem', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', fontFamily: 'inherit', fontWeight: '600' }}>
-            <LogOut size={15} /> Déconnexion
-          </button>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '1.5rem 1rem 6rem' }}>
-
-        {/* Stats banner */}
         <div style={{
-          background: 'rgba(59,130,246,0.07)', border: '1px solid rgba(59,130,246,0.2)',
-          borderRadius: '16px', padding: '1rem 1.25rem', marginBottom: '1.5rem',
-          display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
         }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-            <MapPin size={16} style={{ color: '#3b82f6', marginTop: '2px', flexShrink: 0 }} />
-            <div>
-              <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: '700', color: '#fff' }}>{dropPointInfo?.address}</p>
-              <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>Responsable : {dropPointInfo?.managerName}</p>
+          {/* Drop Point Identity */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+            <div style={{
+              width: '36px', height: '36px', borderRadius: '10px',
+              background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <MapPin size={18} color="white" />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{
+                margin: 0, fontWeight: '800', fontSize: '0.9rem', color: '#fff',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+              }}>
+                {agent?.dropPointName}
+              </div>
+              <div style={{ margin: 0, fontSize: '0.72rem', color: '#94a3b8' }}>
+                {agent?.dropPointCommune} &bull; #{agent?.agentNumber}
+              </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: '800', color: dropPointCredits !== null ? (dropPointCredits > 10 ? '#3b82f6' : (dropPointCredits > 0 ? '#f59e0b' : '#ef4444')) : '#94a3b8', fontSize: '1.25rem' }}>
+
+          {/* Quick Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+            <button
+              onClick={() => setShowQrModal(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.45rem 0.65rem', borderRadius: '10px',
+                background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.35)',
+                color: '#4ade80', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
+              }}
+            >
+              <QrCode size={15} />
+              <span>QR Code</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              aria-label="Déconnexion"
+              style={{
+                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: '10px', padding: '0.45rem', cursor: 'pointer',
+                color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '1rem 0.9rem 6rem' }}>
+
+        {/* Compact Mobile Stats Strip */}
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.03)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: '16px', padding: '0.85rem', marginBottom: '1.25rem',
+          display: 'flex', flexDirection: 'column', gap: '0.75rem'
+        }}>
+          {dropPointInfo?.address && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+              <MapPin size={13} color="#3b82f6" />
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {dropPointInfo.address}
+              </span>
+            </div>
+          )}
+
+          {/* 4 Equal Responsive Counters */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
+            <div style={{
+              background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
+              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
+            }}>
+              <p style={{ margin: 0, fontWeight: '900', color: dropPointCredits !== null ? (dropPointCredits > 10 ? '#3b82f6' : (dropPointCredits > 0 ? '#f59e0b' : '#ef4444')) : '#94a3b8', fontSize: '1.15rem' }}>
                 {dropPointCredits !== null ? dropPointCredits : '-'}
               </p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Crédits</p>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: '#93c5fd', fontWeight: '600' }}>Crédits</p>
             </div>
-            <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }} />
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: '800', color: '#f59e0b', fontSize: '1.25rem' }}>{pendingDeposits.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Dépôts</p>
+
+            <div style={{
+              background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
+            }}>
+              <p style={{ margin: 0, fontWeight: '900', color: '#f59e0b', fontSize: '1.15rem' }}>{pendingDeposits.length}</p>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: '#fcd34d', fontWeight: '600' }}>Dépôts</p>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: '800', color: '#f59e0b', fontSize: '1.25rem' }}>{incomingVendor.length + incomingDriver.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>À conf.</p>
+
+            <div style={{
+              background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)',
+              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
+            }}>
+              <p style={{ margin: 0, fontWeight: '900', color: '#c084fc', fontSize: '1.15rem' }}>{incomingVendor.length + incomingDriver.length}</p>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: '#d8b4fe', fontWeight: '600' }}>À conf.</p>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: '800', color: '#22c55e', fontSize: '1.25rem' }}>{available.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Dispos</p>
+
+            <div style={{
+              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
+              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
+            }}>
+              <p style={{ margin: 0, fontWeight: '900', color: '#4ade80', fontSize: '1.15rem' }}>{available.length}</p>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: '#86efac', fontWeight: '600' }}>Dispos</p>
             </div>
           </div>
         </div>

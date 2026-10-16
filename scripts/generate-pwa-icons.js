@@ -1,0 +1,97 @@
+const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
+
+const svgIcon = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19"/>
+      <stop offset="100%" stop-color="#020408"/>
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="50%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+
+  <!-- Subtle glow behind box -->
+  <circle cx="256" cy="256" r="140" fill="#22c55e" opacity="0.15" filter="url(#glow)"/>
+
+  <!-- Isometric Modern Parcel / Box -->
+  <g transform="translate(256, 260) scale(1.15)">
+    <!-- Top Face -->
+    <path d="M 0 -100 L 95 -45 L 0 10 L -95 -45 Z" fill="#4ade80" />
+    <path d="M 0 -100 L 95 -45 L 0 10 L -95 -45 Z" fill="url(#primaryGrad)" />
+    
+    <!-- Top Face Seam / Tape -->
+    <path d="M -24 -86 L 71 -31 L 52 -20 L -43 -75 Z" fill="rgba(255,255,255,0.3)" />
+
+    <!-- Left Face -->
+    <path d="M -95 -45 L 0 10 L 0 120 L -95 65 Z" fill="#15803d" />
+    <path d="M -95 -45 L 0 10 L 0 120 L -95 65 Z" fill="rgba(0,0,0,0.25)" />
+
+    <!-- Right Face -->
+    <path d="M 0 10 L 95 -45 L 95 65 L 0 120 Z" fill="#16a34a" />
+
+    <!-- Arrow / Fast Motion Streak -->
+    <path d="M -40 20 L 20 -15 L 12 -2" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.9"/>
+  </g>
+
+  <!-- Notification / Live Badge -->
+  <circle cx="390" cy="120" r="32" fill="#22c55e"/>
+  <path d="M 380 120 L 387 127 L 402 112" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`;
+
+async function generate() {
+  const publicDir = path.join(__dirname, '..', 'public');
+  if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
+
+  const svgBuffer = Buffer.from(svgIcon);
+
+  // 1. icon-192.png
+  await sharp(svgBuffer).resize(192, 192).png().toFile(path.join(publicDir, 'icon-192.png'));
+  console.log('Generated icon-192.png');
+
+  // 2. icon-512.png
+  await sharp(svgBuffer).resize(512, 512).png().toFile(path.join(publicDir, 'icon-512.png'));
+  console.log('Generated icon-512.png');
+
+  // 3. icon-maskable.png (with padding)
+  await sharp(svgBuffer).resize(400, 400)
+    .extend({
+      top: 56, bottom: 56, left: 56, right: 56,
+      background: '#0b0f19'
+    })
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'icon-maskable.png'));
+  console.log('Generated icon-maskable.png');
+
+  // 4. apple-touch-icon.png
+  await sharp(svgBuffer).resize(180, 180).png().toFile(path.join(publicDir, 'apple-touch-icon.png'));
+  console.log('Generated apple-touch-icon.png');
+
+  // 5. favicon.svg
+  fs.writeFileSync(path.join(publicDir, 'icon.svg'), svgIcon.trim());
+  console.log('Saved icon.svg');
+}
+
+generate().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

@@ -1,0 +1,59 @@
+{
+  "name": "Moncolis - Plateforme de Livraison",
+  "short_name": "Moncolis",
+  "description": "Plateforme mobile pour Vendeurs, Livreurs et Points Relais",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07090e",
+  "theme_color": "#22c55e",
+  "orientation": "portrait-primary",
+  "lang": "fr-FR",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Espace Livreur",
+      "short_name": "Livreur",
+      "description": "Accéder à mes courses et livraisons",
+      "url": "/livreur",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Point Relais",
+      "short_name": "Relais",
+      "description": "Gérer les dépôts et retraits de colis",
+      "url": "/point-relais",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Espace Vendeur",
+      "short_name": "Vendeur",
+      "description": "Créer et suivre mes expéditions",
+      "url": "/dashboard/vendeur",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
