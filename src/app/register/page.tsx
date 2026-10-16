@@ -18,7 +18,9 @@ import {
   Clock,
   Send,
   Building2,
-  Check
+  Check,
+  ClipboardList,
+  Lightbulb
 } from 'lucide-react';
 
 const KINSHASA_COMMUNES = [
@@ -173,8 +175,8 @@ export default function GlobalRegisterPage() {
             flexDirection: 'column',
             gap: '0.6rem'
           }}>
-            <div style={{ fontWeight: '700', color: '#93c5fd', fontSize: '0.88rem' }}>
-              📋 Récapitulatif de votre candidature :
+            <div style={{ fontWeight: '700', color: '#93c5fd', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <ClipboardList size={16} /> Récapitulatif de votre candidature :
             </div>
             <div>• <strong>Agence :</strong> {name}</div>
             <div>• <strong>Email :</strong> {email}</div>
@@ -192,7 +194,10 @@ export default function GlobalRegisterPage() {
             color: '#fde047',
             textAlign: 'left'
           }}>
-            💡 Vous recevrez un appel ou un message de confirmation une fois la validation effectuée. Vous pourrez ensuite vous connecter avec vos identifiants pour gérer vos tournées.
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+              <Lightbulb size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+              <span>Vous recevrez un appel ou un message de confirmation une fois la validation effectuée. Vous pourrez ensuite vous connecter avec vos identifiants pour gérer vos tournées.</span>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
@@ -586,7 +591,7 @@ export default function GlobalRegisterPage() {
                 color: '#93c5fd',
                 lineHeight: 1.5
               }}>
-                ℹ️ <strong>Protocole de sécurité :</strong> Pour garantir la traçabilité des fonds encaissés, toute nouvelle agence fait l'objet d'un examen par le Superadmin avant d'obtenir son habilitation.
+                 <strong>Protocole de sécurité :</strong> Pour garantir la traçabilité des fonds encaissés, toute nouvelle agence fait l'objet d'un examen par le Superadmin avant d'obtenir son habilitation.
               </div>
             )}
 

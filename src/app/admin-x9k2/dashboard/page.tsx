@@ -4,11 +4,14 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, destroySession } from '@/utils/adminAuth';
 import { DEFAULT_DROP_POINTS, DropPoint, DropPointAgent, dataService } from '@/lib/data-service';
+import { AdminRole, ROLE_LABELS, hasPermission } from '@/lib/adminPermissions';
+import { supabase } from '@/utils/supabase/client';
 import { KINSHASA_COMMUNES, KINSHASA_DATA } from '@/utils/kinshasa';
 import {
   CheckCircle2, XCircle, Clock, MapPin, Phone, Mail, Building2, ShieldCheck,
-  AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User
+  AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User, Lock, Settings, LayoutDashboard, Users, Package, Activity
 } from 'lucide-react';
+import PinModal from '@/components/PinModal';
 
 // --- Types -----------------------------------------------------------------
 interface Agence {
@@ -22,8 +25,9 @@ interface Agence {
   totalColis: number;
   tauxLivraison: number;
   livreurs: number;
-  /** Commission rate Moncolis prélève sur chaque colis livré (0–1) */
-  commissionRate: number;
+  /** Le modèle de facturation avec Moncolis */
+  billingType: 'Commission' | 'Mensuel' | 'Annuel';
+  billingValue: number;
   /** Le taux de conversion FC appliqué par l'agence */
   tauxConversionFC?: number;
   managerName?: string;
@@ -55,12 +59,12 @@ interface ColisAdmin {
 // --- Status colors ---------------------------------------------------------
 // --- Status colors ---------------------------------------------------------
 const statusColor: Record<string, string> = {
-  'En attente': '#f59e0b',
-  'Accepte':    '#3b82f6',
-  'Refuse':     '#ef4444',
-  'Assigne':    '#8b5cf6',
-  'En transit': '#06b6d4',
-  'Livre':      '#10b981',
+  'En attente': '#fb923c',
+  'Accepte':    '#f97316',
+  'Refuse':     '#f97316',
+  'Assigne':    '#22c55e',
+  'En transit': '#4ade80',
+  'Livré':      '#10b981',
   'Annule':     '#6b7280',
 };
 
@@ -83,9 +87,9 @@ function KpiCard({ label, value, sub, color }: { label: string; value: string | 
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span style={{
-      background: active ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-      color: active ? '#10b981' : '#ef4444',
-      border: `1px solid ${active ? '#10b981' : '#ef4444'}`,
+      background: active ? 'rgba(16,185,129,0.15)' : 'rgba(249,115,22,0.15)',
+      color: active ? '#10b981' : '#f97316',
+      border: `1px solid ${active ? '#10b981' : '#f97316'}`,
       padding: '0.2rem 0.65rem', borderRadius: '20px',
       fontSize: '0.75rem', fontWeight: '700',
     }}>
@@ -133,19 +137,59 @@ const INITIAL_LOGS: LogEntry[] = [
   { id: 1, level: 'INFO',  message: 'Tableau de bord admin chargé.', time: new Date().toLocaleTimeString('fr-FR') },
 ];
 
+// Type des onglets du dashboard
+type TabKey = 'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
+
 export default function AdminDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'diagnostique'>('overview');
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [agences, setAgences]     = useState<Agence[]>([]);
   const [vendeurs, setVendeurs]   = useState<Vendeur[]>([]);
   const [colis, setColis]         = useState<ColisAdmin[]>([]);
+  const [audits, setAudits]       = useState<any[]>([]);
+  const [reconciliations, setReconciliations] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [dropPoints, setDropPoints] = useState<DropPoint[]>([]);
   const [colisFilter, setColisFilter] = useState('Tous');
   const [searchColis, setSearchColis] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
-  const [plafondFC, setPlafondFC] = useState(2850);
+  const [navPinModal, setNavPinModal] = useState<{ href: string; label: string } | null>(null);
+  const [adminUser, setAdminUser] = useState<{ id: string, name: string, role: AdminRole } | null>(null);
+  const [plafondFC, setPlafondFC] = useState(2800);
   const [toast, setToast]         = useState<string | null>(null);
+
+  // -- Action PIN (4 chiffres) -----------------------------------------------
+  // Le PIN est stocké dans localStorage pour persister entre sessions.
+  // La valeur par défaut est '0000' (l'admin doit le changer dès la 1ère connexion).
+  const [actionPin, setActionPin] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('moncolis_admin_pin') || '0000';
+    return '0000';
+  });
+  const [pinModal, setPinModal] = useState<{ open: boolean; onSuccess: () => void; label: string }>({ open: false, onSuccess: () => {}, label: '' });
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [pinChangeMsg, setPinChangeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Wrap any risky action with PIN prompt
+  const requirePin = (label: string, onSuccess: () => void) => {
+    setPinInput('');
+    setPinError(false);
+    setPinModal({ open: true, label, onSuccess });
+  };
+
+  const handlePinSubmit = () => {
+    if (pinInput === actionPin) {
+      setPinModal(m => ({ ...m, open: false }));
+      pinModal.onSuccess();
+      setPinInput('');
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
 
   // -- Drop point agents state --
   const [agents, setAgents] = useState<DropPointAgent[]>([]);
@@ -178,7 +222,7 @@ export default function AdminDashboard() {
     setLoadingAgents(true);
     try {
       const res = await fetch('/api/drop-points/agents', {
-        headers: { 'x-admin-auth': 'authenticated_superadmin_v1' }
+        headers: { }
       });
       if (res.ok) {
         const json = await res.json();
@@ -199,6 +243,14 @@ export default function AdminDashboard() {
     async function loadAllData() {
       setLoadingData(true);
       try {
+        try {
+          const authRes = await fetch('/api/auth/me');
+          if (authRes.ok) {
+            const authJson = await authRes.json();
+            if (authJson.user && !cancelled) setAdminUser(authJson.user);
+          }
+        } catch(e) {}
+
         // Charger les agences
         const realAgencies = await dataService.getAgencies();
         if (!cancelled) {
@@ -213,16 +265,31 @@ export default function AdminDashboard() {
             totalColis: 0,
             tauxLivraison: 0,
             livreurs: ra.fleetSize || 0,
-            commissionRate: 0.10,
-            tauxConversionFC: 2850,
+            billingType: ra.billingType || 'Commission',
+            billingValue: ra.billingValue || 15,
+            tauxConversionFC: 2800,
             coverageZones: ra.coverageZones || [],
             fleetSize: ra.fleetSize || 0,
             managerName: ra.managerName,
           })));
         }
 
-        // Charger les vendeurs depuis Supabase
+        // Charger le taux de change depuis system_settings
         const { supabase } = await import('@/utils/supabase/client');
+        try {
+          const { data: settings } = await supabase
+            .from('system_settings')
+            .select('exchange_rate')
+            .eq('id', 'global')
+            .single();
+          if (settings && !cancelled) {
+            setPlafondFC(settings.exchange_rate || 2800);
+          }
+        } catch (e) {
+          console.warn('Could not load exchange rate', e);
+        }
+
+        // Charger les vendeurs depuis Supabase
         let profiles = null;
         try {
           const res = await supabase
@@ -262,6 +329,32 @@ export default function AdminDashboard() {
             date: p.date,
             montant: p.prixLivraison || 0,
           })));
+        }
+
+        // Charger les audits financiers
+        try {
+          const auditRes = await fetch('/api/admin/financial-audits', {
+            headers: { }
+          });
+          if (auditRes.ok) {
+            const auditJson = await auditRes.json();
+            if (!cancelled) setAudits(auditJson.audits || []);
+          }
+        } catch (e) {
+          console.error("Erreur chargement audits", e);
+        }
+
+        // Charger la réconciliation
+        try {
+          const recoRes = await fetch('/api/admin/reconciliation', {
+            headers: { }
+          });
+          if (recoRes.ok) {
+            const recoJson = await recoRes.json();
+            if (!cancelled && recoJson.data) setReconciliations(recoJson.data);
+          }
+        } catch (e) {
+          console.error("Erreur chargement réconciliation", e);
         }
       } catch (err) {
         console.error('[AdminDashboard] loadAllData error:', err);
@@ -329,22 +422,26 @@ export default function AdminDashboard() {
 
   // -- Derived stats ---------------------------------------------------------
   const totalColis    = useMemo(() => colis.length, [colis]);
-  const totalLivres   = useMemo(() => colis.filter(c => c.status === 'Livre').length, [colis]);
+  const totalLivres   = useMemo(() => colis.filter(c => c.status === 'Livré').length, [colis]);
   const activeAgences = useMemo(() => agences.filter(a => a.status === 'active').length, [agences]);
   const pendingAgencesCount = useMemo(() => agences.filter(a => a.status === 'pending').length, [agences]);
 
   // Revenu = somme des commissions sur colis LIVRES uniquement
   const commissionByAgence = useMemo(() => {
-    const map: Record<string, { name: string; rate: number; colisCount: number; revenu: number }> = {};
+    // Keyed by agencyId for reliable lookups
+    const map: Record<string, { id: string; name: string; rate: number; colisCount: number; revenu: number }> = {};
     agences.forEach(a => {
-      map[a.id] = { name: a.name, rate: a.commissionRate, colisCount: 0, revenu: 0 };
+      const rate = a.billingType === 'Commission' ? (a.billingValue || 0) / 100 : 0;
+      map[a.id] = { id: a.id, name: a.name, rate, colisCount: 0, revenu: 0 };
     });
     colis.forEach(c => {
-      if (c.status !== 'Livre') return;
+      if (c.status !== 'Livré') return;
+      if (!c.agenceId || !map[c.agenceId]) return;
       const agence = agences.find(a => a.id === c.agenceId);
       if (!agence) return;
+      const rate = agence.billingType === 'Commission' ? (agence.billingValue || 0) / 100 : 0;
       map[c.agenceId].colisCount++;
-      map[c.agenceId].revenu += c.montant * agence.commissionRate;
+      map[c.agenceId].revenu += c.montant * rate;
     });
     return Object.values(map).filter(e => e.colisCount > 0).sort((a, b) => b.revenu - a.revenu);
   }, [colis, agences]);
@@ -355,9 +452,11 @@ export default function AdminDashboard() {
   );
 
   const getCommission = (c: ColisAdmin) => {
-    if (c.status !== 'Livre') return null;
+    if (c.status !== 'Livré') return null;
     const agence = agences.find(a => a.id === c.agenceId);
-    return agence ? c.montant * agence.commissionRate : null;
+    if (!agence) return null;
+    const rate = agence.billingType === 'Commission' ? (agence.billingValue || 0) / 100 : 0;
+    return c.montant * rate;
   };
 
   const filteredColis = useMemo(() => {
@@ -370,8 +469,35 @@ export default function AdminDashboard() {
   }, [colis, colisFilter, searchColis]);
 
   // -- Handlers -------------------------------------------------------------
-  const toggleAgenceStatus = (id: string) => {
-    setAgences(prev => prev.map(a => a.id === id ? { ...a, status: a.status === 'active' ? 'suspended' : 'active' } : a));
+  const toggleAgenceStatus = async (id: string) => {
+    const agence = agences.find(a => a.id === id);
+    if (!agence) return;
+    const newStatus = agence.status === 'active' ? 'suspended' : 'active';
+    try {
+      const res = await fetch('/api/admin/users/toggle-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          },
+        body: JSON.stringify({ userId: id, isActive: newStatus === 'active' }),
+      });
+      if (res.ok) {
+        setAgences(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+        setToast(`Agence ${newStatus === 'active' ? 'activée' : 'suspendue'} avec succès.`);
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        alert("Erreur lors de la modification du statut");
+      }
+    } catch {
+      alert("Erreur réseau");
+    }
+  };
+
+  const toggleAgenceStatusConfirmed = (id: string) => {
+    const agence = agences.find(a => a.id === id);
+    if (!agence) return;
+    const action = agence.status === 'active' ? 'suspendre' : 'réactiver';
+    requirePin(`Confirmer : ${action} l'agence "${agence.name}"`, () => toggleAgenceStatus(id));
   };
 
   const handleApproveAgency = async (id: string) => {
@@ -382,6 +508,10 @@ export default function AdminDashboard() {
     setToast("Compte agence validé et activé avec succès !");
     setTimeout(() => setToast(null), 3000);
   };
+  const handleApproveAgencyConfirmed = (id: string) => {
+    const a = agences.find(x => x.id === id);
+    requirePin(`Valider l'agence "${a?.name || id}"`, () => handleApproveAgency(id));
+  };
 
   const handleRejectAgency = async (id: string) => {
     await dataService.rejectAgency(id);
@@ -391,9 +521,17 @@ export default function AdminDashboard() {
     setToast("Demande d'adhésion agence refusée.");
     setTimeout(() => setToast(null), 3000);
   };
+  const handleRejectAgencyConfirmed = (id: string) => {
+    const a = agences.find(x => x.id === id);
+    requirePin(`Refuser la demande de "${a?.name || id}"`, () => handleRejectAgency(id));
+  };
 
   const toggleDropPointStatus = (id: string) => {
-    setDropPoints(prev => prev.map(dp => dp.id === id ? { ...dp, isActive: !dp.isActive } : dp));
+    const dp = dropPoints.find(d => d.id === id);
+    if (!dp) return;
+    requirePin(`${dp.isActive ? 'Désactiver' : 'Activer'} le point relais "${dp.name}"`, () => {
+      setDropPoints(prev => prev.map(d => d.id === id ? { ...d, isActive: !d.isActive } : d));
+    });
   };
 
   const handleCreateAgent = async (e: React.FormEvent) => {
@@ -405,8 +543,7 @@ export default function AdminDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-auth': 'authenticated_superadmin_v1'
-        },
+          },
         body: JSON.stringify({
           name: newAgentName.trim(),
           dropPointId: newAgentDropPointId,
@@ -450,7 +587,7 @@ export default function AdminDashboard() {
       // 1. Créer le Point Relais
       const dpRes = await fetch('/api/drop-points', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-auth': 'authenticated_superadmin_v1' },
+        headers: { 'Content-Type': 'application/json', },
         body: JSON.stringify({
           name: newDpName,
           commune: newDpCommune,
@@ -472,7 +609,7 @@ export default function AdminDashboard() {
       // 2. Créer automatiquement l'agent associé (gérant)
       const agentRes = await fetch('/api/drop-points/agents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-admin-auth': 'authenticated_superadmin_v1' },
+        headers: { 'Content-Type': 'application/json', },
         body: JSON.stringify({ name: newDpManager.trim(), dropPointId: createdDp.id }),
       });
       const agentJson = await agentRes.json();
@@ -488,7 +625,7 @@ export default function AdminDashboard() {
         });
         loadAgents();
       } else {
-        setToast(`✅ Point Relais créé ! Mais erreur agent: ${agentJson.error || 'Inconnue'}`);
+        setToast(`[OK] Point Relais créé ! Mais erreur agent: ${agentJson.error || 'Inconnue'}`);
         setTimeout(() => setToast(null), 5000);
       }
       // Réinitialisation
@@ -509,8 +646,7 @@ export default function AdminDashboard() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-auth': 'authenticated_superadmin_v1'
-        },
+          },
         body: JSON.stringify({
           agentId: agent.id,
           isActive: newStatus,
@@ -529,25 +665,59 @@ export default function AdminDashboard() {
     }
   };
 
-  const toggleVendeurStatus = (id: string) => {
-    setVendeurs(prev => prev.map(v => v.id === id ? { ...v, status: v.status === 'active' ? 'suspended' : 'active' } : v));
+  const toggleVendeurStatus = async (id: string) => {
+    const vendeur = vendeurs.find(v => v.id === id);
+    if (!vendeur) return;
+    const newStatus = vendeur.status === 'active' ? 'suspended' : 'active';
+    try {
+      const res = await fetch('/api/admin/users/toggle-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          },
+        body: JSON.stringify({ userId: id, isActive: newStatus === 'active' }),
+      });
+      if (res.ok) {
+        setVendeurs(prev => prev.map(v => v.id === id ? { ...v, status: newStatus } : v));
+        setToast(`Vendeur ${newStatus === 'active' ? 'activé' : 'suspendu'} avec succès.`);
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        alert("Erreur lors de la modification du statut");
+      }
+    } catch {
+      alert("Erreur réseau");
+    }
   };
 
-  const handleLogout = () => {
+  const toggleVendeurStatusConfirmed = (id: string) => {
+    const v = vendeurs.find(x => x.id === id);
+    if (!v) return;
+    const action = v.status === 'active' ? 'suspendre' : 'réactiver';
+    requirePin(`Confirmer : ${action} le vendeur "${v.name}"`, () => toggleVendeurStatus(id));
+  };
+
+  const handleLogout = async () => {
     destroySession();
+    // Clear the httpOnly admin_session cookie server-side
+    try { await fetch('/api/auth/admin-logout', { method: 'POST' }); } catch {}
     router.replace('/admin-x9k2');
   };
 
   // -- Layout ----------------------------------------------------------------
-  const tabs = [
-    { key: 'overview',      label: 'Vue globale' },
-    { key: 'demandes',      label: `Adhésions Agences (${pendingAgencesCount})` },
-    { key: 'relais',        label: `Points Relais (${dropPoints.length})` },
-    { key: 'agences',       label: `Agences Actives (${agences.filter(a => a.status === 'active' || a.status === 'suspended').length})` },
-    { key: 'vendeurs',      label: `Vendeurs (${vendeurs.length})` },
-    { key: 'colis',         label: `Tous les colis (${colis.length})` },
-    { key: 'diagnostique',  label: 'Diagnostique Système' },
-  ] as const;
+  const role = adminUser?.role || 'superadmin';
+  const allTabs: { key: TabKey; label: React.ReactNode; permission?: string }[] = [
+    { key: 'overview' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><LayoutDashboard size={14} style={{ marginRight: '6px' }} /> Vue globale</span>, permission: undefined },
+    { key: 'demandes' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><UserPlus size={14} style={{ marginRight: '6px' }} /> Adhésions Agences ({pendingAgencesCount})</span>, permission: 'canManageAgences' },
+    { key: 'relais' as TabKey,         label: <span style={{ display: 'flex', alignItems: 'center' }}><MapPin size={14} style={{ marginRight: '6px' }} /> Points Relais ({dropPoints.length})</span>, permission: 'canManageRelais' },
+    { key: 'agences' as TabKey,        label: <span style={{ display: 'flex', alignItems: 'center' }}><Building2 size={14} style={{ marginRight: '6px' }} /> Agences Actives ({agences.filter(a => a.status === 'active' || a.status === 'suspended').length})</span>, permission: 'canManageAgences' },
+    { key: 'vendeurs' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><Users size={14} style={{ marginRight: '6px' }} /> Vendeurs ({vendeurs.length})</span>, permission: 'canManageVendeurs' },
+    { key: 'colis' as TabKey,          label: <span style={{ display: 'flex', alignItems: 'center' }}><Package size={14} style={{ marginRight: '6px' }} /> Tous les colis ({colis.length})</span>, permission: 'canManageColis' },
+    { key: 'audit' as TabKey,          label: <span style={{ display: 'flex', alignItems: 'center' }}><Shield size={14} style={{ marginRight: '6px' }} /> Audit Financier</span>, permission: 'canManageSettings' },
+    { key: 'reconciliation' as TabKey, label: <span style={{ display: 'flex', alignItems: 'center' }}><AlertCircle size={14} style={{ marginRight: '6px' }} /> Écarts Livreurs</span>, permission: 'canManageSettings' },
+    { key: 'diagnostique' as TabKey,   label: <span style={{ display: 'flex', alignItems: 'center' }}><Activity size={14} style={{ marginRight: '6px' }} /> Diagnostique Système</span>, permission: 'canViewDiagnostics' },
+    { key: 'parametres' as TabKey,     label: <span style={{ display: 'flex', alignItems: 'center' }}><Settings size={14} style={{ marginRight: '6px' }} /> Paramètres Admin</span>, permission: 'canManageSettings' },
+  ];
+  const tabs = allTabs.filter(t => !t.permission || hasPermission(role, t.permission as any));
 
   return (
     <div style={{ minHeight: '100vh', background: '#020202' }}>
@@ -564,7 +734,7 @@ export default function AdminDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
               width: '36px', height: '36px', borderRadius: '10px',
-              background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+              background: 'linear-gradient(135deg, #f97316, #c2410c)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
@@ -573,8 +743,8 @@ export default function AdminDashboard() {
               </svg>
             </div>
             <div>
-              <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: 0 }}>Moncolis</p>
-              <p style={{ fontSize: '0.7rem', color: '#ef4444', margin: 0, fontWeight: '600' }}>Super Admin</p>
+              <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: 0 }}>{adminUser?.name || 'Moncolis'}</p>
+              <p style={{ fontSize: '0.7rem', color: ROLE_LABELS[role]?.color || '#f97316', margin: 0, fontWeight: '600' }}>{ROLE_LABELS[role]?.label || 'Super Admin'}</p>
             </div>
           </div>
         </div>
@@ -589,10 +759,10 @@ export default function AdminDashboard() {
                 width: '100%', padding: '0.65rem 0.9rem', borderRadius: '10px',
                 border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                 textAlign: 'left', fontSize: '0.875rem',
-                background: activeTab === tab.key ? 'rgba(239,68,68,0.12)' : 'transparent',
-                color: activeTab === tab.key ? '#ef4444' : 'rgba(255,255,255,0.55)',
+                background: activeTab === tab.key ? 'rgba(249,115,22,0.12)' : 'transparent',
+                color: activeTab === tab.key ? '#f97316' : 'rgba(255,255,255,0.55)',
                 fontWeight: activeTab === tab.key ? '700' : '400',
-                borderLeft: activeTab === tab.key ? '3px solid #ef4444' : '3px solid transparent',
+                borderLeft: activeTab === tab.key ? '3px solid #f97316' : '3px solid transparent',
                 transition: 'all 0.2s',
               }}
             >
@@ -600,6 +770,61 @@ export default function AdminDashboard() {
             </button>
           ))}
         </nav>
+
+        {/* Advanced admin links */}
+        {(hasPermission(role, 'canManageAdmins') || hasPermission(role, 'canViewSecurityLogs')) && (
+        <div style={{ padding: '0.5rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.3, margin: '0.5rem 0.1rem 0.4rem', fontWeight: '700' }}>Administration avancée</p>
+          {([
+            ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/admins',   label: 'Gestion des Admins',  color: '#fb923c', iconPath: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z' }] : []),
+            ...(hasPermission(role, 'canViewSecurityLogs') ? [{ href: '/admin-x9k2/securite', label: 'Sécurité',             color: '#f97316', iconPath: 'M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z' }] : []),
+            ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/roles',    label: 'Rôles & Comptes',      color: '#22c55e', iconPath: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' }] : []),
+          ] as { href: string; label: string; color: string; iconPath: string }[]).map(({ href, label, color, iconPath }) => (
+            <button
+              key={href}
+              onClick={() => setNavPinModal({ href, label })}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.55rem',
+                padding: '0.55rem 0.9rem', borderRadius: '10px',
+                textDecoration: 'none', fontSize: '0.82rem', width: '100%',
+                color: 'rgba(255,255,255,0.5)',
+                borderLeft: '3px solid transparent',
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'all 0.2s',
+                marginBottom: '0.15rem',
+                position: 'relative',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = `rgba(255,255,255,0.05)`;
+                (e.currentTarget as HTMLElement).style.color = color;
+                (e.currentTarget as HTMLElement).style.borderLeftColor = color;
+                const svg = (e.currentTarget as HTMLElement).querySelector('path');
+                if (svg) svg.style.stroke = color;
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = 'transparent';
+                (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)';
+                (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent';
+                const svg = (e.currentTarget as HTMLElement).querySelector('path');
+                if (svg) svg.style.stroke = 'rgba(255,255,255,0.4)';
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <path d={iconPath} stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {label}
+              {/* Lock icon to signal PIN protection */}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 'auto', opacity: 0.3, flexShrink: 0 }}>
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="white" strokeWidth="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          ))}
+        </div>
+        )}
 
         {/* Logout */}
         <div style={{ padding: '1rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
@@ -619,7 +844,7 @@ export default function AdminDashboard() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               <p style={{ fontSize: '0.75rem', opacity: 0.6, textAlign: 'center', margin: 0 }}>Confirmer ?</p>
               <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <button onClick={handleLogout} style={{ flex: 1, padding: '0.4rem', borderRadius: '8px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.78rem', fontWeight: '700' }}>Oui</button>
+                <button onClick={handleLogout} style={{ flex: 1, padding: '0.4rem', borderRadius: '8px', border: 'none', background: '#f97316', color: 'white', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.78rem', fontWeight: '700' }}>Oui</button>
                 <button onClick={() => setConfirmLogout(false)} style={{ flex: 1, padding: '0.4rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.78rem' }}>Non</button>
               </div>
             </div>
@@ -653,9 +878,9 @@ export default function AdminDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
               <KpiCard label="Total colis"       value={totalColis}    sub="Depuis le debut"                       color="#22c55e" />
               <KpiCard label="Livres"             value={totalLivres}   sub={`${Math.round(totalLivres/totalColis*100)}% de taux`} color="#10b981" />
-              <KpiCard label="Commission Moncolis" value={`${revenuTotal.toFixed(2)} USD`} sub="Sur colis livres uniquement" color="#f59e0b" />
-              <KpiCard label="Agences actives"    value={activeAgences} sub={`sur ${agences.length} total`}        color="#ef4444" />
-              <KpiCard label="Vendeurs"           value={vendeurs.filter(v => v.status === 'active').length} sub="comptes actifs" color="#8b5cf6" />
+              <KpiCard label="Commission Moncolis" value={`${revenuTotal.toFixed(2)} USD`} sub="Sur colis livres uniquement" color="#fb923c" />
+              <KpiCard label="Agences actives"    value={activeAgences} sub={`sur ${agences.length} total`}        color="#f97316" />
+              <KpiCard label="Vendeurs"           value={vendeurs.filter(v => v.status === 'active').length} sub="comptes actifs" color="#22c55e" />
             </div>
 
             {/* Commission breakdown by agency */}
@@ -675,7 +900,7 @@ export default function AdminDashboard() {
                       borderBottom: i < commissionByAgence.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                       display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
                     }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,#ef4444,#b91c1c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '0.9rem', flexShrink: 0 }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,#f97316,#c2410c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '0.9rem', flexShrink: 0 }}>
                         {entry.name.charAt(0)}
                       </div>
                       <div style={{ flex: 1, minWidth: '140px' }}>
@@ -685,10 +910,10 @@ export default function AdminDashboard() {
                       <div style={{ width: '160px', flexShrink: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', opacity: 0.55, marginBottom: '0.3rem' }}>
                           <span>{pct.toFixed(1)}% du total</span>
-                          <span style={{ fontWeight: '700', color: '#f59e0b' }}>{entry.revenu.toFixed(2)} USD</span>
+                          <span style={{ fontWeight: '700', color: '#fb923c' }}>{entry.revenu.toFixed(2)} USD</span>
                         </div>
                         <div style={{ height: '5px', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#f59e0b,#fcd34d)', borderRadius: '3px', transition: 'width 0.6s ease' }} />
+                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#fb923c,#fcd34d)', borderRadius: '3px', transition: 'width 0.6s ease' }} />
                         </div>
                       </div>
                     </div>
@@ -697,7 +922,7 @@ export default function AdminDashboard() {
               )}
               <div style={{ padding: '0.9rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', alignItems: 'center' }}>
                 <span style={{ opacity: 0.5, fontSize: '0.8rem' }}>Total commissions percues :</span>
-                <span style={{ fontWeight: '900', fontSize: '1.1rem', color: '#f59e0b' }}>{revenuTotal.toFixed(2)} USD</span>
+                <span style={{ fontWeight: '900', fontSize: '1.1rem', color: '#fb923c' }}>{revenuTotal.toFixed(2)} USD</span>
               </div>
             </div>
 
@@ -705,7 +930,7 @@ export default function AdminDashboard() {
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
               <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Activite recente</h3>
-                <button onClick={() => setActiveTab('colis')} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>
+                <button onClick={() => setActiveTab('colis')} style={{ background: 'transparent', border: 'none', color: '#f97316', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>
                   Voir tout
                 </button>
               </div>
@@ -726,11 +951,11 @@ export default function AdminDashboard() {
                         onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.02)'; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
                       >
-                        <td style={{ padding: '0.9rem 1.25rem', color: '#ef4444', fontWeight: '600', whiteSpace: 'nowrap' }}>{c.id}</td>
+                        <td style={{ padding: '0.9rem 1.25rem', color: '#f97316', fontWeight: '600', whiteSpace: 'nowrap' }}>{c.id}</td>
                         <td style={{ padding: '0.9rem 1.25rem', whiteSpace: 'nowrap' }}>{c.clientName}</td>
                         <td style={{ padding: '0.9rem 1.25rem', opacity: 0.7, whiteSpace: 'nowrap' }}>{c.agence}</td>
                         <td style={{ padding: '0.9rem 1.25rem', fontWeight: '600', color: '#22c55e', whiteSpace: 'nowrap' }}>{c.montant.toFixed(2)} USD</td>
-                        <td style={{ padding: '0.9rem 1.25rem', fontWeight: '700', color: comm !== null ? '#f59e0b' : 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '0.9rem 1.25rem', fontWeight: '700', color: comm !== null ? '#fb923c' : 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
                           {comm !== null ? `+${comm.toFixed(2)} USD` : '—'}
                         </td>
                         <td style={{ padding: '0.9rem 1.25rem' }}>
@@ -782,6 +1007,154 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* -- TAB: Audit Financier --------------------------------------------- */}
+        {activeTab === 'audit' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(202, 138, 4, 0.08))',
+              border: '1px solid rgba(249, 115, 22, 0.25)',
+              borderRadius: '16px', padding: '1.25rem 1.5rem',
+              display: 'flex', alignItems: 'flex-start', gap: '1rem',
+            }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                background: 'rgba(249, 115, 22, 0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fb923c', flexShrink: 0, marginTop: '2px'
+              }}>
+                <Shield size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: '0 0 0.3rem', fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                  Journal d'Audit Financier et Opérationnel
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                  Historique immuable de toutes les transactions et reversements (livreurs, agences, vendeurs). 
+                  Utilisé comme <strong>preuve structurée</strong> en cas de litige financier.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
+              {audits.length === 0 ? (
+                <div style={{ padding: '3rem 2rem', textAlign: 'center', color: '#94a3b8' }}>
+                  <Shield size={32} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                  <p>Aucune transaction enregistrée pour le moment.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Date</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Type d'Action</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Acteur</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Cible</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Montant</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audits.map((a, i) => (
+                      <tr key={a.id || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '1rem 1.25rem', color: '#cbd5e1', whiteSpace: 'nowrap' }}>
+                          {new Date(a.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#fff' }}>{a.action_type}</td>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <span style={{ display: 'block', color: '#e2e8f0' }}>{a.actor_name || 'Système'}</span>
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <span style={{ display: 'block', color: '#e2e8f0' }}>{a.target_name || '—'}</span>
+                          {a.target_role && <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>({a.target_role})</span>}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', fontWeight: '700', color: a.amount_usd > 0 ? '#22c55e' : '#cbd5e1' }}>
+                          {a.amount_usd > 0 ? `${a.amount_usd} $` : (a.amount_cdf > 0 ? `${a.amount_cdf} FC` : '—')}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem' }}>
+                          <span style={{
+                            background: a.status === 'COMPLETED' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(249, 115, 22, 0.15)',
+                            color: a.status === 'COMPLETED' ? '#4ade80' : '#fb923c',
+                            padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700'
+                          }}>
+                            {a.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* -- TAB: Écarts Livreurs (Reconciliation) --------------------------- */}
+        {activeTab === 'reconciliation' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(185, 28, 28, 0.08))',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '16px', padding: '1.25rem 1.5rem',
+              display: 'flex', alignItems: 'flex-start', gap: '1rem',
+            }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                background: 'rgba(239, 68, 68, 0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#ef4444', flexShrink: 0, marginTop: '2px'
+              }}>
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: '0 0 0.3rem', fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                  Tableau de Réconciliation & Écarts
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                  Comparaison entre l'argent que le livreur a collecté sur le terrain (colis livrés) et l'argent qu'il a réellement déposé à l'agence (via QR Code). Un écart positif indique que le livreur doit de l'argent à l'agence.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
+              {reconciliations.length === 0 ? (
+                <div style={{ padding: '3rem 2rem', textAlign: 'center', color: '#94a3b8' }}>
+                  <RefreshCw size={32} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                  <p>Aucune donnée de réconciliation disponible.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Livreur</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Agence</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'right', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Attendu (Collecté)</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'right', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Déposé (Validé)</th>
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'right', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Écart (Manquant)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reconciliations.map((r, i) => (
+                      <tr key={r.driverId || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#fff' }}>{r.driverName}</td>
+                        <td style={{ padding: '1rem 1.25rem', color: '#cbd5e1' }}>{r.agencyName}</td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'right', color: '#cbd5e1', fontWeight: '500' }}>
+                          {r.expectedCash.toLocaleString('fr-FR')} FC
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'right', color: '#4ade80', fontWeight: '500' }}>
+                          {r.actualDeposited.toLocaleString('fr-FR')} FC
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: '800', color: r.ecart > 0 ? '#ef4444' : '#22c55e' }}>
+                          {r.ecart > 0 ? `+ ${r.ecart.toLocaleString('fr-FR')} FC` : (r.ecart < 0 ? `${r.ecart.toLocaleString('fr-FR')} FC` : '0 FC')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* -- TAB: Demandes d'Adhésion Agences ------------------------------- */}
         {activeTab === 'demandes' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -796,7 +1169,7 @@ export default function AdminDashboard() {
                 width: '40px', height: '40px', borderRadius: '10px',
                 background: 'rgba(239, 68, 68, 0.15)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#ef4444', flexShrink: 0, marginTop: '2px'
+                color: '#f97316', flexShrink: 0, marginTop: '2px'
               }}>
                 <ShieldCheck size={22} />
               </div>
@@ -835,7 +1208,7 @@ export default function AdminDashboard() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div style={{
                         width: '48px', height: '48px', borderRadius: '12px',
-                        background: a.status === 'pending' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(239, 68, 68, 0.2)',
+                        background: a.status === 'pending' ? 'linear-gradient(135deg, #fb923c, #d97706)' : 'rgba(239, 68, 68, 0.2)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         color: '#fff', fontWeight: '800', fontSize: '1.2rem', flexShrink: 0
                       }}>
@@ -847,8 +1220,8 @@ export default function AdminDashboard() {
                           <span style={{
                             padding: '0.2rem 0.65rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: '800',
                             background: a.status === 'pending' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                            color: a.status === 'pending' ? '#f59e0b' : '#ef4444',
-                            border: `1px solid ${a.status === 'pending' ? '#f59e0b' : '#ef4444'}`,
+                            color: a.status === 'pending' ? '#fb923c' : '#f97316',
+                            border: `1px solid ${a.status === 'pending' ? '#fb923c' : '#f97316'}`,
                           }}>
                             {a.status === 'pending' ? 'EN ATTENTE DE VALIDATION' : 'REFUSÉE'}
                           </span>
@@ -863,7 +1236,7 @@ export default function AdminDashboard() {
                     {a.status === 'pending' && (
                       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
                         <button
-                          onClick={() => handleApproveAgency(a.id)}
+                          onClick={() => handleApproveAgencyConfirmed(a.id)}
                           style={{
                             padding: '0.6rem 1.25rem', borderRadius: '10px', border: 'none',
                             background: 'linear-gradient(135deg, #22c55e, #16a34a)',
@@ -877,7 +1250,7 @@ export default function AdminDashboard() {
                         </button>
 
                         <button
-                          onClick={() => handleRejectAgency(a.id)}
+                          onClick={() => handleRejectAgencyConfirmed(a.id)}
                           style={{
                             padding: '0.6rem 1.1rem', borderRadius: '10px',
                             border: '1px solid rgba(239, 68, 68, 0.4)',
@@ -931,7 +1304,7 @@ export default function AdminDashboard() {
                             background: 'rgba(59, 130, 246, 0.12)', border: '1px solid rgba(59, 130, 246, 0.3)',
                             color: '#93c5fd', fontSize: '0.78rem', fontWeight: '600'
                           }}>
-                            📍 {zone}
+                            <MapPin size={14} style={{ display: "inline", marginRight: "4px" }} /> {zone}
                           </span>
                         ))}
                       </div>
@@ -994,7 +1367,7 @@ export default function AdminDashboard() {
               {dropPoints.map(dp => (
                 <div key={dp.id} style={{
                   background: 'rgba(255,255,255,0.03)',
-                  border: dp.isActive ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(239,68,68,0.3)',
+                  border: dp.isActive ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(249,115,22,0.3)',
                   borderRadius: '16px', padding: '1.25rem',
                   display: 'flex', flexDirection: 'column', gap: '1rem',
                   opacity: dp.isActive ? 1 : 0.65
@@ -1020,7 +1393,7 @@ export default function AdminDashboard() {
                       style={{
                         padding: '0.3rem 0.75rem', borderRadius: '20px', border: 'none',
                         background: dp.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                        color: dp.isActive ? '#4ade80' : '#ef4444',
+                        color: dp.isActive ? '#4ade80' : '#f97316',
                         fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
                       }}
                     >
@@ -1029,19 +1402,56 @@ export default function AdminDashboard() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.82rem', color: '#94a3b8' }}>
-                    <div>📍 <strong>Adresse :</strong> <span style={{ color: '#cbd5e1' }}>{dp.address}</span></div>
-                    <div>👤 <strong>Gérant :</strong> <span style={{ color: '#cbd5e1' }}>{dp.managerName}</span></div>
-                    <div>📞 <strong>Contact :</strong> <span style={{ color: '#38bdf8' }}>{dp.phone}</span></div>
-                    <div>⏰ <strong>Horaires :</strong> <span style={{ color: '#fcd34d' }}>{dp.openingHours}</span></div>
+                    <div><MapPin size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Adresse :</strong> <span style={{ color: '#cbd5e1' }}>{dp.address}</span></div>
+                    <div><User size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Gérant :</strong> <span style={{ color: '#cbd5e1' }}>{dp.managerName}</span></div>
+                    <div><Phone size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Contact :</strong> <span style={{ color: '#38bdf8' }}>{dp.phone}</span></div>
+                    <div><Clock size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Horaires :</strong> <span style={{ color: '#fcd34d' }}>{dp.openingHours}</span></div>
                   </div>
 
+                  {/* Credits System */}
                   <div style={{
-                    padding: '0.6rem 0.85rem', background: 'rgba(0,0,0,0.25)',
-                    borderRadius: '8px', fontSize: '0.75rem', color: '#64748b',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    padding: '0.75rem 0.85rem', background: 'rgba(0,0,0,0.25)',
+                    borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                   }}>
-                    <span>Disponibilité retrait colis</span>
-                    <span style={{ color: '#4ade80', fontWeight: '700' }}>Ouvert 6j/7</span>
+                    <div>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'block' }}>Crédits Disponibles</span>
+                      <span style={{
+                        fontSize: '1.4rem', fontWeight: '900',
+                        color: (dp.credits || 0) > 10 ? '#4ade80' : (dp.credits || 0) > 0 ? '#fb923c' : '#f97316'
+                      }}>
+                        {dp.credits || 0}
+                      </span>
+                      {(dp.credits || 0) === 0 && (
+                        <span style={{ fontSize: '0.68rem', color: '#f97316', fontWeight: '700' }}><AlertCircle size={14} style={{ display: "inline", marginRight: "4px" }} /> INACTIF — Rechargez</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={async () => {
+                        const amountStr = prompt(`Combien de crédits ajouter à "${dp.name}" ? (1 crédit = 1 colis)`, '100');
+                        if (!amountStr) return;
+                        const amount = parseInt(amountStr);
+                        if (!amount || amount <= 0) return alert('Montant invalide');
+                        const res = await fetch('/api/admin/drop-points/credits', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', },
+                          body: JSON.stringify({ dropPointId: dp.id, amount }),
+                        });
+                        if (res.ok) {
+                          setDropPoints(prev => prev.map(d => d.id === dp.id ? { ...d, credits: (d.credits || 0) + amount } : d));
+                          setToast(`[OK] +${amount} crédits ajoutés à ${dp.name}`);
+                          setTimeout(() => setToast(null), 3000);
+                        } else {
+                          alert('Erreur lors du rechargement');
+                        }
+                      }}
+                      style={{
+                        padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
+                        background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80',
+                        fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                      }}
+                    >
+                      + Recharger
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1159,7 +1569,7 @@ export default function AdminDashboard() {
                   display: 'flex', flexDirection: 'column', gap: '1.25rem'
                 }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🎉</div>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}></div>
                     <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#fff' }}>Point Relais créé !</h3>
                     <p style={{ margin: '0.4rem 0 0', fontSize: '0.85rem', color: '#94a3b8' }}>Transmettez ces identifiants au gérant <strong style={{ color: '#e2e8f0' }}>{newDpCredentials.agentName}</strong>.</p>
                   </div>
@@ -1177,7 +1587,7 @@ export default function AdminDashboard() {
                   </div>
 
                   <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                    ⚠️ Ces identifiants ne seront <strong style={{ color: '#fbbf24' }}>affichés qu'une seule fois</strong>. Notez-les ou copiez-les avant de fermer.
+                    <AlertCircle size={14} style={{ display: "inline", marginRight: "4px" }} /> Ces identifiants ne seront <strong style={{ color: '#fbbf24' }}>affichés qu'une seule fois</strong>. Notez-les ou copiez-les avant de fermer.
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -1225,7 +1635,7 @@ export default function AdminDashboard() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                     <div style={{
                       width: '32px', height: '32px', borderRadius: '8px',
-                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                      background: 'linear-gradient(135deg, #f97316, #1d4ed8)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
                     }}>
                       <UserCheck size={18} />
@@ -1235,14 +1645,14 @@ export default function AdminDashboard() {
                     </h3>
                     <span style={{
                       padding: '0.2rem 0.6rem', borderRadius: '999px',
-                      background: 'rgba(59,130,246,0.15)', color: '#60a5fa',
+                      background: 'rgba(249,115,22,0.15)', color: '#60a5fa',
                       fontSize: '0.75rem', fontWeight: '800'
                     }}>
                       {agents.length} agent(s)
                     </span>
                   </div>
                   <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: '#94a3b8' }}>
-                    Chaque agent dispose d'un identifiant unique à 9 chiffres et d'un code PIN à 6 chiffres pour se connecter sur <code style={{ color: '#60a5fa', background: 'rgba(59,130,246,0.1)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>/point-relais</code>.
+                    Chaque agent dispose d'un identifiant unique à 9 chiffres et d'un code PIN à 6 chiffres pour se connecter sur <code style={{ color: '#60a5fa', background: 'rgba(249,115,22,0.1)', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>/point-relais</code>.
                   </p>
                 </div>
 
@@ -1276,7 +1686,7 @@ export default function AdminDashboard() {
                   {agents.map(ag => (
                     <div key={ag.id} style={{
                       background: 'rgba(255,255,255,0.03)',
-                      border: ag.isActive ? '1px solid rgba(59,130,246,0.25)' : '1px solid rgba(239,68,68,0.25)',
+                      border: ag.isActive ? '1px solid rgba(249,115,22,0.25)' : '1px solid rgba(249,115,22,0.25)',
                       borderRadius: '16px', padding: '1.1rem',
                       display: 'flex', flexDirection: 'column', gap: '0.85rem',
                       opacity: ag.isActive ? 1 : 0.6
@@ -1287,15 +1697,15 @@ export default function AdminDashboard() {
                             <span style={{
                               fontFamily: 'monospace', fontSize: '0.92rem', fontWeight: '900',
                               letterSpacing: '1px', color: '#60a5fa',
-                              background: 'rgba(59,130,246,0.12)', padding: '0.2rem 0.55rem', borderRadius: '6px',
-                              border: '1px solid rgba(59,130,246,0.3)'
+                              background: 'rgba(249,115,22,0.12)', padding: '0.2rem 0.55rem', borderRadius: '6px',
+                              border: '1px solid rgba(249,115,22,0.3)'
                             }}>
                               #{ag.agentNumber}
                             </span>
                             <span style={{
                               padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.68rem', fontWeight: '800',
                               background: ag.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                              color: ag.isActive ? '#4ade80' : '#ef4444'
+                              color: ag.isActive ? '#4ade80' : '#f97316'
                             }}>
                               {ag.isActive ? 'Actif' : 'Désactivé'}
                             </span>
@@ -1304,7 +1714,7 @@ export default function AdminDashboard() {
                             {ag.name}
                           </h4>
                           <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
-                            📍 {ag.dropPointName} ({ag.dropPointCommune})
+                            <MapPin size={14} style={{ display: "inline", marginRight: "4px" }} /> {ag.dropPointName} ({ag.dropPointCommune})
                           </p>
                         </div>
 
@@ -1313,7 +1723,7 @@ export default function AdminDashboard() {
                           style={{
                             padding: '0.35rem 0.75rem', borderRadius: '8px', border: 'none',
                             background: ag.isActive ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                            color: ag.isActive ? '#ef4444' : '#4ade80',
+                            color: ag.isActive ? '#f97316' : '#4ade80',
                             fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
                           }}
                         >
@@ -1346,7 +1756,7 @@ export default function AdminDashboard() {
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
                           }}
                         >
-                          👁 Voir les accès (session active)
+                          <UserCheck size={14} style={{ display: "inline", marginRight: "4px" }} /> Voir les accès (session active)
                         </button>
                       )}
                     </div>
@@ -1372,7 +1782,7 @@ export default function AdminDashboard() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{
                       width: '42px', height: '42px', borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                      background: 'linear-gradient(135deg, #f97316, #1d4ed8)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff'
                     }}>
                       <UserPlus size={22} />
@@ -1444,7 +1854,7 @@ export default function AdminDashboard() {
                         disabled={creatingAgent || !newAgentName.trim()}
                         style={{
                           flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none',
-                          background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                          background: 'linear-gradient(135deg, #f97316, #1d4ed8)',
                           color: '#fff', fontSize: '0.88rem', fontWeight: '800',
                           cursor: creatingAgent || !newAgentName.trim() ? 'not-allowed' : 'pointer',
                           boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
@@ -1500,7 +1910,7 @@ export default function AdminDashboard() {
                       </span>
                       <div style={{
                         marginTop: '0.3rem', padding: '0.75rem', borderRadius: '10px',
-                        background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+                        background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)',
                         fontFamily: 'monospace', fontSize: '1.5rem', fontWeight: '900', color: '#60a5fa',
                         letterSpacing: '5px', textAlign: 'center'
                       }}>
@@ -1543,7 +1953,7 @@ export default function AdminDashboard() {
                       }}
                       style={{
                         flex: 1, padding: '0.75rem', borderRadius: '10px',
-                        border: '1px solid rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.15)',
+                        border: '1px solid rgba(249,115,22,0.4)', background: 'rgba(249,115,22,0.15)',
                         color: '#60a5fa', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
                         fontFamily: 'inherit'
@@ -1582,14 +1992,14 @@ export default function AdminDashboard() {
             ) : (
               agences.filter(a => a.status === 'active' || a.status === 'suspended').map(a => (
               <div key={a.id} style={{
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${a.status === 'suspended' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                background: 'rgba(255,255,255,0.03)', border: `1px solid ${a.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: '14px', padding: '1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
                 {/* Avatar */}
                 <div style={{
                   width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                  background: 'linear-gradient(135deg, #f97316, #c2410c)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: '800', fontSize: '1.1rem', color: 'white',
                 }}>
@@ -1608,41 +2018,85 @@ export default function AdminDashboard() {
 
                 {/* Stats */}
                 <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{a.totalColis}</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#f59e0b', margin: 0 }}>{a.tauxLivraison}%</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Taux livraison</p>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#8b5cf6', margin: 0 }}>{a.livreurs}</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Livreurs</p>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#f59e0b', margin: 0 }}>{Math.round(a.commissionRate * 100)}%</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Commission</p>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.1rem', color: '#fcd34d', margin: 0 }}>
-                      {(commissionByAgence.find(e => e.name === a.name)?.revenu ?? 0).toFixed(2)} USD
-                    </p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Verse a Moncolis</p>
-                  </div>
-                  <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.8rem', borderRadius: '8px' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.1rem', color: '#0ea5e9', margin: 0 }}>{a.tauxConversionFC ?? '—'}</p>
-                    <p style={{ opacity: 0.6, fontSize: '0.7rem', margin: 0 }}>Taux FC (1 USD)</p>
-                  </div>
+                  {(() => {
+                    const agenceColis = colis.filter(c => c.agenceId === a.id);
+                    const agenceLivres = agenceColis.filter(c => c.status === 'Livré');
+                    const tauxLivraison = agenceColis.length > 0 ? Math.round((agenceLivres.length / agenceColis.length) * 100) : 0;
+                    // Commission due (colis livrés × taux)
+                    const commEntry = commissionByAgence.find(e => e.id === a.id);
+                    const commissionDue = commEntry?.revenu ?? 0;
+                    return (
+                      <>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{agenceColis.length}</p>
+                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>{tauxLivraison}%</p>
+                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Taux livraison</p>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{a.livreurs}</p>
+                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Livreurs</p>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>
+                            {a.billingType === 'Commission' ? `${a.billingValue}%` : `${a.billingValue}$`}
+                          </p>
+                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>{a.billingType}</p>
+                          <button
+                            onClick={() => {
+                              const type = prompt("Type de facturation (Commission, Mensuel, Annuel)", a.billingType) as 'Commission' | 'Mensuel' | 'Annuel';
+                              if (['Commission', 'Mensuel', 'Annuel'].includes(type)) {
+                                const valStr = prompt("Valeur de la facturation (en % ou en $)", a.billingValue.toString());
+                                if (valStr) {
+                                  fetch('/api/admin/agencies/billing', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', },
+                                    body: JSON.stringify({ agencyId: a.id, billingType: type, billingValue: parseFloat(valStr) })
+                                  }).then(() => {
+                                    setAgences(prev => prev.map(ag => ag.id === a.id ? { ...ag, billingType: type, billingValue: parseFloat(valStr) } : ag));
+                                  });
+                                }
+                              }
+                            }}
+                            style={{ background: 'transparent', border: '1px solid #fb923c', color: '#fb923c', borderRadius: '4px', fontSize: '0.65rem', padding: '0.2rem 0.5rem', marginTop: '0.3rem', cursor: 'pointer' }}
+                          >
+                            Modifier
+                          </button>
+                        </div>
+
+                        {/* Dette envers Moncolis (superadmin) */}
+                        <div style={{
+                          textAlign: 'center',
+                          background: commissionDue > 0 ? 'rgba(251,146,60,0.1)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${commissionDue > 0 ? 'rgba(251,146,60,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                          borderRadius: '10px', padding: '0.5rem 0.9rem',
+                        }}>
+                          <p style={{ fontWeight: '900', fontSize: '1.15rem', color: commissionDue > 0 ? '#fb923c' : 'rgba(255,255,255,0.25)', margin: 0 }}>
+                            {commissionDue > 0 ? `${commissionDue.toFixed(2)} $` : '—'}
+                          </p>
+                          <p style={{ opacity: 0.6, fontSize: '0.7rem', margin: 0, lineHeight: 1.3 }}>
+                            Doit à<br /><strong style={{ color: '#f97316' }}>Moncolis</strong>
+                          </p>
+                        </div>
+
+                        <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.8rem', borderRadius: '8px' }}>
+                          <p style={{ fontWeight: '800', fontSize: '1.1rem', color: '#0ea5e9', margin: 0 }}>{a.tauxConversionFC ?? '—'}</p>
+                          <p style={{ opacity: 0.6, fontSize: '0.7rem', margin: 0 }}>Taux FC (1 USD)</p>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Actions */}
                 <button
-                  onClick={() => toggleAgenceStatus(a.id)}
+                  onClick={() => toggleAgenceStatusConfirmed(a.id)}
                   style={{
                     padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                    background: a.status === 'active' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
-                    color: a.status === 'active' ? '#ef4444' : '#10b981',
+                    background: a.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
+                    color: a.status === 'active' ? '#f97316' : '#10b981',
                     cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
                     transition: 'all 0.2s', flexShrink: 0,
                   }}
@@ -1659,13 +2113,13 @@ export default function AdminDashboard() {
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {vendeurs.map(v => (
               <div key={v.id} style={{
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${v.status === 'suspended' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                background: 'rgba(255,255,255,0.03)', border: `1px solid ${v.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: '14px', padding: '1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
                 <div style={{
                   width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+                  background: 'linear-gradient(135deg, #22c55e, #f97316)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: '800', fontSize: '1.1rem', color: 'white',
                 }}>
@@ -1689,17 +2143,17 @@ export default function AdminDashboard() {
                     <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#f59e0b', margin: 0 }}>{v.revenu} EUR</p>
+                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>{v.revenu} EUR</p>
                     <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Revenu</p>
                   </div>
                 </div>
 
                 <button
-                  onClick={() => toggleVendeurStatus(v.id)}
+                  onClick={() => toggleVendeurStatusConfirmed(v.id)}
                   style={{
                     padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                    background: v.status === 'active' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
-                    color: v.status === 'active' ? '#ef4444' : '#10b981',
+                    background: v.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
+                    color: v.status === 'active' ? '#f97316' : '#10b981',
                     cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
                     transition: 'all 0.2s', flexShrink: 0,
                   }}
@@ -1729,7 +2183,7 @@ export default function AdminDashboard() {
                 className="input-field"
                 style={{ padding: '0.55rem 0.9rem', width: 'auto', fontSize: '0.875rem' }}
               >
-                {['Tous', 'En attente', 'Accepte', 'En transit', 'Livre', 'Refuse', 'Annule'].map(s => (
+                {['Tous', 'En attente', 'Accepte', 'En transit', 'Livré', 'Refuse', 'Annule'].map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
@@ -1751,7 +2205,7 @@ export default function AdminDashboard() {
                       onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.02)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
                     >
-                      <td style={{ padding: '1rem 1.25rem', color: '#ef4444', fontWeight: '700' }}>{c.id}</td>
+                      <td style={{ padding: '1rem 1.25rem', color: '#f97316', fontWeight: '700' }}>{c.id}</td>
                       <td style={{ padding: '1rem 1.25rem', whiteSpace: 'nowrap' }}>{c.clientName}</td>
                       <td style={{ padding: '1rem 1.25rem', opacity: 0.7 }}>{c.vendeur}</td>
                       <td style={{ padding: '1rem 1.25rem', opacity: 0.7 }}>{c.agence}</td>
@@ -1817,9 +2271,9 @@ export default function AdminDashboard() {
                 <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Memoire JS (heap)</p>
                 {memUsed !== null ? (
                   <>
-                    <p style={{ fontSize: '1.4rem', fontWeight: '800', color: memUsed > memTotal! * 0.7 ? '#f59e0b' : '#10b981', margin: 0 }}>{memUsed} MB</p>
+                    <p style={{ fontSize: '1.4rem', fontWeight: '800', color: memUsed > memTotal! * 0.7 ? '#fb923c' : '#10b981', margin: 0 }}>{memUsed} MB</p>
                     <div style={{ marginTop: '0.5rem', height: '4px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.min(100, Math.round(memUsed / memTotal! * 100))}%`, background: memUsed > memTotal! * 0.7 ? '#f59e0b' : '#10b981', borderRadius: '2px', transition: 'width 1s ease' }} />
+                      <div style={{ height: '100%', width: `${Math.min(100, Math.round(memUsed / memTotal! * 100))}%`, background: memUsed > memTotal! * 0.7 ? '#fb923c' : '#10b981', borderRadius: '2px', transition: 'width 1s ease' }} />
                     </div>
                     <p style={{ fontSize: '0.7rem', opacity: 0.4, marginTop: '0.3rem' }}>sur {memTotal} MB limit</p>
                   </>
@@ -1831,14 +2285,14 @@ export default function AdminDashboard() {
               {/* Connexion */}
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.25rem' }}>
                 <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Connexion reseau</p>
-                <p style={{ fontSize: '1.4rem', fontWeight: '800', color: '#3b82f6', margin: 0, textTransform: 'uppercase' }}>{connection}</p>
+                <p style={{ fontSize: '1.4rem', fontWeight: '800', color: '#f97316', margin: 0, textTransform: 'uppercase' }}>{connection}</p>
                 <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>Network Information API</p>
               </div>
 
               {/* Services OK */}
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.25rem' }}>
                 <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Services operationnels</p>
-                <p style={{ fontSize: '1.4rem', fontWeight: '800', color: services.every(s => s.status === 'ok') ? '#10b981' : '#f59e0b', margin: 0 }}>
+                <p style={{ fontSize: '1.4rem', fontWeight: '800', color: services.every(s => s.status === 'ok') ? '#10b981' : '#fb923c', margin: 0 }}>
                   {services.filter(s => s.status === 'ok').length} / {services.length}
                 </p>
                 <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>sante globale</p>
@@ -1851,7 +2305,7 @@ export default function AdminDashboard() {
                 <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '700' }}>Verification des services</h3>
               </div>
               {services.map((svc, i) => {
-                const dot: Record<string, string> = { ok: '#10b981', warn: '#f59e0b', error: '#ef4444' };
+                const dot: Record<string, string> = { ok: '#10b981', warn: '#fb923c', error: '#f97316' };
                 const label: Record<string, string> = { ok: 'OK', warn: 'ATTENTION', error: 'ERREUR' };
                 return (
                   <div
@@ -1904,7 +2358,7 @@ export default function AdminDashboard() {
               </div>
               <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
                 {logs.map(log => {
-                  const levelColor: Record<string, string> = { INFO: '#3b82f6', WARN: '#f59e0b', ERROR: '#ef4444' };
+                  const levelColor: Record<string, string> = { INFO: '#f97316', WARN: '#fb923c', ERROR: '#f97316' };
                   return (
                     <div
                       key={log.id}
@@ -1912,7 +2366,7 @@ export default function AdminDashboard() {
                         padding: '0.75rem 1.5rem',
                         borderBottom: '1px solid rgba(255,255,255,0.03)',
                         display: 'flex', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap',
-                        background: log.level === 'ERROR' ? 'rgba(239,68,68,0.04)' : 'transparent',
+                        background: log.level === 'ERROR' ? 'rgba(249,115,22,0.04)' : 'transparent',
                       }}
                     >
                       <span style={{
@@ -1937,7 +2391,164 @@ export default function AdminDashboard() {
         </>
         )}
 
+      {/* ── TAB : Paramètres Admin ──────────────────────────────────── */}
+      {activeTab === 'parametres' && (
+        <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '640px' }}>
+          {/* PIN de sécurité */}
+          <div style={{ background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.2)', borderRadius: '16px', padding: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(249,115,22,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Shield size={20} color="#f97316" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800' }}>Code PIN d&apos;Action (4 chiffres)</h3>
+                <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', opacity: 0.5 }}>Requis pour suspension, validation, création de compte.</p>
+              </div>
+            </div>
+
+            {actionPin === '0000' && (
+              <div style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.4)', borderRadius: '10px', padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: '0.5rem' }}>
+                <AlertCircle size={16} color="#f97316" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span style={{ fontSize: '0.82rem', color: '#fca5a5' }}><AlertCircle size={14} style={{ display: "inline", marginRight: "4px" }} /> PIN par défaut <strong>0000</strong> — changez-le immédiatement.</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.4rem' }}>Nouveau PIN (4 chiffres)</label>
+                <input type="password" inputMode="numeric" maxLength={4} placeholder="••••" value={newPinInput}
+                  onChange={e => setNewPinInput(e.target.value.replace(/\D/g,'').slice(0,4))}
+                  style={{ width:'100%', padding:'0.75rem 1rem', borderRadius:'10px', fontSize:'1.5rem', letterSpacing:'8px', fontWeight:'900', textAlign:'center', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', outline:'none', boxSizing:'border-box' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.4rem' }}>Confirmer le nouveau PIN</label>
+                <input type="password" inputMode="numeric" maxLength={4} placeholder="••••" value={confirmPinInput}
+                  onChange={e => setConfirmPinInput(e.target.value.replace(/\D/g,'').slice(0,4))}
+                  style={{ width:'100%', padding:'0.75rem 1rem', borderRadius:'10px', fontSize:'1.5rem', letterSpacing:'8px', fontWeight:'900', textAlign:'center', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', outline:'none', boxSizing:'border-box' }} />
+              </div>
+
+              {pinChangeMsg && (
+                <div style={{ padding:'0.75rem 1rem', borderRadius:'10px', background: pinChangeMsg.type==='success' ? 'rgba(16,185,129,0.1)' : 'rgba(249,115,22,0.1)', border:`1px solid ${pinChangeMsg.type==='success' ? '#10b981' : '#f97316'}`, color: pinChangeMsg.type==='success' ? '#10b981' : '#f97316', fontSize:'0.85rem', fontWeight:'600' }}>
+                  {pinChangeMsg.text}
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  if (newPinInput.length !== 4) { setPinChangeMsg({ type:'error', text:'Le PIN doit contenir exactement 4 chiffres.' }); return; }
+                  if (newPinInput !== confirmPinInput) { setPinChangeMsg({ type:'error', text:'Les deux PINs ne correspondent pas.' }); return; }
+                  requirePin('Confirmez votre identité pour changer le PIN', () => {
+                    localStorage.setItem('moncolis_admin_pin', newPinInput);
+                    setActionPin(newPinInput);
+                    setNewPinInput(''); setConfirmPinInput('');
+                    setPinChangeMsg({ type:'success', text:'[OK] PIN mis à jour avec succès !' });
+                    setTimeout(() => setPinChangeMsg(null), 4000);
+                  });
+                }}
+                style={{ padding:'0.8rem', borderRadius:'10px', border:'none', background:'linear-gradient(135deg,#f97316,#c2410c)', color:'#fff', fontWeight:'800', fontSize:'0.9rem', cursor:'pointer', width:'100%' }}
+              >
+                <Lock size={16} style={{ display: "inline", marginRight: "4px" }} /> Mettre à jour le PIN
+              </button>
+            </div>
+          </div>
+
+          {/* Plafond Taux de Change */}
+          <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'16px', padding:'2rem' }}>
+            <h3 style={{ margin:'0 0 0.5rem', fontSize:'1.1rem', fontWeight:'800' }}><RefreshCw size={18} style={{ display: "inline", marginRight: "4px" }} /> Plafond Taux de Change (FC)</h3>
+            <p style={{ opacity:0.5, fontSize:'0.82rem', margin:'0 0 1.25rem' }}>Taux maximum qu&apos;une agence peut configurer (FC pour 1 USD).</p>
+            <div style={{ display:'flex', gap:'1rem', alignItems:'center', flexWrap:'wrap' }}>
+              <input type="number" value={plafondFC} onChange={e => setPlafondFC(parseInt(e.target.value)||0)}
+                style={{ flex:1, minWidth:'140px', padding:'0.75rem 1rem', borderRadius:'10px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:'1.2rem', fontWeight:'700', outline:'none' }} />
+              <span style={{ color:'#94a3b8', fontWeight:'700' }}>FC / 1 USD</span>
+              <button
+                onClick={async () => requirePin('Modifier le taux de change global', async () => {
+                  const { error } = await supabase
+                    .from('system_settings')
+                    .update({ exchange_rate: plafondFC })
+                    .eq('id', 'global');
+                  if (error) {
+                    setToast(`[Erreur] Erreur: ${error.message}`);
+                  } else {
+                    setToast(`[OK] Taux de change mis à jour: ${plafondFC} Fc / 1 USD`);
+                  }
+                  setTimeout(() => setToast(null), 3500);
+                })}
+                style={{ padding:'0.75rem 1.5rem', borderRadius:'10px', border:'none', background:'#f97316', color:'#fff', fontWeight:'700', cursor:'pointer' }}
+              >Sauvegarder</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       </main>
+
+      {/* ── Modale PIN Navigation Administration Avancée ─────────────────── */}
+      {navPinModal && (
+        <PinModal
+          destination={navPinModal.label}
+          onSuccess={() => {
+            const href = navPinModal.href;
+            setNavPinModal(null);
+            window.location.href = href;
+          }}
+          onCancel={() => setNavPinModal(null)}
+        />
+      )}
+
+      {/* ── Modale PIN d'action ──────────────────────────────────────────── */}
+      {pinModal.open && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(10px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:'1rem' }}>
+          <div style={{ background:'#0a0a0a', border:'1px solid rgba(249,115,22,0.35)', borderRadius:'24px', padding:'2rem', width:'100%', maxWidth:'360px', boxShadow:'0 30px 70px rgba(0,0,0,0.7)' }}>
+            <div style={{ textAlign:'center', marginBottom:'1.5rem' }}>
+              <div style={{ width:'56px', height:'56px', borderRadius:'16px', background:'rgba(249,115,22,0.15)', border:'1px solid rgba(249,115,22,0.3)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 1rem' }}>
+                <Shield size={28} color="#f97316" />
+              </div>
+              <h2 style={{ margin:'0 0 0.3rem', fontSize:'1.1rem', fontWeight:'800' }}><Lock size={16} style={{ display: "inline", marginRight: "4px" }} /> Authentification Requise</h2>
+              <p style={{ margin:0, fontSize:'0.78rem', color:'#64748b', lineHeight:1.5 }}>{pinModal.label}</p>
+            </div>
+
+            {/* Indicateurs PIN */}
+            <div style={{ display:'flex', gap:'0.75rem', justifyContent:'center', marginBottom:'1rem' }}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{ width:'52px', height:'60px', borderRadius:'14px', border:`2px solid ${pinError ? '#f97316' : pinInput.length > i ? '#f97316' : 'rgba(255,255,255,0.1)'}`, background: pinInput.length > i ? 'rgba(249,115,22,0.1)' : 'rgba(255,255,255,0.03)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.6rem', transition:'all 0.15s' }}>
+                  {pinInput.length > i ? '●' : ''}
+                </div>
+              ))}
+            </div>
+            {pinError && <p style={{ textAlign:'center', color:'#f97316', fontSize:'0.82rem', fontWeight:'700', margin:'0 0 0.75rem' }}>[Erreur] Code incorrect. Réessayez.</p>}
+
+            {/* Clavier numérique */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'0.5rem', marginBottom:'1rem' }}>
+              {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((key, i) => (
+                <button key={i}
+                  onClick={() => {
+                    if (key === '⌫') { setPinInput(p => p.slice(0,-1)); setPinError(false); }
+                    else if (key !== '' && pinInput.length < 4) {
+                      const next = pinInput + String(key);
+                      setPinInput(next); setPinError(false);
+                      if (next.length === 4) {
+                        setTimeout(() => {
+                          if (next === actionPin) { setPinModal(m=>({...m,open:false})); pinModal.onSuccess(); setPinInput(''); setPinError(false); }
+                          else { setPinError(true); setPinInput(''); }
+                        }, 180);
+                      }
+                    }
+                  }}
+                  disabled={key === ''}
+                  style={{ padding:'1rem', borderRadius:'12px', border:'none', fontSize:'1.25rem', fontWeight:'700', background: key==='⌫' ? 'rgba(249,115,22,0.1)' : 'rgba(255,255,255,0.05)', color: key==='⌫' ? '#f97316' : '#fff', cursor: key==='' ? 'default' : 'pointer', visibility: key==='' ? 'hidden' : 'visible', transition:'background 0.15s' }}
+                >{key}</button>
+              ))}
+            </div>
+
+            <button onClick={() => { setPinModal(m=>({...m,open:false})); setPinInput(''); setPinError(false); }}
+              style={{ width:'100%', padding:'0.7rem', borderRadius:'10px', border:'1px solid rgba(255,255,255,0.08)', background:'transparent', color:'rgba(255,255,255,0.35)', cursor:'pointer', fontSize:'0.85rem' }}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

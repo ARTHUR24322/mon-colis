@@ -16,13 +16,25 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
-  AlertCircle
+  AlertCircle,
+  Info,
+  DollarSign,
+  Send,
+  Clock,
+  CheckCircle,
+  XCircle,
+  QrCode,
+  Building2,
+  RefreshCw,
+  X
 } from 'lucide-react';
 import { dataService, ColisItem, DriverAccount, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
+import { useCurrency } from '@/components/CurrencyContext';
 
 export default function LivreurPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
+  const { formatPrice } = useCurrency();
   
   const [driver, setDriver] = useState<DriverAccount | null>(null);
 
@@ -66,7 +78,7 @@ export default function LivreurPage() {
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [otpErrors, setOtpErrors] = useState<Record<string, string>>({});
   const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
-  const [activeTab, setActiveTab] = useState<'active' | 'done'>('active');
+  const [activeTab, setActiveTab] = useState<'to_collect' | 'deposited' | 'to_deliver' | 'delivered'>('to_collect');
 
   // Drop Point rerouting state (zone inaccessible)
   const [rerouteModalColis, setRerouteModalColis] = useState<ColisItem | null>(null);
@@ -78,6 +90,22 @@ export default function LivreurPage() {
   const [customReason, setCustomReason] = useState('');
   const [rerouteLoading, setRerouteLoading] = useState(false);
   const [rerouteToast, setRerouteToast] = useState<string | null>(null);
+
+  // Cash request states
+  const [showCashModal, setShowCashModal] = useState(false);
+  const [cashAmount, setCashAmount] = useState('');
+  const [cashNote, setCashNote] = useState('');
+  const [cashLoading, setCashLoading] = useState(false);
+  const [cashRequests, setCashRequests] = useState<Array<{ id: string; amount: number; status: string; note: string | null; reject_reason: string | null; created_at: string }>>([]);
+  const [cashRequestsLoading, setCashRequestsLoading] = useState(false);
+  const [cashSuccess, setCashSuccess] = useState<string | null>(null);
+
+  // QR Deposit states
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrData, setQrData] = useState<{ requestId: string; qrToken: string; amount: number; expiresAt: string } | null>(null);
+  const [qrConfirmed, setQrConfirmed] = useState(false);
+  const [qrPollingInterval, setQrPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const handleOpenRerouteModal = (colis: ColisItem) => {
     setRerouteModalColis(colis);
@@ -140,15 +168,43 @@ export default function LivreurPage() {
     const driverInfo = d || driver;
     if (!driverInfo) return;
     setCoursesLoading(true);
-    const all = await dataService.getPackagesForDriver(driverInfo.id);
-    // Also try by name if no ID match
-    if (all.length === 0) {
-      const byName = await dataService.getPackagesForDriver(driverInfo.name);
-      setCourses(byName);
-    } else {
-      setCourses(all);
+    try {
+      const res = await fetch(`/api/livreur/${driverInfo.id}/dashboard?name=${encodeURIComponent(driverInfo.name)}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setCourses(json.courses || []);
+      }
+    } catch (e) {
+      console.error('Failed to load courses', e);
+    } finally {
+      setCoursesLoading(false);
     }
-    setCoursesLoading(false);
+  };
+
+  /* --- Load Cash Requests --- */
+  const loadCashRequests = async () => {
+    setCashRequestsLoading(true);
+    try {
+      const res = await fetch('/api/livreur/cash-request');
+      const json = await res.json();
+      if (res.ok) setCashRequests(json.requests || []);
+    } catch (e) {
+      console.error('Failed to load cash requests', e);
+    } finally {
+      setCashRequestsLoading(false);
+    }
+  };
+
+  /* --- Collect a vendor deposit from Drop Point (Cas A: livreur → relais → livreur) --- */
+  const handleCollectDeposit = async (colisId: string) => {
+    const res = await dataService.markVendorDepositCollected(colisId);
+    if (res.success) {
+      setRerouteToast('Colis collecté au point relais. Il est maintenant en transit.');
+      await loadCourses();
+      setTimeout(() => setRerouteToast(null), 3000);
+    } else {
+      alert(res.message || 'Erreur lors de la collecte.');
+    }
   };
 
   /* --- OTP Validation --- */
@@ -169,6 +225,63 @@ export default function LivreurPage() {
     }
   };
 
+  /* --- Generate QR Deposit token --- */
+  const handleGenerateDepositQr = async () => {
+    if (!driver || cashCollected <= 0) return;
+    setQrLoading(true);
+    setQrConfirmed(false);
+    setQrData(null);
+    try {
+      const res = await fetch('/api/livreur/deposit-qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: cashCollected }),
+      });
+      const json = await res.json();
+      if (res.ok && json.qrToken) {
+        setQrData({
+          requestId: json.requestId,
+          qrToken: json.qrToken,
+          amount: json.amount,
+          expiresAt: json.expiresAt,
+        });
+        // Polling pour détecter confirmation agence
+        const interval = setInterval(async () => {
+          try {
+            const pollRes = await fetch('/api/livreur/deposit-qr');
+            const pollJson = await pollRes.json();
+            if (!pollJson.pending) {
+              // Plus de demande PENDING → confirmé !
+              setQrConfirmed(true);
+              clearInterval(interval);
+              // Recharger les courses pour mettre à jour le solde
+              await loadCourses();
+            }
+          } catch {
+            // Ignorer les erreurs de polling
+          }
+        }, 4000);
+        setQrPollingInterval(interval);
+      } else {
+        alert(json.error || 'Erreur lors de la génération du QR.');
+      }
+    } catch {
+      alert('Erreur réseau. Réessayez.');
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const handleCloseQrModal = () => {
+    setShowQrModal(false);
+    setQrData(null);
+    setQrConfirmed(false);
+    if (qrPollingInterval) {
+      clearInterval(qrPollingInterval);
+      setQrPollingInterval(null);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     setDriver(null);
@@ -179,15 +292,39 @@ export default function LivreurPage() {
     return (
       <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔐</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}><Lock size={40} color="#94a3b8" /></div>
           <p>Vérification de la session...</p>
         </div>
       </div>
     );
   }
 
+  const toCollectCourses = courses.filter(c => c.status === 'En attente de collecte' || (c.deliveryMode === 'DROP_POINT_FIRST_MILE' && (c.status === 'Créé' || c.status === 'Accepté')));
+  const depositedCourses = courses.filter(c => c.status === 'Déposé en point relais' || c.status === 'Disponible au point relais' || c.status === 'En attente de confirmation relais');
+  const toDeliverCourses = courses.filter(c => c.status !== 'Livré' && c.status !== 'Annulé' && !['En attente de collecte', 'Déposé en point relais', 'Disponible au point relais', 'En attente de confirmation relais'].includes(c.status) && !(c.deliveryMode === 'DROP_POINT_FIRST_MILE' && (c.status === 'Créé' || c.status === 'Accepté')));
+  const deliveredCourses = courses.filter(c => c.status === 'Livré');
+
+  const getActiveList = () => {
+    switch (activeTab) {
+      case 'to_collect': return toCollectCourses;
+      case 'deposited': return depositedCourses;
+      case 'to_deliver': return toDeliverCourses;
+      case 'delivered': return deliveredCourses;
+      default: return [];
+    }
+  };
+
+  const activeList = getActiveList();
+  
+  // Keep these for the info banner stats
   const activeCourses = courses.filter(c => c.status !== 'Livré' && c.status !== 'Annulé');
-  const doneCourses = courses.filter(c => c.status === 'Livré');
+  const doneCourses = deliveredCourses;
+
+  // Cash total collecté = somme des prix colis livrés (cash à remettre à l'agence)
+  const cashCollected = deliveredCourses.reduce((sum, c) => sum + (c.prixColis || 0) + (!c.paidByClient ? (c.prixLivraison || 0) : 0), 0);
+
+  // Agency phone for WhatsApp (from driver info)
+  const agencyWhatsApp = driver?.agencyId ? `https://wa.me/?text=${encodeURIComponent(`Bonjour, je suis ${driver.name} (livreur), je voudrais discuter de mon versement.`)}` : null;
 
   /* ═══════════════════════════════════════════════════════════
      DASHBOARD
@@ -201,26 +338,26 @@ export default function LivreurPage() {
       flexDirection: 'column'
     }}>
 
-      {/* -- Header -- */}
+      {/* -- Header Mobile-First -- */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 40,
         backdropFilter: 'blur(16px)',
         background: 'rgba(7, 9, 14, 0.92)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-        padding: '0.75rem 1.25rem'
+        padding: '0.75rem 1rem'
       }}>
-        <div style={{ maxWidth: '720px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div style={{
-              width: '38px', height: '38px', borderRadius: '10px',
+              width: '34px', height: '34px', borderRadius: '10px',
               background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
               display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}>
-              <Truck size={20} color="#fff" />
+              <Truck size={18} color="#fff" />
             </div>
             <div>
-              <div style={{ fontWeight: '800', fontSize: '0.95rem', color: '#fff' }}>{driver?.name}</div>
-              <div style={{ fontSize: '0.72rem', color: '#4ade80', fontWeight: '600' }}>
+              <div style={{ fontWeight: '800', fontSize: '0.9rem', color: '#fff' }}>{driver?.name}</div>
+              <div style={{ fontSize: '0.7rem', color: '#4ade80', fontWeight: '600' }}>
                 Livreur &bull; {driver?.agencyName}
               </div>
             </div>
@@ -232,12 +369,11 @@ export default function LivreurPage() {
               display: 'flex', alignItems: 'center', gap: '0.35rem',
               background: 'rgba(255, 255, 255, 0.04)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '8px', padding: '0.45rem 0.85rem',
-              color: '#94a3b8', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer'
+              borderRadius: '8px', padding: '0.4rem 0.6rem',
+              color: '#94a3b8', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer'
             }}
           >
             <LogOut size={14} />
-            Déconnexion
           </button>
         </div>
       </header>
@@ -259,7 +395,7 @@ export default function LivreurPage() {
         }}>
           <div>
             <h1 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: 0 }}>
-              Bonjour, {driver?.name?.split(' ')[0]} 👋
+              Bonjour, {driver?.name?.split(' ')[0]}
             </h1>
             <p style={{ color: '#93c5fd', fontSize: '0.85rem', margin: '0.2rem 0 0' }}>
               {driver?.vehicle} · {activeCourses.length} course(s) active(s) en attente
@@ -289,46 +425,88 @@ export default function LivreurPage() {
           </div>
         </div>
 
-        {/* Tab Switcher */}
+        {/* ─── Dépôt Agence Banner ─── */}
         <div style={{
-          display: 'flex',
-          gap: '0.5rem',
-          padding: '0.35rem',
-          background: 'rgba(255, 255, 255, 0.04)',
-          borderRadius: '12px',
-          border: '1px solid rgba(255, 255, 255, 0.07)'
+          background: cashCollected > 0
+            ? 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(234,179,8,0.06))'
+            : 'rgba(34,197,94,0.06)',
+          border: cashCollected > 0
+            ? '1px solid rgba(245,158,11,0.4)'
+            : '1px solid rgba(34,197,94,0.25)',
+          borderRadius: '20px',
+          padding: '1.25rem 1.5rem'
         }}>
-          {[
-            { key: 'active' as const, label: `En cours (${activeCourses.length})` },
-            { key: 'done' as const, label: `Livrées (${doneCourses.length})` }
-          ].map(t => (
+          {/* Titre */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.85rem' }}>
+            <div style={{
+              width: '36px', height: '36px', borderRadius: '10px',
+              background: cashCollected > 0 ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Building2 size={18} color={cashCollected > 0 ? '#fbbf24' : '#4ade80'} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em', color: cashCollected > 0 ? '#fbbf24' : '#86efac' }}>
+                Montant à déposer à l'agence
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.05rem' }}>
+                {doneCourses.length} livraison(s) effectuée(s)
+              </div>
+            </div>
+          </div>
+
+          {/* Montant */}
+          <div style={{
+            fontSize: '2rem', fontWeight: '900',
+            color: cashCollected > 0 ? '#fbbf24' : '#4ade80',
+            letterSpacing: '-0.02em', marginBottom: '1rem'
+          }}>
+            {cashCollected > 0
+              ? formatPrice(cashCollected)
+              : 'Solde à zéro'}
+          </div>
+
+          {/* Bouton Remettre à l'agence */}
+          {cashCollected > 0 ? (
             <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => { setShowQrModal(true); handleGenerateDepositQr(); }}
               style={{
-                flex: 1,
-                padding: '0.55rem',
-                borderRadius: '9px',
-                border: 'none',
-                background: activeTab === t.key ? '#2563eb' : 'transparent',
-                color: activeTab === t.key ? '#fff' : '#94a3b8',
-                fontWeight: '700',
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
+                width: '100%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.55rem',
+                padding: '0.9rem 1rem', borderRadius: '14px', border: 'none',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#000', fontWeight: '800', fontSize: '0.95rem', cursor: 'pointer',
+                fontFamily: 'inherit',
+                boxShadow: '0 4px 20px rgba(245,158,11,0.4)',
+                transition: 'transform 0.15s',
               }}
             >
-              {t.label}
+              <QrCode size={20} />
+              Remettre à l'agence
             </button>
-          ))}
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.65rem 1rem', borderRadius: '12px',
+              background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)'
+            }}>
+              <CheckCircle size={16} color="#4ade80" />
+              <span style={{ fontSize: '0.82rem', color: '#86efac', fontWeight: '600' }}>
+                Aucun cash à remettre — tout est à jour !
+              </span>
+            </div>
+          )}
         </div>
+
+        {/* (Tabs removed here, moved to Bottom Navigation Bar) */}
 
         {/* Courses List */}
         {coursesLoading ? (
           <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
             Chargement de vos courses...
           </div>
-        ) : (activeTab === 'active' ? activeCourses : doneCourses).length === 0 ? (
+        ) : activeList.length === 0 ? (
           <div style={{
             textAlign: 'center', padding: '3rem 1.5rem',
             background: 'rgba(255, 255, 255, 0.02)',
@@ -337,27 +515,24 @@ export default function LivreurPage() {
           }}>
             <Package size={40} color="#64748b" style={{ margin: '0 auto 1rem' }} />
             <p style={{ color: '#fff', fontWeight: '700', margin: '0 0 0.5rem' }}>
-              {activeTab === 'active' ? 'Aucune course active pour le moment' : 'Pas encore de livraisons effectuées'}
-            </p>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
-              {activeTab === 'active'
-                ? 'Votre agence vous assignera des colis dès leur réception.'
-                : 'Vos livraisons validées apparaîtront ici.'}
+              Aucune course dans cette catégorie
             </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {(activeTab === 'active' ? activeCourses : doneCourses).map(c => (
+            {activeList.map(c => (
               <DeliveryCard
                 key={c.id}
                 colis={c}
-                isDone={activeTab === 'done'}
+                isDone={c.status === 'Livré'}
                 otpValue={otpInputs[c.id] || ''}
                 onOtpChange={(val) => setOtpInputs(prev => ({ ...prev, [c.id]: val }))}
                 onValidate={() => handleValidateOtp(c.id)}
                 onOpenReroute={() => handleOpenRerouteModal(c)}
+                onCollect={() => handleCollectDeposit(c.id)}
                 error={otpErrors[c.id]}
                 success={otpSuccess[c.id]}
+                formatPrice={formatPrice}
               />
             ))}
           </div>
@@ -414,7 +589,10 @@ export default function LivreurPage() {
                 background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.2)',
                 borderRadius: '12px', padding: '0.85rem', fontSize: '0.8rem', color: '#fde047', lineHeight: 1.5
               }}>
-                ℹ️ Le colis sera déposé en sécurité au Point Relais. Le client <strong>{rerouteModalColis.clientName}</strong> pourra aller le récupérer avec son code secret OTP.
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <Info size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span>Le colis sera déposé en sécurité au Point Relais. Le client <strong>{rerouteModalColis.clientName}</strong> pourra aller le récupérer avec son code secret OTP.</span>
+              </div>
               </div>
 
               {/* Agent Number Input */}
@@ -457,7 +635,7 @@ export default function LivreurPage() {
                       opacity: (agentNumberInput.length !== 9 || rerouteModalColis.status === 'Déposé en point relais' || rerouteModalColis.status === 'En attente de confirmation relais') ? 0.5 : 1, fontFamily: 'inherit',
                     }}
                   >
-                    {verifyingAgent ? '...' : verifiedAgent ? 'Vérifié ✓' : 'Vérifier'}
+                    {verifyingAgent ? '...' : verifiedAgent ? 'Vérifié ' : 'Vérifier'}
                   </button>
                 </div>
 
@@ -560,6 +738,330 @@ export default function LivreurPage() {
         )}
 
       </div>
+
+      {/* ══════════════════════════════════════════════════════
+          MODAL : QR Code de Dépôt
+      ══════════════════════════════════════════════════════ */}
+      {showQrModal && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.88)',
+          backdropFilter: 'blur(12px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 300, padding: '1rem'
+        }}>
+          <div style={{
+            width: '100%', maxWidth: '400px',
+            background: '#0d1117',
+            border: '1px solid rgba(245,158,11,0.35)',
+            borderRadius: '28px', padding: '1.75rem',
+            display: 'flex', flexDirection: 'column', gap: '1.25rem',
+            boxShadow: '0 30px 70px rgba(0,0,0,0.8)',
+            position: 'relative'
+          }}>
+            {/* Close button */}
+            <button
+              onClick={handleCloseQrModal}
+              style={{
+                position: 'absolute', top: '1rem', right: '1rem',
+                background: 'rgba(255,255,255,0.08)', border: 'none',
+                borderRadius: '8px', padding: '0.4rem',
+                color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center'
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingRight: '2rem' }}>
+              <div style={{
+                width: '46px', height: '46px', borderRadius: '14px',
+                background: 'rgba(245,158,11,0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <QrCode size={24} color="#fbbf24" />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>
+                  Dépôt à l'agence
+                </h2>
+                <p style={{ margin: '0.1rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                  Présentez ce QR code à votre agence
+                </p>
+              </div>
+            </div>
+
+            {/* Contenu selon état */}
+            {qrLoading ? (
+              /* Chargement */
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
+                <div style={{
+                  width: '60px', height: '60px', border: '3px solid rgba(245,158,11,0.2)',
+                  borderTopColor: '#f59e0b', borderRadius: '50%',
+                  animation: 'spin 1s linear infinite'
+                }} />
+                <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>Génération du QR code...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            ) : qrConfirmed ? (
+              /* Confirmé ! */
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '1.5rem 0' }}>
+                <div style={{
+                  width: '80px', height: '80px', borderRadius: '50%',
+                  background: 'rgba(34,197,94,0.15)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: '2px solid rgba(34,197,94,0.4)'
+                }}>
+                  <CheckCircle2 size={40} color="#22c55e" />
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#4ade80', marginBottom: '0.35rem' }}>
+                    Dépôt confirmé !
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: '#86efac' }}>
+                    L'agence a confirmé la réception de
+                  </div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#4ade80', margin: '0.3rem 0' }}>
+                    {qrData?.amount.toLocaleString('fr-FR')} CDF
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                    Votre solde a été remis à zéro.
+                  </div>
+                </div>
+                <button
+                  onClick={handleCloseQrModal}
+                  style={{
+                    padding: '0.75rem 2rem', borderRadius: '999px', border: 'none',
+                    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                    color: '#000', fontWeight: '700', fontSize: '0.9rem',
+                    cursor: 'pointer', fontFamily: 'inherit'
+                  }}
+                >
+                  Fermer
+                </button>
+              </div>
+            ) : qrData ? (
+              /* QR Code affiché */
+              <>
+                {/* Montant */}
+                <div style={{
+                  textAlign: 'center',
+                  padding: '0.85rem',
+                  background: 'rgba(245,158,11,0.08)',
+                  border: '1px solid rgba(245,158,11,0.25)',
+                  borderRadius: '14px'
+                }}>
+                  <div style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
+                    Montant à remettre
+                  </div>
+                  <div style={{ fontSize: '2rem', fontWeight: '900', color: '#fbbf24' }}>
+                    {qrData.amount.toLocaleString('fr-FR')} CDF
+                  </div>
+                </div>
+
+                {/* QR Image */}
+                <div style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem'
+                }}>
+                  <div style={{
+                    padding: '1rem',
+                    background: '#fff',
+                    borderRadius: '16px',
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.4)'
+                  }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData.qrToken)}&bgcolor=ffffff&color=000000&margin=1`}
+                      alt="QR Code dépôt"
+                      width={200}
+                      height={200}
+                      style={{ display: 'block', borderRadius: '6px' }}
+                    />
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
+                    Code valide jusqu'à{' '}
+                    <span style={{ color: '#fbbf24', fontWeight: '600' }}>
+                      {new Date(qrData.expiresAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Instructions */}
+                <div style={{
+                  background: 'rgba(59,130,246,0.08)',
+                  border: '1px solid rgba(59,130,246,0.2)',
+                  borderRadius: '12px', padding: '0.85rem',
+                  fontSize: '0.8rem', color: '#93c5fd', lineHeight: 1.5
+                }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <Info size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span>
+                      Présentez ce QR code à l'agent de votre agence.
+                      Une fois scanné et confirmé, votre solde sera automatiquement remis à zéro.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Refresh button */}
+                <button
+                  onClick={handleGenerateDepositQr}
+                  disabled={qrLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                    padding: '0.6rem', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'transparent', color: '#64748b',
+                    fontSize: '0.78rem', fontWeight: '600', cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  <RefreshCw size={14} /> Régénérer le QR
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* -- Bottom Navigation Bar (Mobile-First) -- */}
+      <nav style={{
+        position: 'fixed', bottom: 0, left: 0, width: '100%',
+        background: 'rgba(7, 9, 14, 0.95)',
+        backdropFilter: 'blur(16px)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+        padding: '0.75rem 0', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))',
+        zIndex: 50
+      }}>
+        {[
+          { key: 'to_collect', icon: Package, label: 'Collecte', count: toCollectCourses.length },
+          { key: 'deposited', icon: ShieldCheck, label: 'Déposés', count: depositedCourses.length },
+          { key: 'to_deliver', icon: Truck, label: 'Livraison', count: toDeliverCourses.length },
+          { key: 'delivered', icon: CheckCircle2, label: 'Livrés', count: deliveredCourses.length }
+        ].map(tab => {
+          const isActive = activeTab === tab.key;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as any)}
+              style={{
+                flex: 1, background: 'none', border: 'none', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', gap: '0.25rem', cursor: 'pointer',
+                color: isActive ? '#3b82f6' : '#64748b', transition: 'color 0.2s'
+              }}
+            >
+              <div style={{ position: 'relative' }}>
+                <Icon size={22} color={isActive ? '#3b82f6' : '#64748b'} />
+                {tab.count > 0 && (
+                  <span style={{
+                    position: 'absolute', top: '-4px', right: '-8px',
+                    background: '#ef4444', color: '#fff', fontSize: '0.65rem',
+                    fontWeight: '800', width: '16px', height: '16px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: '50%'
+                  }}>
+                    {tab.count}
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: '0.65rem', fontWeight: isActive ? '700' : '600' }}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* -- Modal: Demande de versement ----------------------------------- */}
+      {showCashModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200, backdropFilter: 'blur(4px)' }}>
+          <div style={{ width: '100%', maxWidth: '480px', background: '#0f1117', borderRadius: '24px 24px 0 0', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <DollarSign size={18} color="#4ade80" /> Demande de versement
+              </h2>
+              <button onClick={() => { setShowCashModal(false); setCashSuccess(null); }} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
+            </div>
+
+            {cashSuccess ? (
+              <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                <CheckCircle size={48} color="#4ade80" style={{ margin: '0 auto 0.75rem' }} />
+                <p style={{ color: '#4ade80', fontWeight: '700', fontSize: '1rem', margin: 0 }}>{cashSuccess}</p>
+                <p style={{ color: '#64748b', fontSize: '0.82rem', marginTop: '0.4rem' }}>L'agence recevra votre demande et vous contactera.</p>
+                <button onClick={() => { setShowCashModal(false); setCashSuccess(null); }} style={{ marginTop: '1.25rem', padding: '0.65rem 2rem', borderRadius: '9999px', border: 'none', background: '#22c55e', color: '#000', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>Fermer</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', color: '#94a3b8', marginBottom: '0.4rem' }}>Montant à récupérer (CDF)</label>
+                  <input
+                    type="number"
+                    value={cashAmount}
+                    onChange={e => setCashAmount(e.target.value)}
+                    placeholder="Ex: 45000"
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(34,197,94,0.3)', background: 'rgba(34,197,94,0.05)', color: '#fff', fontSize: '1.2rem', fontWeight: '700', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', color: '#94a3b8', marginBottom: '0.4rem' }}>Message pour l'agence (optionnel)</label>
+                  <textarea
+                    value={cashNote}
+                    onChange={e => setCashNote(e.target.value)}
+                    placeholder="Ex: Cash pour 12 livraisons cette semaine..."
+                    rows={2}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.88rem', outline: 'none', fontFamily: 'inherit', resize: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                {cashRequestsLoading ? (
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', textAlign: 'center' }}>Chargement...</p>
+                ) : cashRequests.length > 0 && (
+                  <div style={{ marginBottom: '1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '0.75rem' }}>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 0.5rem', fontWeight: '600' }}>HISTORIQUE</p>
+                    {cashRequests.slice(0, 4).map(r => (
+                      <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '0.8rem' }}>
+                        <div>
+                          <span style={{ color: '#fff', fontWeight: '600' }}>{r.amount.toLocaleString('fr-FR')} CDF</span>
+                          <span style={{ color: '#64748b', marginLeft: '0.5rem' }}>{new Date(r.created_at).toLocaleDateString('fr-FR')}</span>
+                          {r.reject_reason && <div style={{ color: '#f87171', fontSize: '0.72rem' }}>Motif : {r.reject_reason}</div>}
+                        </div>
+                        <span style={{ padding: '0.15rem 0.5rem', borderRadius: '6px', fontWeight: '600', fontSize: '0.72rem', background: r.status === 'PAID' ? 'rgba(34,197,94,0.15)' : r.status === 'REJECTED' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)', color: r.status === 'PAID' ? '#4ade80' : r.status === 'REJECTED' ? '#f87171' : '#fbbf24' }}>
+                          {r.status === 'PAID' ? 'Versé ✓' : r.status === 'REJECTED' ? 'Refusé ✗' : 'En attente ⏳'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button onClick={() => setShowCashModal(false)} style={{ flex: 1, padding: '0.7rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#94a3b8', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>Annuler</button>
+                  <button
+                    disabled={cashLoading || !cashAmount || Number(cashAmount) <= 0}
+                    onClick={async () => {
+                      setCashLoading(true);
+                      try {
+                        const res = await fetch('/api/livreur/cash-request', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ amount: Number(cashAmount), note: cashNote || undefined }),
+                        });
+                        const json = await res.json();
+                        if (res.ok) {
+                          setCashSuccess(`Demande de ${Number(cashAmount).toLocaleString('fr-FR')} CDF envoyée !`);
+                          loadCashRequests();
+                        } else {
+                          alert(json.error || 'Erreur.');
+                        }
+                      } catch { alert('Erreur réseau.'); }
+                      finally { setCashLoading(false); }
+                    }}
+                    style={{ flex: 2, padding: '0.7rem', borderRadius: '10px', border: 'none', background: Number(cashAmount) > 0 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.08)', color: Number(cashAmount) > 0 ? '#000' : '#64748b', fontWeight: '700', cursor: Number(cashAmount) > 0 ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  >
+                    <Send size={15} /> {cashLoading ? 'Envoi...' : 'Envoyer'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -574,8 +1076,10 @@ function DeliveryCard({
   onOtpChange,
   onValidate,
   onOpenReroute,
+  onCollect,
   error,
-  success
+  success,
+  formatPrice
 }: {
   colis: ColisItem;
   isDone: boolean;
@@ -583,8 +1087,10 @@ function DeliveryCard({
   onOtpChange: (val: string) => void;
   onValidate: () => void;
   onOpenReroute?: () => void;
+  onCollect?: () => void;
   error?: string;
   success?: boolean;
+  formatPrice: (priceInUsd: number) => string;
 }) {
   return (
     <div style={{
@@ -622,7 +1128,7 @@ function DeliveryCard({
       {/* Itinéraire : Collecte → Livraison */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         
-        {/* 📦 Collecte : adresse de l'agence / boutique */}
+        {/* Colis Collecte : adresse de l'agence / boutique */}
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
           padding: '0.75rem', background: 'rgba(59, 130, 246, 0.06)',
@@ -641,19 +1147,53 @@ function DeliveryCard({
             <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>
               COLLECTE (récupérer ici)
             </div>
-            <div style={{ fontSize: '0.88rem', color: '#e2e8f0', fontWeight: '600' }}>
-              {colis.agence || 'Boutique vendeur'}
-            </div>
-            <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.1rem' }}>
-              Agence de livraison partenaire
-            </div>
+            {colis.deliveryMode === 'DROP_POINT_FIRST_MILE' ? (
+              <>
+                <div style={{ fontSize: '0.88rem', color: '#e2e8f0', fontWeight: '600' }}>
+                  {colis.originDropPoint ? colis.originDropPoint.name : 'Point Relais (en attente info)'}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                  {colis.originDropPoint ? colis.originDropPoint.address : 'Adresse du point relais'}
+                </div>
+                {!isDone && colis.pickupCode && (
+                  <div style={{ marginTop: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', padding: '0.5rem', borderRadius: '8px', border: '1px dashed rgba(59, 130, 246, 0.4)' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#93c5fd', marginBottom: '0.1rem' }}>Code de retrait :</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#60a5fa', letterSpacing: '2px' }}>
+                      {colis.pickupCode}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '0.88rem', color: '#e2e8f0', fontWeight: '600' }}>
+                  {colis.vendeurName || colis.agence || 'Boutique vendeur'}
+                </div>
+                {colis.vendeurPhone && (
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                    Tél : {colis.vendeurPhone}
+                  </div>
+                )}
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                  Collecte directe
+                </div>
+                {!isDone && colis.pickupCode && (
+                  <div style={{ marginTop: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', padding: '0.5rem', borderRadius: '8px', border: '1px dashed rgba(59, 130, 246, 0.4)' }}>
+                    <div style={{ fontSize: '0.7rem', color: '#93c5fd', marginBottom: '0.1rem' }}>Code de retrait :</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#60a5fa', letterSpacing: '2px' }}>
+                      {colis.pickupCode}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
 
         {/* Flèche de direction */}
         <div style={{ textAlign: 'center', color: '#475569', fontSize: '1rem' }}>↓</div>
 
-        {/* 📍 Livraison : adresse du client */}
+        {/* Suivi Livraison : adresse du client */}
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
           padding: '0.75rem', background: 'rgba(34, 197, 94, 0.05)',
@@ -699,13 +1239,13 @@ function DeliveryCard({
               Montant a encaisser du client
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: '900', color: total === 0 ? '#4ade80' : '#fbbf24' }}>
-              {total === 0 ? 'Rien (tout est prepaye)' : `$${total.toFixed(2)} USD`}
+              {total === 0 ? 'Rien (tout est prépayé)' : formatPrice(total)}
             </div>
             {total > 0 && (
               <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-                {!colis.isPrepaid && `Marchandise: $${colis.prixColis}`}
+                {!colis.isPrepaid && `Marchandise: ${formatPrice(colis.prixColis)}`}
                 {!colis.isPrepaid && livraison > 0 && ' + '}
-                {livraison > 0 && `Livraison: $${livraison.toFixed(2)}`}
+                {livraison > 0 && `Livraison: ${formatPrice(livraison)}`}
               </div>
             )}
           </div>
@@ -733,7 +1273,9 @@ function DeliveryCard({
           </div>
           {colis.destDropPoint && (
             <div style={{ color: '#cbd5e1', fontSize: '0.78rem' }}>
-              📍 {colis.destDropPoint.address} · 📞 {colis.destDropPoint.phone}
+            <div style={{ color: '#cbd5e1', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <MapPin size={12} /> {colis.destDropPoint.address} · <Phone size={12} /> {colis.destDropPoint.phone}
+            </div>
             </div>
           )}
           {colis.inaccessibilityNote && (
@@ -747,8 +1289,34 @@ function DeliveryCard({
         </div>
       )}
 
+      {/* Collect button — for packages waiting at drop point for agency pickup */}
+      {!isDone && colis.status === 'En attente de collecte' && onCollect && (
+        <button
+          type="button"
+          onClick={onCollect}
+          style={{
+            padding: '0.75rem 1rem',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+            border: 'none',
+            color: '#fff',
+            fontSize: '0.88rem',
+            fontWeight: '700',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
+          }}
+        >
+          <Package size={16} />
+          J'ai collecté ce colis au relais
+        </button>
+      )}
+
       {/* Button to reroute to Drop Point if zone is inaccessible */}
-      {!isDone && colis.status !== 'Disponible au point relais' && onOpenReroute && (
+      {!isDone && colis.status !== 'Disponible au point relais' && colis.status !== 'En attente de collecte' && onOpenReroute && (
         <button
           type="button"
           onClick={onOpenReroute}
@@ -773,8 +1341,8 @@ function DeliveryCard({
         </button>
       )}
 
-      {/* OTP Section — only for active deliveries */}
-      {!isDone && colis.status !== 'Déposé en point relais' && colis.status !== 'Disponible au point relais' && (
+      {/* OTP Section — only for active deliveries that are picked up (En transit) */}
+      {!isDone && colis.status === 'En transit' && (
         <div style={{
           background: 'rgba(59, 130, 246, 0.08)',
           border: '1px solid rgba(59, 130, 246, 0.3)',

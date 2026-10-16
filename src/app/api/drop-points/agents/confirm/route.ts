@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, message: result.message });
+    return NextResponse.json({ success: true, type: (result as any).type, message: result.message });
   } catch (err) {
     console.error('[POST /api/drop-points/agents/confirm]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });

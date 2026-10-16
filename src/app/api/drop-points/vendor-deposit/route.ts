@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const deposit = dataService.createVendorDeposit({
+    const deposit = await dataService.createVendorDeposit({
       dropPointId,
       vendeurName: vendeurName.trim(),
       vendeurPhone: vendeurPhone.trim(),
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'dropPointId requis.' }, { status: 400 });
     }
 
-    const deposits = dataService.getVendorDepositsForDropPoint(dropPointId);
+    const deposits = await dataService.getVendorDepositsForDropPoint(dropPointId);
     return NextResponse.json({ success: true, deposits });
   } catch (err) {
     console.error('[GET /api/drop-points/vendor-deposit]', err);

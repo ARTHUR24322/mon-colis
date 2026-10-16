@@ -6,6 +6,8 @@ export const metadata: Metadata = {
   description: "Connecte les vendeurs aux agences de livraison fiables.",
 };
 
+import { CurrencyProvider } from "@/components/CurrencyContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -13,7 +15,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr">
-      <body>{children}</body>
+      <body>
+        <CurrencyProvider>
+          {children}
+        </CurrencyProvider>
+      </body>
     </html>
   );
 }

@@ -8,6 +8,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { dataService } from '@/lib/data-service';
 import { getSession } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
+import { z } from 'zod';
+
+const decisionSchema = z.object({
+  decision: z.enum(['ACCEPT', 'REFUSE']),
+});
 
 export async function POST(
   request: NextRequest,
@@ -20,14 +25,16 @@ export async function POST(
     }
 
     const { id: colisId } = await params;
-    const { decision } = await request.json(); // 'ACCEPT' | 'REFUSE'
+    const body = await request.json();
+    const resultZod = decisionSchema.safeParse(body);
 
-    if (!colisId || !decision) {
+    if (!colisId || !resultZod.success) {
       return NextResponse.json(
-        { error: 'colisId et decision sont requis.' },
+        { error: 'colisId et decision (ACCEPT ou REFUSE) sont requis.' },
         { status: 400 }
       );
     }
+    const { decision } = resultZod.data;
 
     // Vérifier que le colis existe
     const { data: pkg, error: pkgError } = await supabase

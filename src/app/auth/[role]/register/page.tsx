@@ -256,8 +256,8 @@ export default function RegisterPage() {
               </div>
               <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.35rem', marginLeft: '0.25rem' }}>
                 {isAgence
-                  ? '📍 Adresse où les vendeurs déposent les colis et où les livreurs viennent les récupérer.'
-                  : '📍 Adresse où le livreur viendra récupérer les colis de votre boutique.'}
+                  ? 'Adresse où les vendeurs déposent les colis et où les livreurs viennent les récupérer.'
+                  : 'Adresse où le livreur viendra récupérer les colis de votre boutique.'}
               </p>
             </div>
 

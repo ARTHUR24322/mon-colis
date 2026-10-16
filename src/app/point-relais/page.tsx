@@ -2,16 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import {
-  MapPin, Lock, Eye, EyeOff, LogOut, Package, CheckCircle2,
-  Clock, ShieldCheck, User, Hash, Phone, ArrowLeft, AlertCircle,
-  RefreshCw, Plus, ArrowRight, QrCode, Truck, Building2,
-  X, ChevronDown, Copy, Check
+  MapPin, LogOut, Package, CheckCircle2,
+  Clock, AlertCircle,
+  RefreshCw, Plus, QrCode, Truck, Building2,
+  X, Copy, Check, Lock
 } from 'lucide-react';
 import Link from 'next/link';
-import { dataService, ColisItem, DropPointAgent, DEFAULT_DROP_POINTS, VendorDeposit } from '@/lib/data-service';
+import { ColisItem, dataService } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
+import { useCurrency } from '@/components/CurrencyContext';
 
-type DashboardTab = 'incoming' | 'available' | 'vendor_deposits';
+type DashboardTab = 'incoming_vendor' | 'incoming_driver' | 'available' | 'vendor_deposits';
+
+type DepositResult = { trackingCode: string; otp: string; pickupCode?: string | null; };
 
 interface AgentSession {
   id: string;
@@ -29,6 +32,7 @@ interface Agency {
 
 export default function PointRelaisPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
+  const { formatPrice } = useCurrency();
   
   const [agent, setAgent] = useState<AgentSession | null>(null);
 
@@ -53,9 +57,10 @@ export default function PointRelaisPage() {
   const [showQrModal, setShowQrModal] = useState(false);
 
   /* -- Dashboard state -- */
-  const [incoming, setIncoming] = useState<ColisItem[]>([]);
+  const [incomingVendor, setIncomingVendor] = useState<ColisItem[]>([]);
+  const [incomingDriver, setIncomingDriver] = useState<ColisItem[]>([]);
   const [available, setAvailable] = useState<ColisItem[]>([]);
-  const [vendorDeposits, setVendorDeposits] = useState<VendorDeposit[]>([]);
+  const [vendorDeposits, setVendorDeposits] = useState<ColisItem[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
@@ -72,7 +77,7 @@ export default function PointRelaisPage() {
     description: '',
   });
   const [depositSubmitting, setDepositSubmitting] = useState(false);
-  const [depositResult, setDepositResult] = useState<VendorDeposit | null>(null);
+  const [depositResult, setDepositResult] = useState<DepositResult | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
   /* -- Agency assign state -- */
@@ -88,19 +93,32 @@ export default function PointRelaisPage() {
   const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
   const [validatingOtpId, setValidatingOtpId] = useState<string | null>(null);
   const [refusingId, setRefusingId] = useState<string | null>(null);
+  const [dropPointCredits, setDropPointCredits] = useState<number | null>(null);
+  const [dropPointInfo, setDropPointInfo] = useState<{ address?: string; managerName?: string } | null>(null);
+
+  /* -- Handover to Driver state -- */
+  const [driverPickupCode, setDriverPickupCode] = useState('');
+  const [handoverLoading, setHandoverLoading] = useState(false);
 
   async function loadPackages(dpId: string) {
     setLoadingData(true);
     try {
-      const [inc, avail] = await Promise.all([
-        dataService.getIncomingPackagesForDropPoint(dpId),
-        dataService.getAvailablePackagesForDropPoint(dpId),
-      ]);
-      setIncoming(inc);
-      setAvailable(avail);
-      // Also refresh deposits
-      const deps = dataService.getVendorDepositsForDropPoint(dpId);
-      setVendorDeposits(deps);
+      const res = await fetch(`/api/drop-points/${dpId}/dashboard`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (data.success) {
+        setIncomingVendor(data.incomingVendor ?? []);
+        setIncomingDriver(data.incomingDriver ?? []);
+        setAvailable(data.available ?? []);
+        setVendorDeposits(data.vendorDeposits ?? []);
+        if (data.dropPoint) {
+          setDropPointCredits(data.dropPoint.credits);
+          setDropPointInfo({ address: data.dropPoint.address, managerName: data.dropPoint.managerName });
+        }
+      }
+    } catch (e) {
+      console.error('Erreur chargement dashboard:', e);
     } finally {
       setLoadingData(false);
     }
@@ -117,7 +135,7 @@ export default function PointRelaisPage() {
 
   /* -- Login is now handled by /auth/point-relais/login -- */
 
-  /* -- Confirm reception (livreur → drop point) -- */
+  /* -- Confirm reception -- */
   async function handleConfirm(colisId: string) {
     if (!agent) return;
     setConfirmingId(colisId);
@@ -130,10 +148,15 @@ export default function PointRelaisPage() {
       const json = await res.json();
       if (res.ok) {
         setConfirmSuccess(colisId);
-        setTimeout(() => {
+        setTimeout(async () => {
           setConfirmSuccess(null);
-          loadPackages(agent.dropPointId);
-          setActiveTab('available');
+          await loadPackages(agent.dropPointId); // aussi recharge les crédits
+          // Rediriger selon le type de colis confirmé
+          if (json.type === 'vendor') {
+            setActiveTab('vendor_deposits');
+          } else {
+            setActiveTab('available');
+          }
         }, 1500);
       } else {
         alert(json.error || 'Erreur lors de la confirmation.');
@@ -178,10 +201,11 @@ export default function PointRelaisPage() {
     setValidatingOtpId(colisId);
     setOtpErrors(prev => ({ ...prev, [colisId]: '' }));
     try {
-      const res = await fetch('/api/packages/validate-otp', {
+      // Route correcte : /api/packages/[id]/validate-otp
+      const res = await fetch(`/api/packages/${colisId}/validate-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colisId, otp: code }),
+        body: JSON.stringify({ otp: code }),
       });
       const json = await res.json();
       if (res.ok) {
@@ -215,10 +239,14 @@ export default function PointRelaisPage() {
       });
       const json = await res.json();
       if (res.ok) {
-        setDepositResult(json.deposit as VendorDeposit);
-        // refresh list
-        const deps = dataService.getVendorDepositsForDropPoint(agent.dropPointId);
-        setVendorDeposits(deps);
+        const pkg: ColisItem = json.deposit;
+        setDepositResult({
+          trackingCode: pkg.trackingCode,
+          otp: pkg.otp,
+          pickupCode: pkg.pickupCode,
+        });
+        // Rafraîchir la liste depuis la BDD
+        await loadPackages(agent.dropPointId);
         setDepositForm({ vendeurName: '', vendeurPhone: '', clientName: '', clientPhone: '', clientAddress: '', description: '' });
       } else {
         alert(json.error || 'Erreur lors de la création du dépôt.');
@@ -230,39 +258,34 @@ export default function PointRelaisPage() {
     }
   }
 
-  /* -- Assign agency to vendor deposit -- */
-  async function handleAssignAgency(pickupCode: string) {
-    if (!selectedAgencyId) return;
-    setAssignLoading(true);
+  /* -- Handover package to Driver -- */
+  async function handleHandoverPackage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!agent || !driverPickupCode) return;
+    setHandoverLoading(true);
     try {
-      const res = await fetch('/api/drop-points/vendor-deposit/assign', {
+      const res = await fetch('/api/drop-points/agents/handover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pickupCode, agencyId: selectedAgencyId }),
+        body: JSON.stringify({ pickupCode: driverPickupCode, dropPointId: agent.dropPointId }),
       });
       const json = await res.json();
-      if (res.ok) {
-        setAssignSuccess(pickupCode);
-        setAssigningDeposit(null);
-        setSelectedAgencyId('');
-        // refresh
-        if (agent) {
-          const deps = dataService.getVendorDepositsForDropPoint(agent.dropPointId);
-          setVendorDeposits(deps);
-        }
-        setTimeout(() => setAssignSuccess(null), 3000);
+      if (res.ok && json.success) {
+        alert('Colis remis avec succès au livreur.');
+        setDriverPickupCode('');
+        await loadPackages(agent.dropPointId);
       } else {
-        alert(json.error || 'Erreur lors de l\'assignation.');
+        alert(json.error || 'Code invalide ou colis introuvable.');
       }
     } catch {
       alert('Erreur réseau.');
     } finally {
-      setAssignLoading(false);
+      setHandoverLoading(false);
     }
   }
 
-  /* -- Assign agency to ColisItem deposit -- */
-  async function handleAssignAgencyColis(colisId: string) {
+  /* -- Assign agency to vendor deposit (uses colisId, not pickupCode) -- */
+  async function handleAssignAgency(colisId: string) {
     if (!selectedAgencyId) return;
     setAssignLoading(true);
     try {
@@ -276,7 +299,7 @@ export default function PointRelaisPage() {
         setAssignSuccess(colisId);
         setAssigningDeposit(null);
         setSelectedAgencyId('');
-        if (agent) loadPackages(agent.dropPointId);
+        if (agent) await loadPackages(agent.dropPointId);
         setTimeout(() => setAssignSuccess(null), 3000);
       } else {
         alert(json.error || 'Erreur lors de l\'assignation.');
@@ -288,10 +311,16 @@ export default function PointRelaisPage() {
     }
   }
 
+  /* -- Assign agency to ColisItem deposit (alias) -- */
+  async function handleAssignAgencyColis(colisId: string) {
+    return handleAssignAgency(colisId);
+  }
+
   async function handleLogout() {
     await logout();
     setAgent(null);
-    setIncoming([]);
+    setIncomingVendor([]);
+    setIncomingDriver([]);
     setAvailable([]);
     setVendorDeposits([]);
     setDepositResult(null);
@@ -304,10 +333,10 @@ export default function PointRelaisPage() {
     setTimeout(() => setCopiedCode(false), 2000);
   }
 
-  const dropPointInfo = agent ? DEFAULT_DROP_POINTS.find(dp => dp.id === agent.dropPointId) : null;
-  const pendingDeposits = vendorDeposits.filter(d => d.status === 'PENDING_AGENCY');
-  const assignedDeposits = vendorDeposits.filter(d => d.status === 'AGENCY_ASSIGNED');
-  const collectedDeposits = vendorDeposits.filter(d => d.status === 'COLLECTED');
+
+  // Pour ColisItem, on considère tous les dépôts vendeurs comme "en attente d'agence"
+  const pendingDeposits = vendorDeposits.filter(d => !d.agencyId);
+  const assignedDeposits = vendorDeposits.filter(d => !!d.agencyId);
 
   /* ═══════════════════════════════════════
      DASHBOARD SCREEN
@@ -317,13 +346,19 @@ export default function PointRelaisPage() {
     return (
       <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔐</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}><Lock size={40} color="#94a3b8" /></div>
           <p>Vérification de la session...</p>
         </div>
       </div>
     );
   }
-  const tabColis = activeTab === 'incoming' ? incoming : available;
+  const tabColis = activeTab === 'incoming_vendor' ? incomingVendor : activeTab === 'incoming_driver' ? incomingDriver : available;
+
+  const bottomNavTabs = [
+    { key: 'vendor_deposits' as DashboardTab, icon: Package, label: 'Dépôts', count: pendingDeposits.length },
+    { key: 'incoming_vendor' as DashboardTab, icon: Truck, label: 'Entrants', count: incomingVendor.length + incomingDriver.length },
+    { key: 'available' as DashboardTab, icon: CheckCircle2, label: 'Retrait', count: available.length },
+  ];
 
   return (
     <div style={{ minHeight: '100vh', background: '#07090e', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
@@ -338,7 +373,14 @@ export default function PointRelaisPage() {
             <MapPin size={18} color="white" />
           </div>
           <div>
-            <p style={{ margin: 0, fontWeight: '800', fontSize: '0.95rem' }}>{agent?.dropPointName}</p>
+            <p style={{ margin: 0, fontWeight: '800', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {agent?.dropPointName}
+              {dropPointCredits !== null && (
+                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: dropPointCredits > 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: dropPointCredits > 0 ? '#4ade80' : '#ef4444', borderRadius: '4px', border: `1px solid ${dropPointCredits > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                  {dropPointCredits} Crédit{dropPointCredits > 1 ? 's' : ''}
+                </span>
+              )}
+            </p>
             <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{agent?.dropPointCommune} · Agent : {agent?.name}</p>
           </div>
         </div>
@@ -367,7 +409,7 @@ export default function PointRelaisPage() {
         </div>
       </div>
 
-      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '1.5rem 1rem' }}>
+      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '1.5rem 1rem 6rem' }}>
 
         {/* Stats banner */}
         <div style={{
@@ -382,62 +424,62 @@ export default function PointRelaisPage() {
               <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b' }}>Responsable : {dropPointInfo?.managerName}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ margin: 0, fontWeight: '800', color: dropPointCredits !== null ? (dropPointCredits > 10 ? '#3b82f6' : (dropPointCredits > 0 ? '#f59e0b' : '#ef4444')) : '#94a3b8', fontSize: '1.25rem' }}>
+                {dropPointCredits !== null ? dropPointCredits : '-'}
+              </p>
+              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Crédits</p>
+            </div>
+            <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.1)' }} />
             <div style={{ textAlign: 'center' }}>
               <p style={{ margin: 0, fontWeight: '800', color: '#f59e0b', fontSize: '1.25rem' }}>{pendingDeposits.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Dépôts vendeurs</p>
+              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Dépôts</p>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: '800', color: '#f59e0b', fontSize: '1.25rem' }}>{incoming.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>À confirmer</p>
+              <p style={{ margin: 0, fontWeight: '800', color: '#f59e0b', fontSize: '1.25rem' }}>{incomingVendor.length + incomingDriver.length}</p>
+              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>À conf.</p>
             </div>
             <div style={{ textAlign: 'center' }}>
               <p style={{ margin: 0, fontWeight: '800', color: '#22c55e', fontSize: '1.25rem' }}>{available.length}</p>
-              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Disponibles</p>
+              <p style={{ margin: 0, fontSize: '0.68rem', color: '#64748b' }}>Dispos</p>
             </div>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.25rem', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '0.3rem' }}>
-          {([
-            { key: 'vendor_deposits', label: 'Dépôts vendeurs', count: pendingDeposits.length, color: '#f59e0b', icon: <Package size={13} /> },
-            { key: 'incoming', label: 'Colis entrants', count: incoming.length, color: '#f59e0b', icon: <Truck size={13} /> },
-            { key: 'available', label: 'Retrait client', count: available.length, color: '#22c55e', icon: <CheckCircle2 size={13} /> },
-          ] as const).map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as DashboardTab)}
-              style={{
-                flex: 1, padding: '0.65rem 0.5rem', borderRadius: '9px', border: 'none', cursor: 'pointer',
-                background: activeTab === tab.key ? 'rgba(255,255,255,0.08)' : 'transparent',
-                color: activeTab === tab.key ? '#fff' : '#64748b',
-                fontWeight: '700', fontSize: '0.78rem', fontFamily: 'inherit',
-                transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-              {tab.count > 0 && (
-                <span style={{ padding: '0.1rem 0.45rem', borderRadius: '999px', background: tab.color, color: '#000', fontSize: '0.68rem', fontWeight: '900' }}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
+        {/* Banner for credits */}
+        {dropPointCredits !== null && dropPointCredits <= 10 && (
+          <div style={{
+            background: dropPointCredits === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+            border: `1px solid ${dropPointCredits === 0 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
+            borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem',
+            display: 'flex', alignItems: 'flex-start', gap: '0.75rem'
+          }}>
+            <AlertCircle size={20} color={dropPointCredits === 0 ? '#ef4444' : '#f59e0b'} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <h4 style={{ margin: '0 0 0.25rem', color: dropPointCredits === 0 ? '#ef4444' : '#f59e0b', fontSize: '0.95rem' }}>
+                {dropPointCredits === 0 ? 'Crédits épuisés' : 'Crédits faibles'}
+              </h4>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.4 }}>
+                {dropPointCredits === 0 
+                  ? "Vous n'avez plus de crédits (0). Vous ne pouvez plus recevoir de colis. Contactez l'administrateur pour recharger votre compte." 
+                  : `Il ne vous reste que ${dropPointCredits} crédit(s). Pensez à recharger votre compte prochainement.`}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Section title */}
+        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+            {activeTab === 'vendor_deposits' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Package size={16} /> Dépôts vendeurs</span>}
+            {activeTab === 'incoming_vendor' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Truck size={16} /> Colis entrants (vendeur)</span>}
+            {activeTab === 'incoming_driver' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Truck size={16} /> Colis entrants (livreur)</span>}
+            {activeTab === 'available' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><CheckCircle2 size={16} /> Retrait client</span>}
+          </h2>
         </div>
 
-        {/* Refresh */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-          <button
-            onClick={() => agent && loadPackages(agent.dropPointId)}
-            disabled={loadingData}
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '0.4rem 0.85rem', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', fontFamily: 'inherit' }}
-          >
-            <RefreshCw size={14} style={{ animation: loadingData ? 'spin 1s linear infinite' : 'none' }} />
-            Actualiser
-          </button>
-        </div>
+
 
         {/* ═══════════════════════════════
             TAB: VENDOR DEPOSITS
@@ -469,7 +511,7 @@ export default function PointRelaisPage() {
                     {depositResult.pickupCode}
                   </span>
                   <button
-                    onClick={() => copyCode(depositResult.pickupCode)}
+                    onClick={() => copyCode(depositResult.pickupCode ?? depositResult.trackingCode)}
                     style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '0.35rem 0.75rem', cursor: 'pointer', color: '#4ade80', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: '700' }}
                   >
                     {copiedCode ? <><Check size={12} /> Copié !</> : <><Copy size={12} /> Copier le code</>}
@@ -500,10 +542,16 @@ export default function PointRelaisPage() {
               <>
                 {!showDepositForm ? (
                   <button
-                    onClick={() => setShowDepositForm(true)}
+                    onClick={() => {
+                      if (dropPointCredits === 0) {
+                        alert("Impossible d'enregistrer un dépôt : crédits épuisés.");
+                        return;
+                      }
+                      setShowDepositForm(true);
+                    }}
                     style={{
-                      width: '100%', padding: '1rem', borderRadius: '14px', border: '2px dashed rgba(34,197,94,0.4)',
-                      background: 'rgba(34,197,94,0.05)', color: '#4ade80', cursor: 'pointer',
+                      width: '100%', padding: '1rem', borderRadius: '14px', border: dropPointCredits === 0 ? '2px dashed rgba(239,68,68,0.4)' : '2px dashed rgba(34,197,94,0.4)',
+                      background: dropPointCredits === 0 ? 'rgba(239,68,68,0.05)' : 'rgba(34,197,94,0.05)', color: dropPointCredits === 0 ? '#ef4444' : '#4ade80', cursor: dropPointCredits === 0 ? 'not-allowed' : 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                       fontSize: '0.95rem', fontWeight: '700', fontFamily: 'inherit', transition: 'all 0.2s',
                     }}
@@ -630,17 +678,61 @@ export default function PointRelaisPage() {
               </>
             )}
 
+            {/* BARRE DE RECHERCHE POUR REMISE AU LIVREUR */}
+            <div style={{
+              background: 'rgba(34,197,94,0.05)',
+              border: '1px solid rgba(34,197,94,0.2)',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              marginBottom: '1rem',
+              marginTop: '1rem'
+            }}>
+              <h3 style={{ margin: '0 0 0.5rem', color: '#4ade80', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <QrCode size={18} /> Remettre un colis à un livreur
+              </h3>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+                Tapez le code fourni par le livreur pour valider le départ du colis (ex: MCL-...).
+              </p>
+              <form onSubmit={handleHandoverPackage} style={{ display: 'flex', gap: '0.75rem' }}>
+                <input 
+                  type="text"
+                  placeholder="Code de collecte (ex: MCL-ABC12)"
+                  value={driverPickupCode}
+                  onChange={e => setDriverPickupCode(e.target.value.toUpperCase())}
+                  required
+                  style={{
+                    flex: 1, padding: '0.75rem 1rem', borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                    color: '#fff', fontSize: '0.95rem', fontFamily: 'monospace', letterSpacing: '1px'
+                  }}
+                />
+                {/* Submit button hidden because we use the button on the package card now, but keep form submit for Enter key */}
+                <button type="submit" disabled={!driverPickupCode || handoverLoading} style={{ display: 'none' }}>
+                  Remettre
+                </button>
+              </form>
+            </div>
+
             {/* Deposits list */}
             {vendorDeposits.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Dépôts enregistrés ({vendorDeposits.length})
                 </p>
-                {vendorDeposits.map(dep => (
+                {[...vendorDeposits].sort((a, b) => {
+                  const aMatch = driverPickupCode && (a.pickupCode === driverPickupCode || a.trackingCode === driverPickupCode);
+                  const bMatch = driverPickupCode && (b.pickupCode === driverPickupCode || b.trackingCode === driverPickupCode);
+                  if (aMatch && !bMatch) return -1;
+                  if (!aMatch && bMatch) return 1;
+                  return 0;
+                }).map(dep => {
+                  const isMatch = driverPickupCode && (dep.pickupCode === driverPickupCode || dep.trackingCode === driverPickupCode);
+                  return (
                   <div key={dep.id} style={{
-                    background: dep.status === 'COLLECTED' ? 'rgba(34,197,94,0.04)' : dep.status === 'AGENCY_ASSIGNED' ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${dep.status === 'COLLECTED' ? 'rgba(34,197,94,0.2)' : dep.status === 'AGENCY_ASSIGNED' ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.25)'}`,
+                    background: isMatch ? 'rgba(34,197,94,0.1)' : !!dep.agencyId ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.03)',
+                    border: isMatch ? '2px solid rgba(34,197,94,0.6)' : `1px solid ${dep.agencyId ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.25)'}`,
                     borderRadius: '16px', padding: '1.25rem',
+                    transition: 'all 0.3s ease',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
                       <div style={{ flex: 1 }}>
@@ -648,14 +740,14 @@ export default function PointRelaisPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
                           <span style={{
                             padding: '0.2rem 0.65rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: '800',
-                            background: dep.status === 'COLLECTED' ? 'rgba(34,197,94,0.15)' : dep.status === 'AGENCY_ASSIGNED' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
-                            color: dep.status === 'COLLECTED' ? '#4ade80' : dep.status === 'AGENCY_ASSIGNED' ? '#60a5fa' : '#f59e0b',
+                            background: dep.agencyId ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
+                            color: dep.agencyId ? '#60a5fa' : '#f59e0b',
                           }}>
-                            {dep.status === 'COLLECTED' ? '✓ Collecté' : dep.status === 'AGENCY_ASSIGNED' ? '📦 Agence assignée' : '⏳ En attente d\'agence'}
+                            {dep.agencyId ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Package size={12} /> Agence assignée</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Clock size={12} /> En attente d'agence</span>}
                           </span>
-                          {/* Pickup Code */}
-                          <div style={{ fontFamily: 'monospace', fontWeight: '900', fontSize: '0.9rem', color: dep.status === 'COLLECTED' ? '#4ade80' : '#f8fafc', letterSpacing: '2px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '0.15rem 0.5rem' }}>
-                            {dep.pickupCode}
+                          {/* Pickup Code or Tracking Code */}
+                          <div style={{ fontFamily: 'monospace', fontWeight: '900', fontSize: '0.9rem', color: '#f8fafc', letterSpacing: '2px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '0.15rem 0.5rem' }}>
+                            {dep.pickupCode || dep.trackingCode}
                           </div>
                         </div>
 
@@ -663,8 +755,8 @@ export default function PointRelaisPage() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
                           <div>
                             <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Vendeur</p>
-                            <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{dep.vendeurName}</p>
-                            <a href={`tel:${dep.vendeurPhone}`} style={{ fontSize: '0.8rem', color: '#60a5fa', textDecoration: 'none' }}>{dep.vendeurPhone}</a>
+                            <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{dep.vendeurName || 'Non renseigné'}</p>
+                            {dep.vendeurPhone && <a href={`tel:${dep.vendeurPhone}`} style={{ fontSize: '0.8rem', color: '#60a5fa', textDecoration: 'none' }}>{dep.vendeurPhone}</a>}
                           </div>
                           <div>
                             <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Destinataire</p>
@@ -673,32 +765,31 @@ export default function PointRelaisPage() {
                           </div>
                         </div>
 
-                        <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-                          📍 {dep.clientAddress}
-                          {dep.description && ` · ${dep.description}`}
-                        </p>
+                          <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <MapPin size={12} /> {dep.clientAddress}
+                          </p>
 
-                        {dep.agencyName && (
+                        {dep.agence && (
                           <p style={{ margin: '0.4rem 0 0', fontSize: '0.8rem', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Building2 size={12} /> Agence : <strong>{dep.agencyName}</strong>
+                            <Building2 size={12} /> Agence : <strong>{dep.agence}</strong>
                           </p>
                         )}
 
                         <p style={{ margin: '0.4rem 0 0', fontSize: '0.72rem', color: '#334155' }}>
                           <Clock size={11} style={{ display: 'inline', marginRight: '3px' }} />
-                          {new Date(dep.createdAt).toLocaleString('fr-FR')}
+                          {dep.date}
                         </p>
                       </div>
 
                       {/* Action: assign agency */}
-                      {dep.status === 'PENDING_AGENCY' && (
+                      {!dep.agencyId && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '160px' }}>
-                          {assignSuccess === dep.pickupCode ? (
+                          {assignSuccess === dep.id ? (
                             <div style={{ textAlign: 'center', padding: '0.6rem 0', color: '#4ade80', fontSize: '0.82rem', fontWeight: '700' }}>
                               <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} />
                               Agence assignée !
                             </div>
-                          ) : assigningDeposit === dep.pickupCode ? (
+                          ) : assigningDeposit === dep.id ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                               <select
                                 value={selectedAgencyId}
@@ -718,7 +809,7 @@ export default function PointRelaisPage() {
                               </select>
                               <div style={{ display: 'flex', gap: '0.4rem' }}>
                                 <button
-                                  onClick={() => handleAssignAgency(dep.pickupCode)}
+                                  onClick={() => handleAssignAgency(dep.id)}
                                   disabled={!selectedAgencyId || assignLoading}
                                   style={{ flex: 1, padding: '0.55rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit', opacity: !selectedAgencyId ? 0.5 : 1 }}
                                 >
@@ -734,7 +825,7 @@ export default function PointRelaisPage() {
                             </div>
                           ) : (
                             <button
-                              onClick={() => setAssigningDeposit(dep.pickupCode)}
+                              onClick={() => setAssigningDeposit(dep.id)}
                               style={{
                                 padding: '0.6rem 0.9rem', borderRadius: '10px', border: 'none',
                                 background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
@@ -750,18 +841,35 @@ export default function PointRelaisPage() {
                         </div>
                       )}
 
-                      {/* Show code prominently for AGENCY_ASSIGNED */}
-                      {dep.status === 'AGENCY_ASSIGNED' && (
+                      {/* Show otp (pickup code) for agency-assigned */}
+                      {dep.agencyId && (
                         <div style={{ textAlign: 'center', background: 'rgba(59,130,246,0.1)', border: '1px dashed rgba(59,130,246,0.4)', borderRadius: '12px', padding: '0.75rem 1rem' }}>
                           <p style={{ margin: '0 0 0.25rem', fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Code pour livreur</p>
                           <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.5rem', fontWeight: '900', letterSpacing: '3px', color: '#60a5fa' }}>
-                            {dep.pickupCode}
+                            {dep.pickupCode || dep.trackingCode}
                           </p>
+                        </div>
+                      )}
+                      {isMatch && (
+                        <div style={{ marginTop: '0.75rem', width: '100%' }}>
+                          <button
+                            onClick={() => handleHandoverPackage({ preventDefault: () => {} } as React.FormEvent)}
+                            disabled={handoverLoading}
+                            style={{
+                              width: '100%', padding: '0.8rem', borderRadius: '12px', border: 'none',
+                              background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff',
+                              fontWeight: '800', fontSize: '0.95rem', cursor: handoverLoading ? 'not-allowed' : 'pointer',
+                              fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                              boxShadow: '0 4px 14px rgba(34,197,94,0.3)'
+                            }}
+                          >
+                            <CheckCircle2 size={18} /> {handoverLoading ? 'Validation...' : 'Confirmer la remise au livreur'}
+                          </button>
                         </div>
                       )}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
 
@@ -778,16 +886,16 @@ export default function PointRelaisPage() {
         {/* ═══════════════════════════════
             TAB: INCOMING (driver → drop point)
         ═══════════════════════════════ */}
-        {(activeTab === 'incoming' || activeTab === 'available') && (
+        {(activeTab.startsWith('incoming') || activeTab === 'available') && (
           <>
             {tabColis.length === 0 && !loadingData && (
               <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#475569' }}>
                 <Package size={40} style={{ margin: '0 auto 1rem', display: 'block', opacity: 0.4 }} />
                 <p style={{ fontWeight: '700', margin: '0 0 0.35rem', color: '#64748b' }}>
-                  {activeTab === 'incoming' ? 'Aucun colis en attente de confirmation' : 'Aucun colis disponible au retrait'}
+                  {activeTab.startsWith('incoming') ? 'Aucun colis en attente de confirmation' : 'Aucun colis disponible au retrait'}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                  {activeTab === 'incoming' ? 'Les colis déposés par les livreurs apparaîtront ici.' : 'Les colis confirmés apparaîtront ici pour le retrait client.'}
+                  {activeTab.startsWith('incoming') ? 'Les colis déposés apparaîtront ici.' : 'Les colis confirmés apparaîtront ici pour le retrait client.'}
                 </p>
               </div>
             )}
@@ -796,7 +904,7 @@ export default function PointRelaisPage() {
               {tabColis.map(colis => (
                 <div key={colis.id} style={{
                   background: confirmSuccess === colis.id ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${confirmSuccess === colis.id ? 'rgba(34,197,94,0.35)' : activeTab === 'incoming' ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)'}`,
+                  border: `1px solid ${confirmSuccess === colis.id ? 'rgba(34,197,94,0.35)' : activeTab.startsWith('incoming') ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)'}`,
                   borderRadius: '16px', padding: '1.25rem',
                   transition: 'all 0.3s',
                 }}>
@@ -805,10 +913,10 @@ export default function PointRelaisPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                         <span style={{
                           padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: '700',
-                          background: activeTab === 'incoming' ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)',
-                          color: activeTab === 'incoming' ? '#f59e0b' : '#4ade80',
+                          background: activeTab.startsWith('incoming') ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)',
+                          color: activeTab.startsWith('incoming') ? '#f59e0b' : '#4ade80',
                         }}>
-                          {activeTab === 'incoming' ? 'Dépôt à confirmer' : 'Disponible au retrait'}
+                          {activeTab.startsWith('incoming') ? 'Dépôt à confirmer' : 'Disponible au retrait'}
                         </span>
                         <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569' }}>#{colis.id}</span>
                       </div>
@@ -882,7 +990,7 @@ export default function PointRelaisPage() {
                         </div>
                       )}
 
-                      {activeTab === 'incoming' && colis.status === 'En attente de confirmation relais' && (
+                      {activeTab === 'incoming_vendor' && colis.status === 'En attente de confirmation relais' && (
                         <button
                           onClick={() => handleConfirm(colis.id)}
                           disabled={confirmingId === colis.id || confirmSuccess === colis.id}
@@ -906,7 +1014,7 @@ export default function PointRelaisPage() {
                       )}
 
                       {/* Pour les colis déposés par les livreurs à confirmer par le client */}
-                      {activeTab === 'incoming' && colis.status === 'Déposé en point relais' && (
+                      {activeTab === 'incoming_driver' && colis.status === 'Déposé en point relais' && (
                         <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
                           <button
                             onClick={() => handleConfirm(colis.id)}
@@ -943,73 +1051,7 @@ export default function PointRelaisPage() {
                         </div>
                       )}
 
-                      {/* Action: assign agency for ColisItem */}
-                      {activeTab === 'incoming' && colis.status === 'En attente de collecte' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '160px' }}>
-                          <div style={{ textAlign: 'center', background: 'rgba(59,130,246,0.1)', border: '1px dashed rgba(59,130,246,0.4)', borderRadius: '12px', padding: '0.5rem 1rem', marginBottom: '0.5rem' }}>
-                            <p style={{ margin: '0 0 0.25rem', fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Code pour livreur</p>
-                            <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.25rem', fontWeight: '900', letterSpacing: '3px', color: '#60a5fa' }}>
-                              {colis.pickupCode}
-                            </p>
-                          </div>
 
-                          {assignSuccess === colis.id ? (
-                            <div style={{ textAlign: 'center', padding: '0.6rem 0', color: '#4ade80', fontSize: '0.82rem', fontWeight: '700' }}>
-                              <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} />
-                              Agence assignée !
-                            </div>
-                          ) : assigningDeposit === colis.id ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                              <select
-                                value={selectedAgencyId}
-                                onChange={e => setSelectedAgencyId(e.target.value)}
-                                style={{
-                                  background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)',
-                                  borderRadius: '8px', color: '#fff', padding: '0.55rem 0.75rem',
-                                  fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-                                }}
-                              >
-                                <option value="">-- Choisir agence --</option>
-                                {agencies.length > 0 ? agencies.map(ag => (
-                                  <option key={ag.id} value={ag.id}>{ag.name}</option>
-                                )) : (
-                                  <option value="demo-agency-01">Agence Express Kin (démo)</option>
-                                )}
-                              </select>
-                              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <button
-                                  onClick={() => handleAssignAgencyColis(colis.id)}
-                                  disabled={!selectedAgencyId || assignLoading}
-                                  style={{ flex: 1, padding: '0.55rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit', opacity: !selectedAgencyId ? 0.5 : 1 }}
-                                >
-                                  {assignLoading ? '...' : 'Confirmer'}
-                                </button>
-                                <button
-                                  onClick={() => { setAssigningDeposit(null); setSelectedAgencyId(''); }}
-                                  style={{ padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#64748b', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                  <X size={13} />
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setAssigningDeposit(colis.id)}
-                              style={{
-                                padding: '0.6rem 0.9rem', borderRadius: '10px', border: 'none',
-                                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                                color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
-                                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.35rem',
-                                boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
-                                width: '100%', justifyContent: 'center'
-                              }}
-                            >
-                              <Truck size={13} />
-                              Assigner agence
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1018,6 +1060,69 @@ export default function PointRelaisPage() {
           </>
         )}
       </div>
+
+      {/* ── Bottom Navigation Bar (Mobile-First) ── */}
+      <nav style={{
+        position: 'fixed', bottom: 0, left: 0, width: '100%',
+        background: 'rgba(7, 9, 14, 0.96)',
+        backdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+        padding: '0.65rem 0', paddingBottom: 'calc(0.65rem + env(safe-area-inset-bottom))',
+        zIndex: 50
+      }}>
+        {bottomNavTabs.map(tab => {
+          const isActive = activeTab === tab.key ||
+            (tab.key === 'incoming_vendor' && activeTab === 'incoming_driver');
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                flex: 1, background: 'none', border: 'none',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
+                cursor: 'pointer', color: isActive ? '#3b82f6' : '#64748b',
+                transition: 'color 0.2s', padding: '0.25rem',
+              }}
+            >
+              <div style={{ position: 'relative' }}>
+                <Icon size={22} color={isActive ? '#3b82f6' : '#64748b'} />
+                {tab.count > 0 && (
+                  <span style={{
+                    position: 'absolute', top: '-5px', right: '-9px',
+                    background: tab.key === 'available' ? '#22c55e' : '#f59e0b',
+                    color: '#000', fontSize: '0.62rem',
+                    fontWeight: '900', width: '16px', height: '16px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: '50%'
+                  }}>
+                    {tab.count}
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: '0.63rem', fontWeight: isActive ? '800' : '600' }}>
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
+
+        {/* Refresh button */}
+        <button
+          onClick={() => agent && loadPackages(agent.dropPointId)}
+          disabled={loadingData}
+          style={{
+            flex: 1, background: 'none', border: 'none',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
+            cursor: loadingData ? 'not-allowed' : 'pointer',
+            color: '#64748b', padding: '0.25rem',
+          }}
+        >
+          <RefreshCw size={22} color="#64748b" style={{ animation: loadingData ? 'spin 1s linear infinite' : 'none' }} />
+          <span style={{ fontSize: '0.63rem', fontWeight: '600' }}>Sync</span>
+        </button>
+      </nav>
 
       {/* MODAL: Mon QR Code */}
       {showQrModal && (
@@ -1057,6 +1162,7 @@ export default function PointRelaisPage() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         select option { background: #1e293b; color: #fff; }
+        nav button:active { opacity: 0.7; transform: scale(0.93); }
       `}</style>
     </div>
   );

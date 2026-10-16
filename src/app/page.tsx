@@ -321,7 +321,7 @@ export default function Home() {
               </Link>
             </div>
 
-            {/* 🔍 Direct Live Tracking Bar */}
+            {/* Direct Live Tracking Bar */}
             <div style={{
               marginTop: '1rem',
               padding: '1.25rem',
@@ -944,7 +944,7 @@ export default function Home() {
                 gap: '1.25rem'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: '700', color: '#fff', fontSize: '1.1rem' }}>📦 Nouveau Colis #c3</span>
+                  <span style={{ fontWeight: '700', color: '#fff', fontSize: '1.1rem' }}><Package size={18} style={{ display: "inline", marginRight: "6px" }}/> Nouveau Colis #c3</span>
                   <span style={{ background: '#f59e0b', color: '#000', fontSize: '0.75rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>
                     En attente d'agence
                   </span>
@@ -1064,7 +1064,7 @@ export default function Home() {
                 gap: '1.25rem'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: '700', color: '#fff', fontSize: '1.1rem' }}>🚚 Dispatching Tournée #T-204</span>
+                  <span style={{ fontWeight: '700', color: '#fff', fontSize: '1.1rem' }}><Truck size={18} style={{ display: "inline", marginRight: "6px" }}/> Dispatching Tournée #T-204</span>
                   <span style={{ background: '#22c55e', color: '#000', fontSize: '0.75rem', fontWeight: '800', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>
                     Active
                   </span>
@@ -1418,7 +1418,6 @@ export default function Home() {
               <li><Link href="/livreur" style={{ transition: 'color 0.2s' }}>Portail Livreur Mobile</Link></li>
               <li><Link href="/point-relais" style={{ color: '#60a5fa', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'color 0.2s' }}><MapPin size={14} /> Agent Point Relais (Dépôt)</Link></li>
               <li><Link href="/track/c1" style={{ transition: 'color 0.2s' }}>Suivi Public de Colis</Link></li>
-              <li><Link href="/admin-x9k2" style={{ color: '#ef4444', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'color 0.2s' }}><ShieldCheck size={14} /> Portail Super Admin</Link></li>
             </ul>
           </div>
 
@@ -1471,14 +1470,6 @@ export default function Home() {
             <span>Confidentialité</span>
             <span>Conditions d'utilisation</span>
             <span>Sécurité OTP</span>
-            <Link
-              href="/admin-x9k2"
-              style={{ color: 'rgba(239,68,68,0.4)', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'color 0.2s' }}
-              title="Accès Superadmin"
-            >
-              <Lock size={11} />
-              Admin
-            </Link>
           </div>
         </div>
       </footer>

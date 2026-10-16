@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import CommuneSelect from '@/components/CommuneSelect';
 import {
   Package,
   History,
@@ -24,10 +25,17 @@ import {
   AlertCircle,
   Link as LinkIcon,
   ShieldCheck,
-  LogOut
+  LogOut,
+  Star,
+  Lock,
+  KeyRound,
+  CheckCircle
 } from 'lucide-react';
 import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
+import { COMMUNES_KINSHASA } from '@/lib/constants';
+import { useCurrency } from '@/components/CurrencyContext';
+import CurrencyToggle from '@/components/CurrencyToggle';
 
 type Colis = ColisItem;
 type Tab = 'apercu' | 'historique' | 'revenus' | 'clients' | 'profil';
@@ -42,8 +50,16 @@ const STATUS_COLOR: Record<string, string> = {
   'Annulé': '#ef4444',
 };
 
+export function getVendorBadge(livres: number) {
+  if (livres >= 100) return { icon: '💎', label: 'Vendeur Elite', color: '#a855f7' };
+  if (livres >= 40) return { icon: '⭐', label: 'Super Vendeur', color: '#eab308' };
+  if (livres >= 10) return { icon: '🥉', label: 'Vendeur Actif', color: '#f97316' };
+  return null;
+}
+
 export default function VendeurDashboard() {
   const { user, loading: authLoading, logout } = useAuth('vendeur');
+  const { formatPrice, exchangeRate } = useCurrency();
   const [activeTab, setActiveTab] = useState<Tab>('apercu');
   const [colis, setColis] = useState<Colis[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +69,66 @@ export default function VendeurDashboard() {
   const [qrScanColisId, setQrScanColisId] = useState<string | null>(null);
   const [agencies, setAgencies] = useState<import('@/lib/data-service').AgencyInfo[]>([]);
   const [loadingAgencies, setLoadingAgencies] = useState(false);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpResult, setOtpResult] = useState<{ success: boolean; message: string; amount?: number } | null>(null);
+  const [pendingConfirmations, setPendingConfirmations] = useState<Array<{ id: string; amount: number; agency: string; expires_at: string }>>([]);
+
+  // Demande de versement in-app
+  const [vendorRequestModal, setVendorRequestModal] = useState<{
+    agencyId: string;
+    agencyName: string;
+    agencyPhone: string;
+    amount: number; // en USD
+    amountCDF: number; // converti
+  } | null>(null);
+  const [vendorRequestMessage, setVendorRequestMessage] = useState('');
+  const [vendorRequestLoading, setVendorRequestLoading] = useState(false);
+  const [vendorRequestSuccess, setVendorRequestSuccess] = useState<string | null>(null);
+  const [vendorRequests, setVendorRequests] = useState<Array<{
+    id: string;
+    agency_id: string;
+    amount: number;
+    status: string;
+    message: string | null;
+    reject_reason: string | null;
+    created_at: string;
+    activeOtp?: { id: string; amount: number; expires_at: string; created_at: string } | null;
+  }>>([]); 
+
+  // Compte à rebours — verrou de 1h sur le bouton "Demander mon argent"
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  /** Renvoie { locked: boolean, remainingSec: number } pour une demande en cours */
+  const getLockInfo = (req: { status: string; created_at: string } | undefined) => {
+    if (!req) return { locked: false, remainingSec: 0 };
+    // OTP actif → bouton reste bloqué (l'agence a généré le code, on attend la validation)
+    if ((req as any).activeOtp) return { locked: true, remainingSec: 0, otpMode: true };
+    const LOCK_MS = 60 * 60 * 1000; // 1 heure
+    const elapsed = now - new Date(req.created_at).getTime();
+    const remaining = LOCK_MS - elapsed;
+    return { locked: remaining > 0, remainingSec: Math.max(0, Math.ceil(remaining / 1000)), otpMode: false };
+  };
+
+  /** Formate mm:ss */
+  const formatCountdown = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  const loadVendorRequests = async () => {
+    try {
+      const res = await fetch('/api/vendor/payments/request');
+      const json = await res.json();
+      if (res.ok) setVendorRequests(json.requests || []);
+    } catch { /* ignore */ }
+  };
+
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,7 +137,11 @@ export default function VendeurDashboard() {
 
   // Formulaire nouveau colis
   const [clientName, setClientName] = useState('');
-  const [clientAddress, setClientAddress] = useState('');
+  const [clientCommune, setClientCommune] = useState('');
+  const [clientQuartier, setClientQuartier] = useState('');
+  const [clientAvenue, setClientAvenue] = useState('');
+  const [clientNumero, setClientNumero] = useState('');
+  const [clientReference, setClientReference] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [prixColis, setPrixColis] = useState('');
   const [poids, setPoids] = useState('1.5');
@@ -69,6 +149,9 @@ export default function VendeurDashboard() {
   const [isPrepaid, setIsPrepaid] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE'>('DIRECT');
   const [originDropPointId, setOriginDropPointId] = useState('DP-GOM-01');
+  const [agentNumberInput, setAgentNumberInput] = useState('');
+  const [selectedDropPointAgencyId, setSelectedDropPointAgencyId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Profil Vendeur — initialisé depuis la session
   const [profil, setProfil] = useState({
@@ -83,32 +166,61 @@ export default function VendeurDashboard() {
 
   // Mettre à jour le profil quand la session est chargée
   useEffect(() => {
-    if (user) {
+    async function loadProfile() {
+      if (!user?.id) return;
+      const dbProfile = await dataService.getProfile(user.id);
+      const metadata = dbProfile?.metadata || {};
       const p = {
-        nom: user.name || 'Ma Boutique',
+        nom: dbProfile?.name || user.name || 'Ma Boutique',
         email: user.email || '',
-        telephone: user.phone || '',
-        adresse: '',
-        description: '',
+        telephone: dbProfile?.phone || user.phone || '',
+        adresse: metadata.adresse || '',
+        description: metadata.description || '',
       };
       setProfil(p);
       setProfilDraft(p);
     }
+    loadProfile();
   }, [user?.id]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    const res = await dataService.updateProfile(user.id, {
+      name: profilDraft.nom,
+      phone: profilDraft.telephone,
+      metadata: { adresse: profilDraft.adresse, description: profilDraft.description }
+    });
+    if (res.success) {
+      setProfil(profilDraft);
+      setEditProfil(false);
+      showToast('Profil enregistré avec succès');
+    } else {
+      showToast(res.message || 'Erreur');
+    }
+  };
 
   // Charger uniquement les colis de ce vendeur
   const refreshColis = async () => {
     if (!user?.id) return;
     setLoading(true);
-    const all = await dataService.getAllPackages();
-    // Filter to only this vendor's packages
-    setColis(all.filter(p => p.vendeurId === user.id || !p.vendeurId));
+    const vendorPkgs = await dataService.getPackagesForVendor(user.id);
+    setColis(vendorPkgs);
     setLoading(false);
   };
+
+  // Taux de conversion propre à chaque agence (chargé au démarrage)
+  const [agencyRatesMap, setAgencyRatesMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!user?.id) return;
     refreshColis();
+    // Charger les taux de conversion de toutes les agences
+    dataService.getAgencies().then(list => {
+      const map: Record<string, number> = {};
+      list.forEach(ag => { if (ag.id && ag.tauxConversionFC) map[ag.id] = ag.tauxConversionFC; });
+      setAgencyRatesMap(map);
+    }).catch(() => {});
     const unsubscribe = dataService.subscribeToPackages(() => {
       refreshColis();
     });
@@ -145,6 +257,35 @@ export default function VendeurDashboard() {
   // Revenu net = marchandises - frais de livraison vendeur
   const revenuNet = totalRevenu - dettesLivraison;
 
+  // Finances par agence — le type inclut maintenant le taux propre de l'agence
+  const agencesFinancesMap = new Map<string, { agencyId: string; agencyName: string; duAuVendeur: number; dettesVendeur: number; soldeNet: number; phone?: string; tauxConversionFC: number }>();
+  
+  colisLivres.forEach(c => {
+    if (!c.agencyId || !c.agence) return;
+    if (!agencesFinancesMap.has(c.agencyId)) {
+      agencesFinancesMap.set(c.agencyId, {
+        agencyId: c.agencyId,
+        agencyName: c.agence,
+        duAuVendeur: 0,
+        dettesVendeur: 0,
+        soldeNet: 0,
+        phone: '',
+        // Taux propre à l'agence pour conversion USD→CDF correcte
+        tauxConversionFC: agencyRatesMap[c.agencyId] || exchangeRate || 2800,
+      });
+    }
+    const stats = agencesFinancesMap.get(c.agencyId)!;
+    
+    if (!c.isPrepaid && !c.vendorPaid) {
+      stats.duAuVendeur += c.prixColis;
+    }
+    if (!c.paidByClient && !c.vendorPaid) { // We assume the debt is settled when vendor_paid is true for simplicity, or we just track overall. Wait, if vendorPaid is true, the net balance for this package is settled.
+      stats.dettesVendeur += (c.prixLivraison || 0);
+    }
+    stats.soldeNet = stats.duAuVendeur - stats.dettesVendeur;
+  });
+  const agencesFinances = Array.from(agencesFinancesMap.values()).filter(a => Math.abs(a.soldeNet) > 0 || a.duAuVendeur > 0 || a.dettesVendeur > 0);
+
   // Clients uniques
   const clientsMap = new Map<string, { name: string; phone: string; colis: Colis[] }>();
   colis.forEach(c => {
@@ -174,28 +315,42 @@ export default function VendeurDashboard() {
   /* --- Handlers --- */
   const handleCreateColis = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newPkg = await dataService.createPackage({
-      clientName,
-      clientAddress,
-      clientPhone,
-      prixColis: parseFloat(prixColis) || 0,
-      poids: parseFloat(poids) || 1,
-      vendeurId: user?.id ?? '',
-      paidByClient,
-      isPrepaid,
-      deliveryMode,
-      originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
-    });
-    await refreshColis();
-    setShowModal(false);
-    setCreatedPackage(newPkg);
-    setClientName('');
-    setClientAddress('');
-    setClientPhone('');
-    setPrixColis('');
-    setIsPrepaid(false);
-    setDeliveryMode('DIRECT');
-    setActiveTab('historique');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const fullAddress = `${clientNumero ? 'N°' + clientNumero + ', ' : ''}${clientAvenue ? 'Av. ' + clientAvenue + ', ' : ''}${clientQuartier ? 'Q. ' + clientQuartier + ', ' : ''}${clientCommune}${clientReference ? ' (Réf: ' + clientReference + ')' : ''}`;
+      const newPkg = await dataService.createPackage({
+        clientName,
+        clientAddress: fullAddress,
+        clientPhone,
+        clientCommune,
+        prixColis: parseFloat(prixColis) || 0,
+        poids: parseFloat(poids) || 1,
+        vendeurId: user?.id ?? '',
+        paidByClient,
+        isPrepaid,
+        deliveryMode,
+        originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
+      });
+      await refreshColis();
+      setShowModal(false);
+      setCreatedPackage(newPkg);
+      setClientName('');
+      setClientCommune('');
+      setClientQuartier('');
+      setClientAvenue('');
+      setClientNumero('');
+      setClientReference('');
+      setClientPhone('');
+      setPrixColis('');
+      setIsPrepaid(false);
+      setDeliveryMode('DIRECT');
+      setActiveTab('historique');
+    } catch (error) {
+      showToast('Erreur lors de la création du colis.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const openAgencyModal = async (colisId: string) => {
@@ -206,9 +361,9 @@ export default function VendeurDashboard() {
     setLoadingAgencies(false);
   };
 
-  const handleSelectAgency = async (colisId: string, agencyId: string, agencyName: string) => {
+  const handleSelectAgency = async (colisId: string, agencyId: string, agencyName: string, deliveryPrice: number) => {
     try {
-      await dataService.assignAgencyById(colisId, agencyId);
+      await dataService.assignAgencyById(colisId, agencyId, deliveryPrice);
       showToast(`Colis confié à l'agence ${agencyName}`);
       refreshColis();
       setAgencyModalColisId(null);
@@ -219,20 +374,32 @@ export default function VendeurDashboard() {
 
   const handleAssignToDropPoint = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qrScanColisId || !originDropPointId) return;
+    if (!qrScanColisId || !agentNumberInput || !selectedDropPointAgencyId) {
+      showToast("Veuillez renseigner le numéro d'agent et choisir une agence.");
+      return;
+    }
 
-    // Simulate scanning: we use the selected originDropPointId
+    // Verify agent number
+    const agent = await dataService.verifyAgentNumber(agentNumberInput);
+    if (!agent) {
+      showToast("Numéro agent invalide ou introuvable.");
+      return;
+    }
+
     const res = await dataService.assignPackageToDropPointByVendor(
       qrScanColisId,
-      originDropPointId,
+      agent.dropPointId,
+      selectedDropPointAgencyId,
       profil.nom,
       profil.telephone
     );
 
+    showToast(res.message);
     if (res.success) {
-      showToast(res.message);
-      refreshColis();
       setQrScanColisId(null);
+      setAgentNumberInput('');
+      setSelectedDropPointAgencyId('');
+      refreshColis();
     } else {
       showToast(res.message);
     }
@@ -246,7 +413,7 @@ export default function VendeurDashboard() {
   const shareOnWhatsApp = (c: Colis) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://moncolis.cd';
     const trackUrl = `${origin}/track/${c.id}`;
-    const text = `Bonjour ${c.clientName}, votre commande de chez *${profil.nom}* a été enregistrée !\n\n📦 *Colis N°* : #${c.id}\n📍 *Suivre mon colis en direct* : ${trackUrl}\n🔐 *Code Secret de Livraison (OTP)* : *${c.otp}*\n\n_Veuillez communiquer ce code au livreur UNIQUEMENT lors de la réception en main propre de votre colis._`;
+    const text = `Bonjour ${c.clientName}, votre commande de chez *${profil.nom}* a été enregistrée !\n\nColis: *Colis N°* : #${c.id}\nSuivi: *Suivre mon colis en direct* : ${trackUrl}\nCode Secret: *Code Secret de Livraison (OTP)* : *${c.otp}*\n\n_Veuillez communiquer ce code au livreur UNIQUEMENT lors de la réception en main propre de votre colis._`;
     window.open(`https://wa.me/${c.clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -400,6 +567,7 @@ export default function VendeurDashboard() {
               <LogOut size={14} />
               Déconnexion
             </button>
+            <CurrencyToggle />
           </div>
         </div>
       </header>
@@ -470,7 +638,7 @@ export default function VendeurDashboard() {
             <div style={{ padding: '0.75rem', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
               <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Chiffre Net Livré :</div>
               <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#4ade80', marginTop: '0.2rem' }}>
-                ${revenuNet.toFixed(2)} USD
+                {formatPrice(revenuNet)}
               </div>
             </div>
           </div>
@@ -501,8 +669,16 @@ export default function VendeurDashboard() {
                 gap: '1rem'
               }}>
                 <div>
-                  <h1 style={{ fontSize: '1.35rem', fontWeight: '800', margin: 0, color: '#fff' }}>
-                    Bonjour, {profil.nom} 👋
+                  <h1 style={{ fontSize: '1.35rem', fontWeight: '800', margin: 0, color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    Bonjour, {profil.nom}
+                    {(() => {
+                      const badge = getVendorBadge(colisLivres.length);
+                      return badge ? (
+                        <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', borderRadius: '6px', background: `${badge.color}15`, color: badge.color, border: `1px solid ${badge.color}40`, fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {badge.icon} {badge.label}
+                        </span>
+                      ) : null;
+                    })()}
                   </h1>
                   <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.25rem 0 0 0' }}>
                     {colisEnCours.length} colis en cours d'acheminement aujourd'hui
@@ -588,8 +764,24 @@ export default function VendeurDashboard() {
                   flexDirection: 'column',
                   gap: '0.3rem'
                 }}>
+                  <span style={{ fontSize: '0.78rem', color: '#fcd34d' }}>Taux Succès</span>
+                  <span style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fbbf24' }}>
+                    {colis.length > 0 ? Math.round((colisLivres.length / colis.length) * 100) : 0}%
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#fcd34d' }}>Fiabilité globale</span>
+                </div>
+
+                <div style={{
+                  background: 'rgba(245, 158, 11, 0.06)',
+                  border: '1px solid rgba(245, 158, 11, 0.2)',
+                  borderRadius: '16px',
+                  padding: '1.1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.3rem'
+                }}>
                   <span style={{ fontSize: '0.78rem', color: '#fcd34d' }}>Revenu Net</span>
-                  <span style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fbbf24' }}>${revenuNet.toFixed(0)}</span>
+                  <span style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fbbf24' }}>{formatPrice(revenuNet)}</span>
                   <span style={{ fontSize: '0.7rem', color: '#fcd34d' }}>Net après transport</span>
                 </div>
               </div>
@@ -770,13 +962,85 @@ export default function VendeurDashboard() {
                 </p>
               </div>
 
+              {/* ── Confirmation de paiement OTP ── */}
+              <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '20px', padding: '1.5rem' }}>
+                <h2 style={{ fontSize: '1rem', fontWeight: '700', color: '#fbbf24', margin: '0 0 0.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <KeyRound size={16} /> Confirmer un paiement reçu
+                </h2>
+                <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: '1.1rem' }}>
+                  L'agence vous a remis un code à 6 chiffres. Entrez-le ici pour confirmer la réception de votre argent.
+                </p>
+
+                {vendorRequests.some(r => r.activeOtp) && (
+                  <div style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#86efac', fontSize: '0.83rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <KeyRound size={16} color="#4ade80" />
+                    <div>
+                      <strong>Un code OTP de versement a été généré par votre agence !</strong>
+                      <div style={{ fontSize: '0.75rem', color: '#bbf7d0', marginTop: '0.15rem' }}>
+                        Demandez le code à 6 chiffres à votre agence et saisissez-le ci-dessous pour valider la réception.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {otpResult ? (
+                  <div style={{ background: otpResult.success ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${otpResult.success ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`, borderRadius: '12px', padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {otpResult.success ? <CheckCircle size={20} color="#4ade80" /> : <AlertCircle size={20} color="#f87171" />}
+                    <div>
+                      <p style={{ margin: 0, fontWeight: '700', color: otpResult.success ? '#4ade80' : '#f87171', fontSize: '0.9rem' }}>{otpResult.message}</p>
+                      {otpResult.amount && <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>Montant confirmé : {otpResult.amount.toLocaleString('fr-FR')} CDF</p>}
+                    </div>
+                    <button onClick={() => { setOtpResult(null); setOtpInput(''); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="Code à 6 chiffres"
+                      value={otpInput}
+                      onChange={e => setOtpInput(e.target.value.slice(0, 6))}
+                      style={{ flex: 1, minWidth: '160px', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.4)', background: 'rgba(245,158,11,0.06)', color: '#fff', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '6px', textAlign: 'center', outline: 'none', fontFamily: 'inherit' }}
+                    />
+                    <button
+                      onClick={async () => {
+                        if (otpInput.length !== 6) return;
+                        setOtpLoading(true);
+                        try {
+                          const res = await fetch('/api/vendor/payments/confirm', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ otpCode: otpInput }),
+                          });
+                          const json = await res.json();
+                          setOtpResult({ success: res.ok, message: json.message || json.error, amount: json.amount });
+                          if (res.ok) {
+                            setOtpInput('');
+                            loadVendorRequests();
+                            refreshColis();
+                          }
+                        } catch {
+                          setOtpResult({ success: false, message: 'Erreur réseau. Réessayez.' });
+                        } finally {
+                          setOtpLoading(false);
+                        }
+                      }}
+                      disabled={otpLoading || otpInput.length !== 6}
+                      style={{ padding: '0.75rem 1.5rem', borderRadius: '10px', border: 'none', background: otpInput.length === 6 ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'rgba(255,255,255,0.08)', color: otpInput.length === 6 ? '#000' : '#64748b', fontWeight: '700', cursor: otpInput.length === 6 ? 'pointer' : 'not-allowed', fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'all 0.2s' }}
+                    >
+                      <KeyRound size={15} /> {otpLoading ? 'Vérification...' : 'Confirmer'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Financial Summary Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
 
                 <div style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '18px', padding: '1.25rem' }}>
                   <span style={{ fontSize: '0.78rem', color: '#86efac', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Chiffre d'Affaires Brut</span>
                   <div style={{ fontSize: '2rem', fontWeight: '800', color: '#4ade80', margin: '0.4rem 0 0.1rem' }}>
-                    ${totalRevenu.toFixed(2)}
+                    {formatPrice(totalRevenu)}
                   </div>
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Valeur totale des marchandises livrées</span>
                 </div>
@@ -784,7 +1048,7 @@ export default function VendeurDashboard() {
                 <div style={{ background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '18px', padding: '1.25rem' }}>
                   <span style={{ fontSize: '0.78rem', color: '#fca5a5', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Dettes Livraison</span>
                   <div style={{ fontSize: '2rem', fontWeight: '800', color: '#ef4444', margin: '0.4rem 0 0.1rem' }}>
-                    -${dettesLivraison.toFixed(2)}
+                    -{formatPrice(dettesLivraison)}
                   </div>
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Frais de livraison à votre charge</span>
                 </div>
@@ -792,7 +1056,7 @@ export default function VendeurDashboard() {
                 <div style={{ background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '18px', padding: '1.25rem' }}>
                   <span style={{ fontSize: '0.78rem', color: '#fcd34d', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Dû par les Agences</span>
                   <div style={{ fontSize: '2rem', fontWeight: '800', color: '#fbbf24', margin: '0.4rem 0 0.1rem' }}>
-                    ${soldeEnAttenteAgence.toFixed(2)}
+                    {formatPrice(soldeEnAttenteAgence)}
                   </div>
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Argent collecté, non encore reversé</span>
                 </div>
@@ -800,11 +1064,140 @@ export default function VendeurDashboard() {
                 <div style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(59, 130, 246, 0.1))', border: '1px solid rgba(34, 197, 94, 0.4)', borderRadius: '18px', padding: '1.25rem' }}>
                   <span style={{ fontSize: '0.78rem', color: '#fff', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Revenu Net</span>
                   <div style={{ fontSize: '2rem', fontWeight: '900', color: '#22c55e', margin: '0.4rem 0 0.1rem' }}>
-                    ${revenuNet.toFixed(2)} USD
+                    {formatPrice(revenuNet)}
                   </div>
                   <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>CA Brut moins vos dettes livraison</span>
                 </div>
 
+              </div>
+
+              {/* Solde par Agence */}
+              <div style={{ background: 'rgba(255, 255, 255, 0.025)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', padding: '1.25rem' }}>
+                <h2 style={{ fontSize: '1.05rem', fontWeight: '700', marginBottom: '1rem', color: '#fff' }}>
+                  Soldes par Agence ({agencesFinances.length})
+                </h2>
+
+                {agencesFinances.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '1.5rem', color: '#94a3b8', fontSize: '0.9rem' }}>
+                    Aucune dette ou encaissement en cours avec les agences.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {agencesFinances.map(a => {
+                      // Utiliser le taux propre de l'agence pour la conversion USD→CDF
+                      const amountCDF = Math.round(a.soldeNet * (a.tauxConversionFC || exchangeRate));
+                      const waMsg = encodeURIComponent(`Bonjour ${a.agencyName}, je vous informe que j'ai soumis une demande de versement de ${amountCDF.toLocaleString('fr-FR')} CDF (${a.soldeNet.toFixed(2)}$) via l'application MonColis. Merci de traiter ma demande.`);
+                      const existingReq = vendorRequests.find(r => r.agency_id === a.agencyId && ['PENDING', 'SEEN'].includes(r.status));
+                      return (
+                        <div key={a.agencyId} style={{ padding: '1rem', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                            <div>
+                              <div style={{ fontWeight: '800', color: '#fff', fontSize: '1rem' }}>{a.agencyName}</div>
+                              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                                <span style={{ color: '#4ade80' }}>Dû au vendeur: {formatPrice(a.duAuVendeur)}</span>
+                                <span style={{ color: '#ef4444' }}>Dettes livraison: {formatPrice(a.dettesVendeur)}</span>
+                              </div>
+                              {existingReq && (
+                                <span style={{
+                                  marginTop: '0.35rem',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                  fontSize: '0.72rem',
+                                  padding: '0.15rem 0.5rem',
+                                  borderRadius: '6px',
+                                  background: existingReq.activeOtp ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+                                  color: existingReq.activeOtp ? '#4ade80' : '#fbbf24',
+                                  fontWeight: '600'
+                                }}>
+                                  {existingReq.activeOtp ? '🔑 OTP généré par l\'agence !' : (existingReq.status === 'SEEN' ? '👀 En cours de traitement' : '⏳ Demande envoyée')}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase' }}>Solde Net</div>
+                                <div style={{ fontSize: '1.15rem', fontWeight: '900', color: a.soldeNet > 0 ? '#3b82f6' : (a.soldeNet < 0 ? '#ef4444' : '#94a3b8') }}>
+                                  {formatPrice(a.soldeNet)}
+                                </div>
+                              </div>
+                              {a.soldeNet > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                  {(() => {
+                                    const lockInfo = getLockInfo(existingReq);
+                                    const isLocked = lockInfo.locked;
+                                    return (
+                                      <>
+                                        <button
+                                          disabled={isLocked}
+                                          onClick={() => {
+                                            if (isLocked) return;
+                                            setVendorRequestModal({ agencyId: a.agencyId, agencyName: a.agencyName, agencyPhone: a.phone || '', amount: a.soldeNet, amountCDF });
+                                            setVendorRequestMessage('');
+                                            setVendorRequestSuccess(null);
+                                            loadVendorRequests();
+                                          }}
+                                          style={{
+                                            padding: '0.5rem 0.9rem',
+                                            borderRadius: '8px',
+                                            border: isLocked ? '1px solid rgba(100,116,139,0.3)' : 'none',
+                                            background: isLocked ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                                            color: isLocked ? '#64748b' : '#fff',
+                                            fontWeight: '700',
+                                            fontSize: '0.78rem',
+                                            cursor: isLocked ? 'not-allowed' : 'pointer',
+                                            fontFamily: 'inherit',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.3rem',
+                                            whiteSpace: 'nowrap',
+                                            transition: 'all 0.3s',
+                                          }}
+                                          title={lockInfo.otpMode ? 'Un code OTP a été généré, validez-le ci-dessus' : isLocked ? `Débloqué automatiquement dans ${formatCountdown(lockInfo.remainingSec)}` : ''}
+                                        >
+                                          {lockInfo.otpMode
+                                            ? '🔑 Valider OTP ci-dessus'
+                                            : isLocked
+                                              ? (
+                                                <>
+                                                  <Lock size={12} />
+                                                  Bloqué — {formatCountdown(lockInfo.remainingSec)}
+                                                </>
+                                              )
+                                              : '💸 Demander mon argent'
+                                          }
+                                        </button>
+                                        {isLocked && !lockInfo.otpMode && (
+                                          <div style={{
+                                            fontSize: '0.68rem',
+                                            color: '#475569',
+                                            textAlign: 'center',
+                                            lineHeight: '1.3',
+                                            paddingTop: '0.1rem',
+                                          }}>
+                                            ⏳ Demande envoyée. Déblocage auto dans {formatCountdown(lockInfo.remainingSec)}<br />
+                                            <span style={{ color: '#334155' }}>ou si l'agence répond</span>
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                  <a
+                                    href={`https://wa.me/${a.phone?.replace(/[^0-9]/g, '') || ''}?text=${waMsg}`}
+                                    target="_blank" rel="noopener noreferrer"
+                                    style={{ padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid #25D366', background: 'transparent', color: '#25D366', fontWeight: '600', fontSize: '0.75rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem', justifyContent: 'center', whiteSpace: 'nowrap' }}
+                                  >
+                                    <Phone size={12} /> WhatsApp
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Detail per delivered package */}
@@ -854,10 +1247,10 @@ export default function VendeurDashboard() {
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
                               <div style={{ fontSize: '1.1rem', fontWeight: '800', color: netColis >= 0 ? '#22c55e' : '#ef4444' }}>
-                                {netColis >= 0 ? '+' : ''}{netColis.toFixed(2)} USD
+                                {netColis >= 0 ? '+' : ''}{formatPrice(netColis)}
                               </div>
                               <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.15rem' }}>
-                                Marchandise: ${c.prixColis} &minus; Livraison: ${fraisVendeur.toFixed(2)}
+                                Marchandise: {formatPrice(c.prixColis)} − Livraison: {formatPrice(fraisVendeur)}
                               </div>
                             </div>
                           </div>
@@ -934,7 +1327,7 @@ export default function VendeurDashboard() {
                         {cl.colis.length} commande(s)
                       </span>
                       <span style={{ fontSize: '0.9rem', fontWeight: '800', color: '#fbbf24' }}>
-                        ${cl.colis.reduce((s, c) => s + c.prixColis, 0)} USD
+                        {formatPrice(cl.colis.reduce((s, c) => s + c.prixColis, 0))}
                       </span>
                     </div>
                   </div>
@@ -978,7 +1371,7 @@ export default function VendeurDashboard() {
                   </div>
                   <div>
                     <h2 style={{ fontSize: '1.2rem', fontWeight: '800', color: '#fff', margin: 0 }}>{profil.nom}</h2>
-                    <span style={{ fontSize: '0.8rem', color: '#4ade80', fontWeight: '600' }}>✓ Vendeur Actif Vérifié</span>
+                    <span style={{ fontSize: '0.8rem', color: '#4ade80', fontWeight: '600' }}>[OK] Vendeur Actif Vérifié</span>
                   </div>
                 </div>
 
@@ -1011,7 +1404,7 @@ export default function VendeurDashboard() {
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={(e) => { e.preventDefault(); setProfil(profilDraft); setEditProfil(false); }} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>
                       <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem' }}>Nom de la boutique</label>
                       <input className="input-field" value={profilDraft.nom} onChange={e => setProfilDraft({ ...profilDraft, nom: e.target.value })} required />
@@ -1204,16 +1597,70 @@ export default function VendeurDashboard() {
                 />
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Commune *
+                  </label>
+                  <CommuneSelect
+                    value={clientCommune}
+                    onChange={setClientCommune}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Quartier *
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Ex : Golf"
+                    value={clientQuartier}
+                    onChange={e => setClientQuartier(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Avenue *
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Ex : Boulevard du 30 Juin"
+                    value={clientAvenue}
+                    onChange={e => setClientAvenue(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                    Numéro *
+                  </label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Ex : 45"
+                    value={clientNumero}
+                    onChange={e => setClientNumero(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '600', color: '#cbd5e1', marginBottom: '0.35rem' }}>
-                  Adresse de Livraison Précise *
+                  Référence *
                 </label>
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="Ex : Boulevard du 30 Juin, Immeuble Futur, Gombe"
-                  value={clientAddress}
-                  onChange={e => setClientAddress(e.target.value)}
+                  placeholder="Ex : En face de l'immeuble Futur"
+                  value={clientReference}
+                  onChange={e => setClientReference(e.target.value)}
                   required
                 />
               </div>
@@ -1299,7 +1746,7 @@ export default function VendeurDashboard() {
                       style={{ accentColor: '#22c55e', marginTop: '2px' }}
                     />
                     <div>
-                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff' }}>🚚 Enlèvement à domicile / boutique (Standard)</div>
+                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Truck size={14} /> Enlèvement à domicile / boutique (Standard)</div>
                       <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>Le coursier se déplace à votre adresse pour récupérer le colis.</div>
                     </div>
                   </label>
@@ -1319,7 +1766,7 @@ export default function VendeurDashboard() {
                       style={{ accentColor: '#3b82f6', marginTop: '2px' }}
                     />
                     <div>
-                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff' }}>📍 Dépôt par le vendeur en Point Relais Moncolis (Recommandé)</div>
+                      <div style={{ fontSize: '0.86rem', fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}><MapPin size={14} /> Dépôt par le vendeur en Point Relais Moncolis (Recommandé)</div>
                       <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>Déposez le colis au point de votre commune sans attendre. Le livreur le récupère là-bas.</div>
                     </div>
                   </label>
@@ -1386,20 +1833,21 @@ export default function VendeurDashboard() {
 
               <button
                 type="submit"
+                disabled={isSubmitting}
                 style={{
                   marginTop: '0.5rem',
                   padding: '0.85rem',
                   borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                  background: isSubmitting ? '#94a3b8' : 'linear-gradient(135deg, #22c55e, #16a34a)',
                   border: 'none',
                   color: '#fff',
                   fontWeight: '700',
                   fontSize: '1rem',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(34, 197, 94, 0.4)'
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  boxShadow: isSubmitting ? 'none' : '0 4px 14px rgba(34, 197, 94, 0.4)'
                 }}
               >
-                Créer et Obtenir le Lien & Code OTP
+                {isSubmitting ? 'Création en cours...' : 'Créer et Obtenir le Lien & Code OTP'}
               </button>
             </form>
           </div>
@@ -1481,7 +1929,7 @@ export default function VendeurDashboard() {
                   fontSize: '0.82rem'
                 }}>
                   <div style={{ color: '#93c5fd', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                    <span>📍 Point Relais où déposer ce colis :</span>
+                    <MapPin size={14} /> <span>Point Relais où déposer ce colis :</span>
                   </div>
                   <div style={{ color: '#fff', fontWeight: '700', fontSize: '0.9rem' }}>
                     {createdPackage.originDropPoint.name} ({createdPackage.originDropPoint.commune})
@@ -1489,14 +1937,14 @@ export default function VendeurDashboard() {
                   <div style={{ color: '#cbd5e1', fontSize: '0.78rem', marginTop: '0.15rem' }}>
                     {createdPackage.originDropPoint.address}
                   </div>
-                  <div style={{ color: '#38bdf8', fontSize: '0.75rem', marginTop: '0.2rem' }}>
-                    📞 Gérant : {createdPackage.originDropPoint.managerName} · {createdPackage.originDropPoint.phone} · Ouvert : {createdPackage.originDropPoint.openingHours}
+                  <div style={{ color: '#38bdf8', fontSize: '0.75rem', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Phone size={12} /> Gérant : {createdPackage.originDropPoint.managerName} · {createdPackage.originDropPoint.phone} · Ouvert : {createdPackage.originDropPoint.openingHours}
                   </div>
                 </div>
               )}
 
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>🔗 Lien de suivi public (sans compte) :</span>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><LinkIcon size={12} /> Lien de suivi public (sans compte) :</span>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1535,7 +1983,7 @@ export default function VendeurDashboard() {
 
               {/* OTP Box */}
               <div>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>🔐 Code Secret de livraison (OTP) :</span>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Lock size={12} /> Code Secret de livraison (OTP) :</span>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1661,7 +2109,23 @@ export default function VendeurDashboard() {
                 <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', fontSize: '0.9rem' }}>
                   Aucune agence partenaire enregistrée pour le moment.
                 </div>
-              ) : agencies.map(ag => (
+              ) : agencies.map(ag => {
+                const currentPkg = colis.find(c => c.id === agencyModalColisId);
+                const pkgCommune = currentPkg?.clientCommune || '';
+                const pkgPoids = currentPkg?.poids || 1;
+                const pkgDistance = currentPkg?.distance || 0;
+                
+                const pricing = ag.communePrices?.find(p => p.commune === pkgCommune);
+                // Not available if: commune is set AND (no price entry OR price is 0)
+                const isAvailable = pkgCommune === '' || (!!pricing && pricing.price > 0);
+                
+                const rate = ag.tauxConversionFC || exchangeRate || 2800;
+                const basePrice = (pricing?.price || 0) / rate;
+                const weightPrice = ((ag.pricePerKg || 0) * pkgPoids) / rate;
+                const distancePrice = ((ag.pricePerKm || 0) * pkgDistance) / rate;
+                const totalPrice = basePrice + weightPrice + distancePrice;
+                
+                return (
                 <div
                   key={ag.id}
                   style={{
@@ -1684,29 +2148,44 @@ export default function VendeurDashboard() {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                      📍 {ag.address || 'Kinshasa'} • <strong style={{ color: '#4ade80' }}>{ag.phone}</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <MapPin size={12} /> {ag.address || 'Kinshasa'} • <strong style={{ color: '#4ade80' }}>{ag.phone}</strong>
                     </div>
+                    {!isAvailable && (
+                      <div style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '0.3rem', fontWeight: 'bold' }}>
+                        Pas disponible pour la commune: {pkgCommune}
+                      </div>
+                    )}
+                    {isAvailable && pricing && (
+                      <div style={{ fontSize: '0.85rem', color: '#38bdf8', marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                        <span style={{ fontWeight: 'bold' }}>Total estimé : {formatPrice(totalPrice)}</span>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                          (Base: {formatPrice(basePrice)} + Poids: {formatPrice(weightPrice)}{distancePrice > 0 ? ` + Dist: ${formatPrice(distancePrice)}` : ''})
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <button
-                    onClick={() => handleSelectAgency(agencyModalColisId!, ag.id, ag.name)}
+                    onClick={() => isAvailable ? handleSelectAgency(agencyModalColisId!, ag.id, ag.name, totalPrice) : null}
+                    disabled={!isAvailable}
                     style={{
                       padding: '0.5rem 1rem',
                       borderRadius: '8px',
-                      background: '#22c55e',
+                      background: isAvailable ? '#22c55e' : '#475569',
                       border: 'none',
-                      color: '#000',
+                      color: isAvailable ? '#000' : '#94a3b8',
                       fontWeight: '700',
                       fontSize: '0.85rem',
-                      cursor: 'pointer',
+                      cursor: isAvailable ? 'pointer' : 'not-allowed',
                       flexShrink: 0
                     }}
                   >
                     Confier
                   </button>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         </div>
@@ -1757,17 +2236,40 @@ export default function VendeurDashboard() {
 
             <form onSubmit={handleAssignToDropPoint} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div className="form-group">
-                <label>Point Relais (QR Scanné)</label>
+                <label>Numéro Agent (ou scan QR)</label>
+                <input 
+                  type="text"
+                  className="input-field" 
+                  value={agentNumberInput}
+                  onChange={(e) => setAgentNumberInput(e.target.value)}
+                  placeholder="Entrez le numéro à 9 chiffres de l'agent"
+                  style={{ width: '100%', fontFamily: 'monospace', letterSpacing: '2px', fontSize: '1.1rem' }}
+                  maxLength={9}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Choisir l'agence de livraison</label>
                 <select 
                   className="input-field" 
-                  value={originDropPointId}
-                  onChange={(e) => setOriginDropPointId(e.target.value)}
+                  value={selectedDropPointAgencyId}
+                  onChange={(e) => setSelectedDropPointAgencyId(e.target.value)}
                   style={{ width: '100%' }}
+                  required
                 >
-                  {DEFAULT_DROP_POINTS.map(dp => (
-                    <option key={dp.id} value={dp.id}>{dp.name} ({dp.commune})</option>
-                  ))}
+                  <option value="" disabled>-- Sélectionnez une agence --</option>
+                  {agencies.length === 0 ? (
+                    <option value="demo-agency-01">Agence Express Kin (démo)</option>
+                  ) : (
+                    agencies.map(ag => (
+                      <option key={ag.id} value={ag.id}>{ag.name}</option>
+                    ))
+                  )}
                 </select>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                  L'agence enverra un livreur avec un code secret pour récupérer votre colis au point relais.
+                </p>
               </div>
 
               <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
@@ -1826,6 +2328,106 @@ export default function VendeurDashboard() {
         }
       `}</style>
 
+      {/* ── Modal: Demande de versement vendeur → agence ─────────────────── */}
+      {vendorRequestModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(6px)' }}>
+          <div style={{ width: '100%', maxWidth: '520px', background: '#0f1117', borderRadius: '24px 24px 0 0', padding: '1.75rem', border: '1px solid rgba(59,130,246,0.2)' }}>
+            
+            {vendorRequestSuccess ? (
+              <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>✅</div>
+                <h3 style={{ margin: '0 0 0.4rem', color: '#3b82f6' }}>Demande envoyée !</h3>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 0.5rem' }}>{vendorRequestSuccess}</p>
+                <p style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '1.5rem' }}>
+                  L'agence recevra une notification. Vous pouvez aussi les contacter via WhatsApp.
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                  <a
+                    href={`https://wa.me/${vendorRequestModal.agencyPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour ${vendorRequestModal.agencyName}, je viens de soumettre une demande de versement de ${vendorRequestModal.amountCDF.toLocaleString('fr-FR')} CDF via MonColis. Merci de la traiter.`)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', border: '1px solid #25D366', color: '#25D366', fontWeight: '700', fontSize: '0.82rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                  >
+                    <Phone size={14} /> Contacter via WhatsApp
+                  </a>
+                  <button onClick={() => setVendorRequestModal(null)} style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800' }}>💸 Demander mon argent</h2>
+                  <button onClick={() => setVendorRequestModal(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+                </div>
+
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
+                  Vous demandez le versement de votre solde auprès de <strong style={{ color: '#fff' }}>{vendorRequestModal.agencyName}</strong>.<br />
+                  L'agence recevra une notification et vous contactera.
+                </p>
+
+                {/* Montant mis en évidence */}
+                <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '14px', padding: '1rem', marginBottom: '1.25rem', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Montant à recevoir</p>
+                  <p style={{ margin: '0.3rem 0 0', fontSize: '1.9rem', fontWeight: '900', color: '#3b82f6' }}>
+                    {vendorRequestModal.amountCDF.toLocaleString('fr-FR')} CDF
+                  </p>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                    ≈ {vendorRequestModal.amount.toFixed(2)} USD
+                  </p>
+                </div>
+
+                {/* Message optionnel */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.82rem', color: '#94a3b8', marginBottom: '0.4rem' }}>Message pour l'agence (optionnel)</label>
+                  <textarea
+                    value={vendorRequestMessage}
+                    onChange={e => setVendorRequestMessage(e.target.value)}
+                    placeholder="Ex: Versement urgent, colis livrés cette semaine..."
+                    rows={2}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.88rem', outline: 'none', fontFamily: 'inherit', resize: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button onClick={() => setVendorRequestModal(null)} style={{ flex: 1, padding: '0.7rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: '#94a3b8', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Annuler
+                  </button>
+                  <button
+                    disabled={vendorRequestLoading}
+                    onClick={async () => {
+                      setVendorRequestLoading(true);
+                      try {
+                        const res = await fetch('/api/vendor/payments/request', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            agencyId: vendorRequestModal!.agencyId,
+                            amount: vendorRequestModal!.amountCDF,
+                            message: vendorRequestMessage || undefined,
+                          }),
+                        });
+                        const json = await res.json();
+                        if (res.ok) {
+                          setVendorRequestSuccess(`Demande de ${vendorRequestModal!.amountCDF.toLocaleString('fr-FR')} CDF envoyée à ${vendorRequestModal!.agencyName} !`);
+                          loadVendorRequests();
+                        } else {
+                          alert(json.error || 'Erreur lors de l\'envoi.');
+                        }
+                      } catch { alert('Erreur réseau.'); }
+                      finally { setVendorRequestLoading(false); }
+                    }}
+                    style={{ flex: 2, padding: '0.7rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: '#fff', fontWeight: '700', cursor: vendorRequestLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', opacity: vendorRequestLoading ? 0.7 : 1 }}
+                  >
+                    {vendorRequestLoading ? 'Envoi...' : '💸 Envoyer la demande'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1846,6 +2448,7 @@ function PackageCard({
   onCopyText: (text: string, label: string) => void;
   onShareWhatsApp: () => void;
 }) {
+  const { formatPrice } = useCurrency();
   const isDelivered = colis.status === 'Livré';
   const trackUrl = typeof window !== 'undefined' ? `${window.location.origin}/track/${colis.id}` : `https://moncolis.cd/track/${colis.id}`;
 
@@ -1893,7 +2496,7 @@ function PackageCard({
           border: `1px solid ${STATUS_COLOR[colis.status] || '#22c55e'}44`,
           flexShrink: 0
         }}>
-          {isDelivered ? 'Livré ✅' : colis.status}
+          {isDelivered ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><CheckCircle2 size={12} /> Livré</span> : colis.status}
         </span>
       </div>
 
@@ -1923,17 +2526,17 @@ function PackageCard({
       }}>
         <div>
           <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>Prix Marchandise :</span>
-          <strong style={{ color: '#4ade80', fontSize: '0.95rem' }}>${colis.prixColis.toFixed(2)} USD</strong>
+          <strong style={{ color: '#4ade80', fontSize: '0.95rem' }}>{formatPrice(colis.prixColis)}</strong>
         </div>
         <div>
           <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>Frais Livraison :</span>
           <strong style={{ color: colis.prixLivraison ? '#fbbf24' : '#94a3b8', fontSize: '0.95rem' }}>
-            {colis.prixLivraison ? `$${colis.prixLivraison.toFixed(2)}` : 'En attente'}
+            {colis.prixLivraison ? formatPrice(colis.prixLivraison) : 'En attente'}
           </strong>
         </div>
       </div>
 
-      {/* -- 🔗 SECTION SPÉCIALE : LIEN DE SUIVI & CODE OTP -- */}
+      {/* -- SECTION SPÉCIALE : LIEN DE SUIVI & CODE OTP -- */}
       <div style={{
         background: 'rgba(59, 130, 246, 0.05)',
         border: '1px solid rgba(59, 130, 246, 0.25)',
@@ -2061,9 +2664,9 @@ function PackageCard({
       </div>
 
       {/* Agency selection or assigned agency badge */}
-      {!colis.agence && !colis.originDropPointId ? (
+      {(!colis.agence && !colis.originDropPointId) || ['Annulé', 'Refusé'].includes(colis.status) ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {colis.status === 'Créé' && (
+          {['Créé', 'Annulé', 'Refusé'].includes(colis.status) && (
             <button
               type="button"
               onClick={onAssignToDropPoint}
@@ -2160,11 +2763,13 @@ function PackageCard({
                 cursor: 'pointer'
               }}
             >
-              ⭐ Évaluer ce livreur
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Star size={14} /> Évaluer ce livreur</span>
             </button>
           )}
         </div>
       )}
+
+
     </div>
   );
 }

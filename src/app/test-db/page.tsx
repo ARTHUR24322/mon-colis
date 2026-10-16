@@ -1,7 +1,12 @@
 import { supabase } from '@/utils/supabase/client';
+import { notFound } from 'next/navigation';
 import React from 'react';
 
 export default async function TestDatabasePage() {
+  if (process.env.NODE_ENV === 'production') {
+    notFound();
+  }
+
   let agences = [];
   let erreur = null;
 
@@ -22,7 +27,7 @@ export default async function TestDatabasePage() {
     <div className="min-h-screen bg-neutral-50 p-8 font-sans text-neutral-900">
       <div className="mx-auto max-w-3xl rounded-xl bg-white p-8 shadow-sm">
         <h1 className="mb-6 text-3xl font-bold tracking-tight text-blue-600">
-          Test de Connexion Supabase Natif 🔥
+          Test de Connexion Supabase Natif
         </h1>
         
         {erreur ? (

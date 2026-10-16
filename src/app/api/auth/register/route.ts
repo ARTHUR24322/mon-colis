@@ -85,6 +85,12 @@ export async function POST(request: NextRequest) {
           id: profile.id,         // 1-to-1 with profiles via shared primary key
           phone: phone.trim(),
           address: address?.trim() || '',
+          status: 'PENDING',
+          coverage_zones: parsedZones,
+          fleet_size: parsedFleet,
+          manager_name: profile.name,
+          billing_type: 'Commission',
+          billing_value: 15,
         })
         .select('id')
         .single();

@@ -277,9 +277,9 @@ export default function GlobalLoginPage() {
           </div>
         </div>
 
-        {/* Quick Access to other spaces: Livreur, Point Relais, Super Admin */}
+        {/* Quick Access to other spaces: Livreur, Point Relais */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+          display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
           gap: '0.6rem', width: '100%'
         }}>
           <Link
@@ -308,20 +308,6 @@ export default function GlobalLoginPage() {
           >
             <Smartphone size={15} color="#22c55e" />
             <span>Livreur</span>
-          </Link>
-
-          <Link
-            href="/admin-x9k2"
-            style={{
-              padding: '0.75rem 0.5rem', borderRadius: '12px',
-              background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)',
-              color: '#fca5a5', textDecoration: 'none', fontSize: '0.8rem', fontWeight: '700',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-              textAlign: 'center'
-            }}
-          >
-            <Lock size={15} color="#ef4444" />
-            <span>Super Admin</span>
           </Link>
         </div>
 

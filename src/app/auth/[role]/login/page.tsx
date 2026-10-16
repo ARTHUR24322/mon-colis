@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Store, Truck, ArrowLeft, Lock, Mail, Eye, EyeOff, ShieldCheck, AlertCircle, MapPin, User } from 'lucide-react';
+import { Store, Truck, ArrowLeft, Lock, Mail, Eye, EyeOff, ShieldCheck, AlertCircle, MapPin, User, Search } from 'lucide-react';
 
 export default function LoginPage() {
   const params = useParams();
@@ -366,7 +366,11 @@ export default function LoginPage() {
                 transition: 'all 0.2s ease'
               }}
             >
-              {loading ? '🔍 Vérification en cours...' : `Se connecter comme ${isAgence ? 'Agence' : isPointRelais ? 'Point Relais' : isLivreur ? 'Livreur' : 'Vendeur'}`}
+              {loading ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Search size={16} /> Vérification en cours...
+                </span>
+              ) : `Se connecter comme ${isAgence ? 'Agence' : isPointRelais ? 'Point Relais' : isLivreur ? 'Livreur' : 'Vendeur'}`}
             </button>
           </form>
 

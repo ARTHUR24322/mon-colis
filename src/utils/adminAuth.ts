@@ -1,15 +1,10 @@
 // --- Super Admin Authentication Utilities ------------------------------------
 // Le hash du mot de passe admin est lu depuis les variables d'environnement.
-// En production, définissez ADMIN_PASSWORD_HASH dans .env.local
-// Pour générer : node -e "const c=require('crypto');c.subtle.digest('SHA-256',new TextEncoder().encode('VOTRE_MOT_DE_PASSE')).then(b=>console.log(Buffer.from(b).toString('hex')))"
-
-// Fallback uniquement en développement local si la variable n'est pas définie
-const _DEV_FALLBACK_HASH = process.env.NODE_ENV === 'production'
-  ? undefined
-  : process.env.ADMIN_PASSWORD_HASH;
+// En production et en dev, définissez ADMIN_PASSWORD_HASH dans .env.local avec un hash Bcrypt.
+// Ex: node -e "require('bcrypt').hash('VOTRE_MOT_DE_PASSE', 12).then(console.log)"
 
 export function getAdminPasswordHash(): string {
-  const hash = process.env.ADMIN_PASSWORD_HASH || _DEV_FALLBACK_HASH;
+  const hash = process.env.ADMIN_PASSWORD_HASH;
   if (!hash) {
     throw new Error('[adminAuth] ADMIN_PASSWORD_HASH non défini dans les variables d\'environnement.');
   }

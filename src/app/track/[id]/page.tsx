@@ -139,7 +139,7 @@ function TrackingPage() {
             </h2>
             <p style={{ color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '1.5rem' }}>
               Le colis <strong>#{colis.id}</strong> ({colis.clientName}) a été remis avec succès au destinataire.<br />
-              Statut : <strong style={{ color: '#22c55e' }}>LIVRÉ ✅</strong>
+              Statut : <strong style={{ color: '#22c55e', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><CheckCircle size={16} /> LIVRÉ</strong>
             </p>
             <Link href="/" className="btn btn-primary" style={{ fontSize: '0.9rem' }}>
               Retour à l'accueil
@@ -169,7 +169,7 @@ function TrackingPage() {
           }}>
             <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Statut du colis :</span>
             <span style={{ fontSize: '0.9rem', fontWeight: '700', color: isAvailableAtRelais ? '#60a5fa' : '#4ade80' }}>
-              {isAvailableAtRelais ? '🏪 Disponible en Point Relais' : colis.status === 'En transit' ? '🚚 En cours de livraison' : `📦 ${colis.status}`}
+              {isAvailableAtRelais ? 'Disponible en Point Relais' : colis.status === 'En transit' ? 'En cours de livraison' : colis.status}
             </span>
           </div>
 

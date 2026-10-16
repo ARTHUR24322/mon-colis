@@ -7,6 +7,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dataService } from '@/lib/data-service';
 import { supabase } from '@/utils/supabase/client';
+import { z } from 'zod';
+
+const validateOtpSchema = z.object({
+  otp: z.string().min(1, 'Le code OTP est requis.'),
+});
 
 export async function POST(
   request: NextRequest,
@@ -14,14 +19,16 @@ export async function POST(
 ) {
   try {
     const { id: colisId } = await params;
-    const { otp } = await request.json();
+    const body = await request.json();
+    const resultZod = validateOtpSchema.safeParse(body);
 
-    if (!colisId || !otp) {
+    if (!colisId || !resultZod.success) {
       return NextResponse.json(
         { error: 'colisId et otp sont requis.' },
         { status: 400 }
       );
     }
+    const { otp } = resultZod.data;
 
     // Valider le code OTP via dataService (qui gère la logique en DB)
     const result = await dataService.validateDeliveryOtp(colisId, otp);

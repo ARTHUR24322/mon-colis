@@ -4,19 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession } from '@/lib/session-server';
+import { requireAdminSession } from '@/lib/adminSession';
 import { dataService } from '@/lib/data-service';
-
-async function isAuthorized(request: NextRequest): Promise<boolean> {
-  const adminHeader = request.headers.get('x-admin-auth');
-  if (adminHeader === 'authenticated_superadmin_v1') return true;
-  const session = await getSession();
-  return session?.role === 'superadmin';
-}
 
 export async function POST(request: NextRequest) {
   try {
-    if (!(await isAuthorized(request))) {
+    const admin = await requireAdminSession();
+    if (!admin) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 

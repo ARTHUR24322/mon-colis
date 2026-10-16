@@ -4,9 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   hashPassword,
-  generateOTP,
-  verifyOTP,
-  clearOTP,
   createSession,
   isAuthenticated,
   checkBruteForce,
@@ -20,9 +17,12 @@ export default function AdminLoginPage() {
   const router = useRouter();
 
   const [step, setStep]             = useState<Step>('password');
+  const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
   const [otp, setOtp]               = useState('');
   const [error, setError]           = useState('');
+  const [adminRole, setAdminRole]   = useState('superadmin');
+  const [targetEmail, setTargetEmail] = useState('');
   const [loading, setLoading]       = useState(false);
   const [locked, setLocked]         = useState(false);
   const [countdown, setCountdown]   = useState(0);
@@ -30,7 +30,7 @@ export default function AdminLoginPage() {
   const [otpSent, setOtpSent]       = useState(false);
   const [otpExpiry, setOtpExpiry]   = useState<number | null>(null);
   const [timeLeft, setTimeLeft]     = useState(300); // 5 min
-  const [generatedOtp, setGeneratedOtp] = useState('');
+
 
   const otpRef = useRef<HTMLInputElement>(null);
   const lockTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -69,7 +69,6 @@ export default function AdminLoginPage() {
         setError('Le code OTP a expiré. Veuillez recommencer.');
         setStep('password');
         setOtpSent(false);
-        clearOTP();
       }
     }, 1000);
     return () => clearInterval(otpTimer.current!);
@@ -89,12 +88,10 @@ export default function AdminLoginPage() {
 
     setLoading(true);
     try {
-      const hash = await hashPassword(password);
-      
-      const res = await fetch('/api/auth/admin-verify', {
+      const res = await fetch('/api/auth/admin-otp/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hash })
+        body: JSON.stringify({ email, password })
       });
       const data = await res.json();
 
@@ -105,25 +102,29 @@ export default function AdminLoginPage() {
           setCountdown(Math.ceil(ms / 1000));
           setError(`Trop de tentatives. Réessayez dans ${Math.ceil(ms / 1000)}s.`);
         } else {
-          setError('Mot de passe incorrect.');
+          setError('Email ou mot de passe incorrect.');
         }
         setLoading(false);
         return;
       }
 
-      // Password correct — generate OTP
+      // Password correct — OTP sent via email
       resetAttempts();
-      const code = generateOTP();
-      setGeneratedOtp(code);
       const expiry = Date.now() + 5 * 60 * 1000;
       setOtpExpiry(expiry);
       setTimeLeft(300);
       setOtpSent(true);
       setStep('otp');
+      setAdminRole(data.role || 'superadmin');
+      setTargetEmail(data.targetEmail || email);
+      
+      // Auto-fill OTP has been removed by user request
+      
       setTimeout(() => otpRef.current?.focus(), 100);
     } finally {
       setLoading(false);
     }
+
   };
 
   // -- Step 2: Verify OTP ---------------------------------------------------
@@ -131,21 +132,27 @@ export default function AdminLoginPage() {
     e.preventDefault();
     setError('');
 
-    if (verifyOTP(otp)) {
-      clearOTP();
+    const verifyRes = await fetch('/api/auth/admin-otp/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ otp })
+    });
+    const verifyData = await verifyRes.json();
+
+    if (verifyRes.ok && verifyData.success) {
       createSession();
       try {
         await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'superadmin', password }),
+          body: JSON.stringify({ role: adminRole, email, password }),
         });
       } catch (err) {
         console.warn('Could not set server session cookie:', err);
       }
       router.push('/admin-x9k2/dashboard');
     } else {
-      setError('Code OTP incorrect ou expiré.');
+      setError(verifyData.error || 'Code OTP incorrect ou expiré.');
       setOtp('');
     }
   };
@@ -160,7 +167,7 @@ export default function AdminLoginPage() {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '1rem',
-    background: 'radial-gradient(ellipse at top, rgba(239,68,68,0.07) 0%, transparent 60%), #000',
+    background: 'radial-gradient(ellipse at top, rgba(249,115,22,0.07) 0%, transparent 60%), #000',
   };
 
   const cardStyle: React.CSSProperties = {
@@ -183,16 +190,16 @@ export default function AdminLoginPage() {
           <div style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             width: '56px', height: '56px', borderRadius: '14px',
-            background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+            background: 'linear-gradient(135deg, #f97316, #c2410c)',
             marginBottom: '1.25rem',
-            boxShadow: '0 8px 24px rgba(239,68,68,0.3)',
+            boxShadow: '0 8px 24px rgba(249,115,22,0.3)',
           }}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
               <path d="M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z" fill="white" opacity="0.9"/>
             </svg>
           </div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: '800', margin: 0 }}>
-            Moncolis <span style={{ color: '#ef4444' }}>Admin</span>
+            Moncolis <span style={{ color: '#f97316' }}>Admin</span>
           </h1>
           <p style={{ opacity: 0.5, fontSize: '0.82rem', marginTop: '0.3rem' }}>Accès restreint — Autorisation requise</p>
         </div>
@@ -214,10 +221,10 @@ export default function AdminLoginPage() {
                   fontWeight: '700', fontSize: '0.8rem',
                   background: (step === 'otp' && n === 1) ? '#10b981' :
                                (step === 'password' && n === 1) || (step === 'otp' && n === 2)
-                               ? '#ef4444' : 'rgba(255,255,255,0.1)',
+                               ? '#f97316' : 'rgba(255,255,255,0.1)',
                   color: 'white',
                 }}>
-                  {step === 'otp' && n === 1 ? '✓' : n}
+                  {step === 'otp' && n === 1 ? 'OK' : n}
                 </div>
                 <span style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{label}</span>
               </div>
@@ -229,7 +236,7 @@ export default function AdminLoginPage() {
         {/* Error banner */}
         {error && (
           <div style={{
-            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)',
+            background: 'rgba(249,115,22,0.12)', border: '1px solid rgba(249,115,22,0.35)',
             borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.25rem',
             fontSize: '0.875rem', color: '#fca5a5',
           }}>
@@ -240,6 +247,23 @@ export default function AdminLoginPage() {
         {/* -- STEP 1: Password -- */}
         {step === 'password' && (
           <form onSubmit={handlePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.875rem', opacity: 0.75 }}>
+                Email administrateur
+              </label>
+              <input
+                type="email"
+                className="input-field"
+                placeholder="admin@moncolis.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                disabled={locked}
+                required
+                autoFocus
+                autoComplete="off"
+                style={{ marginBottom: '1.25rem' }}
+              />
+            </div>
             <div>
               <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.875rem', opacity: 0.75 }}>
                 Mot de passe administrateur
@@ -253,7 +277,6 @@ export default function AdminLoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   disabled={locked}
                   required
-                  autoFocus
                   autoComplete="off"
                 />
                 <button
@@ -268,29 +291,16 @@ export default function AdminLoginPage() {
                   {showPass ? 'Masquer' : 'Afficher'}
                 </button>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Mot de passe Superadmin :</span>
-                <button
-                  type="button"
-                  onClick={() => setPassword('ArthurArmin243@@')}
-                  style={{
-                    background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
-                    color: '#fca5a5', padding: '0.25rem 0.6rem', borderRadius: '6px',
-                    fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
-                  }}
-                >
-                  Remplir mot de passe
-                </button>
-              </div>
+
             </div>
 
             {locked && (
               <div style={{
-                background: 'rgba(239,68,68,0.08)', border: '1px dashed rgba(239,68,68,0.3)',
+                background: 'rgba(249,115,22,0.08)', border: '1px dashed rgba(249,115,22,0.3)',
                 borderRadius: '10px', padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.875rem',
               }}>
                 Formulaire bloque — Reessayez dans{' '}
-                <strong style={{ color: '#ef4444' }}>{countdown}s</strong>
+                <strong style={{ color: '#f97316' }}>{countdown}s</strong>
               </div>
             )}
 
@@ -300,13 +310,13 @@ export default function AdminLoginPage() {
               style={{
                 width: '100%', padding: '0.85rem',
                 borderRadius: '9999px', border: 'none',
-                background: locked ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                background: locked ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg, #f97316, #c2410c)',
                 color: locked ? 'rgba(255,255,255,0.3)' : 'white',
                 fontWeight: '700', fontSize: '0.95rem',
                 cursor: locked ? 'not-allowed' : 'pointer',
                 fontFamily: 'inherit',
                 transition: 'all 0.25s',
-                boxShadow: locked ? 'none' : '0 4px 20px rgba(239,68,68,0.35)',
+                boxShadow: locked ? 'none' : '0 4px 20px rgba(249,115,22,0.35)',
               }}
             >
               {loading ? 'Verification...' : 'Continuer'}
@@ -322,27 +332,10 @@ export default function AdminLoginPage() {
               borderRadius: '14px', padding: '1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.5rem'
             }}>
               <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                Code de sécurité OTP généré pour votre session :
+                Un code de sécurité OTP a été envoyé à votre adresse email : <br />
+                <strong style={{ color: '#4ade80' }}>{targetEmail || email}</strong>
               </span>
-              <div style={{
-                fontFamily: 'monospace', fontSize: '1.8rem', fontWeight: '900',
-                letterSpacing: '8px', color: '#4ade80', textShadow: '0 0 15px rgba(74, 222, 128, 0.3)'
-              }}>
-                {generatedOtp}
-              </div>
-              <button
-                type="button"
-                onClick={() => setOtp(generatedOtp)}
-                style={{
-                  alignSelf: 'center',
-                  background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)',
-                  color: '#86efac', padding: '0.35rem 0.85rem', borderRadius: '8px',
-                  fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer', fontFamily: 'inherit'
-                }}
-              >
-                Insérer le code automatiquement
-              </button>
-              <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>
+              <span style={{ fontSize: '0.75rem', color: '#fb923c' }}>
                 Valable pendant : <strong>{formatTime(timeLeft)}</strong>
               </span>
             </div>
@@ -373,13 +366,13 @@ export default function AdminLoginPage() {
               style={{
                 width: '100%', padding: '0.85rem',
                 borderRadius: '9999px', border: 'none',
-                background: otp.length === 6 ? 'linear-gradient(135deg, #ef4444, #b91c1c)' : 'rgba(255,255,255,0.06)',
+                background: otp.length === 6 ? 'linear-gradient(135deg, #f97316, #c2410c)' : 'rgba(255,255,255,0.06)',
                 color: otp.length === 6 ? 'white' : 'rgba(255,255,255,0.3)',
                 fontWeight: '700', fontSize: '0.95rem',
                 cursor: otp.length === 6 ? 'pointer' : 'not-allowed',
                 fontFamily: 'inherit',
                 transition: 'all 0.25s',
-                boxShadow: otp.length === 6 ? '0 4px 20px rgba(239,68,68,0.35)' : 'none',
+                boxShadow: otp.length === 6 ? '0 4px 20px rgba(249,115,22,0.35)' : 'none',
               }}
             >
               Acceder au panneau
@@ -387,7 +380,7 @@ export default function AdminLoginPage() {
 
             <button
               type="button"
-              onClick={() => { setStep('password'); setOtp(''); setError(''); clearOTP(); }}
+              onClick={() => { setStep('password'); setOtp(''); setError(''); }}
               style={{
                 background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)',
                 fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
@@ -405,3 +398,4 @@ export default function AdminLoginPage() {
     </div>
   );
 }
+

@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dataService, AgencyStatus } from '@/lib/data-service';
+import { requireAdminSession } from '@/lib/adminSession';
 
 export async function GET(request: NextRequest) {
   try {
+    const admin = await requireAdminSession();
+    if (!admin) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const statusParam = searchParams.get('status') as AgencyStatus | null;
 
@@ -16,6 +22,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const admin = await requireAdminSession();
+    if (!admin) {
+      return NextResponse.json({ error: 'Accès non autorisé' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { agencyId, action, reason } = body as {
       agencyId: string;

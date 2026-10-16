@@ -31,6 +31,7 @@ export interface DropPoint {
   managerName: string;
   openingHours: string;
   isActive: boolean;
+  credits: number; // Nombre de crédits disponibles (1 crédit = 1 colis traité)
 }
 
 export let DEFAULT_DROP_POINTS: DropPoint[] = [];
@@ -42,6 +43,7 @@ export interface ColisItem {
   clientName: string;
   clientPhone: string;
   clientAddress: string;
+  clientCommune?: string;
   prixColis: number;       // not in DB — kept for UI compatibility, defaults to 0
   prixLivraison: number | null;
   poids: number;           // not in DB — kept for UI compatibility, defaults to 1
@@ -53,6 +55,7 @@ export interface ColisItem {
   pickupCode?: string | null;    // Code retrait point relais (ex: ABC123)
   vendeurName?: string | null;   // Nom du vendeur ayant déposé
   vendeurPhone?: string | null;  // Téléphone du vendeur
+  vendeurAddress?: string | null; // Adresse du vendeur (départ distance)
   agence: string | null;
   agencyId?: string | null;
   livreur: string | null;
@@ -105,6 +108,12 @@ export interface AgencyInfo {
   createdAt?: string;
   managerName?: string;
   drivers: DriverAccount[];
+  billingType?: 'Commission' | 'Mensuel' | 'Annuel';
+  billingValue?: number;
+  communePrices?: { commune: string; price: number }[];
+  pricePerKm?: number;
+  pricePerKg?: number;
+  tauxConversionFC?: number;
 }
 
 export const DEFAULT_AGENCIES: AgencyInfo[] = [];
@@ -128,10 +137,12 @@ const agencyMetaCache = new Map<string, {
   fleetSize?: number;
   email?: string;
   createdAt?: string;
+  billingType?: 'Commission' | 'Mensuel' | 'Annuel';
+  billingValue?: number;
+  managerName?: string;
 }>();
 
-// In-memory store for drop point agents (created by Superadmin)
-// key = agentNumber (9-digit string)
+// Cache temporaire pour les agents de point relais (interrogé d'abord en base Supabase)
 const dropPointAgentCache = new Map<string, {
   id: string;
   agentNumber: string;
@@ -140,21 +151,7 @@ const dropPointAgentCache = new Map<string, {
   dropPointId: string;
   isActive: boolean;
   createdAt: string;
-}>([
-  [
-    '123456789',
-    {
-      id: 'dpa-seed-01',
-      agentNumber: '123456789',
-      // SHA-256 for '123456'
-      pinHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
-      name: 'Sarah Maloba',
-      dropPointId: 'DP-LIM-01',
-      isActive: true,
-      createdAt: '2026-09-01T10:00:00.000Z',
-    }
-  ]
-]);
+}>();
 
 // Tracks parcels deposited by drivers, awaiting agent confirmation
 // key = colisId
@@ -222,7 +219,7 @@ const mapStatusToApp = (dbStatus: string, packageId?: string): ColisItem['status
 };
 
 // Maps a raw Supabase packages row to a ColisItem
-function mapPackage(p: any): ColisItem {
+export function mapPackage(p: any): ColisItem {
   const meta = packageMetaCache.get(p.id) || {};
   const originDpId = p.origin_drop_point_id || meta.originDropPointId || null;
   const destDpId = p.dest_drop_point_id || meta.destDropPointId || null;
@@ -237,13 +234,14 @@ function mapPackage(p: any): ColisItem {
     clientName: p.client_name,
     clientPhone: p.client_phone || '',
     clientAddress: p.client_address,
+    clientCommune: p.client_commune || '',
     prixColis: p.package_price || 0,
     prixLivraison: p.delivery_price || null,
-    poids: 1,
+    poids: p.weight || 1,
     longueur: 0,
     largeur: 0,
     hauteur: 0,
-    distance: 0,
+    distance: p.distance || 0,
     status: meta.customStatus || mapStatusToApp(p.status, p.id),
     agence: p.agency?.profile?.name || null,
     agencyId: p.agency_id,
@@ -284,9 +282,9 @@ class DataService {
           id, tracking_code, vendeur_id, agency_id, driver_id,
           client_name, client_address, client_phone,
           status, validation_code, created_at, updated_at,
-          paid_by_client, delivery_price,
+          paid_by_client, delivery_price, package_price, is_prepaid, vendor_paid,
           origin_drop_point_id, dest_drop_point_id, delivery_mode,
-          inaccessibility_note, rerouted_at,
+          inaccessibility_note, rerouted_at, pickup_code,
           agency:agencies(id, profile:profiles(name)),
           driver:drivers(id, phone, profile:profiles(name))
         `)
@@ -306,6 +304,40 @@ class DataService {
     return data.map(mapPackage);
   }
 
+  async getPackagesForVendor(vendeurId: string): Promise<ColisItem[]> {
+    let data = null;
+    let error = null;
+    try {
+      const res = await supabase
+        .from('packages')
+        .select(`
+          id, tracking_code, vendeur_id, agency_id, driver_id,
+          client_name, client_address, client_commune, client_phone,
+          status, validation_code, created_at, updated_at,
+          paid_by_client, delivery_price, package_price, is_prepaid, vendor_paid, weight,
+          origin_drop_point_id, dest_drop_point_id, delivery_mode,
+          inaccessibility_note, rerouted_at, pickup_code,
+          agency:agencies(id, profile:profiles(name)),
+          driver:drivers(id, phone, profile:profiles(name))
+        `)
+        .eq('vendeur_id', vendeurId)
+        .order('created_at', { ascending: false });
+      data = res.data;
+      error = res.error;
+    } catch (err) {
+      console.error('Erreur réseau fetch packages for vendor:', err);
+      return [];
+    }
+
+    if (error || !data) {
+      console.error('Error fetching packages for vendor:', error);
+      return [];
+    }
+
+    return data.map(mapPackage);
+  }
+
+
   // -- 2. Get Single Package -------------
   async getPackageByTracking(query: string): Promise<ColisItem | null> {
     const cleanQuery = query.trim();
@@ -315,11 +347,11 @@ class DataService {
       .from('packages')
       .select(`
         id, tracking_code, vendeur_id, agency_id, driver_id,
-        client_name, client_address, client_phone,
+        client_name, client_address, client_commune, client_phone,
         status, validation_code, created_at, updated_at,
-        paid_by_client, delivery_price,
+        paid_by_client, delivery_price, package_price, is_prepaid, vendor_paid, weight,
         origin_drop_point_id, dest_drop_point_id, delivery_mode,
-        inaccessibility_note, rerouted_at,
+        inaccessibility_note, rerouted_at, pickup_code,
         agency:agencies(id, profile:profiles(name)),
         driver:drivers(id, phone, profile:profiles(name))
       `)
@@ -334,6 +366,7 @@ class DataService {
   async createPackage(p: {
     clientName: string;
     clientAddress: string;
+    clientCommune: string;
     clientPhone: string;
     prixColis: number;
     poids: number;
@@ -368,12 +401,14 @@ class DataService {
       client_name: p.clientName,
       client_phone: p.clientPhone,
       client_address: p.clientAddress,
+      client_commune: p.clientCommune,
       status: initialStatus,
       validation_code: otp,
       paid_by_client: p.paidByClient,
       is_prepaid: p.isPrepaid,
       delivery_price: 0,
       package_price: p.prixColis,
+      weight: p.poids,
     };
 
     const { data, error } = await supabase.from('packages').insert(insertData).select().single();
@@ -392,11 +427,15 @@ class DataService {
   }
 
   // -- 4. Assign Agency by ID (preferred) ----------------------
-  async assignAgencyById(colisId: string, agencyId: string): Promise<void> {
-    await supabase.from('packages').update({
+  async assignAgencyById(colisId: string, agencyId: string, deliveryPrice?: number): Promise<void> {
+    const updateData: any = {
       agency_id: agencyId,
       status: 'PENDING_AGENCY',
-    }).eq('id', colisId);
+    };
+    if (deliveryPrice !== undefined) {
+      updateData.delivery_price = deliveryPrice;
+    }
+    await supabase.from('packages').update(updateData).eq('id', colisId);
   }
 
   // -- 4b. Assign Agency by name (fallback) ---------------------
@@ -452,6 +491,17 @@ class DataService {
     await supabase.from('packages').update({
       vendor_paid: true,
     }).eq('id', colisId);
+  }
+
+  async markVendorDebtsAsPaid(agencyId: string, vendeurId: string): Promise<void> {
+    await supabase.from('packages').update({
+      vendor_paid: true,
+    })
+    .eq('agency_id', agencyId)
+    .eq('vendeur_id', vendeurId)
+    .eq('status', 'DELIVERED')
+    .eq('is_prepaid', false)
+    .eq('vendor_paid', false);
   }
 
   async validateDeliveryOtp(colisId: string, otp: string): Promise<{ success: boolean; message: string; package?: ColisItem }> {
@@ -531,7 +581,8 @@ class DataService {
       phone: dp.phone,
       managerName: dp.manager_name,
       openingHours: dp.opening_hours,
-      isActive: dp.is_active
+      isActive: dp.is_active,
+      credits: dp.credits ?? 0,
     }));
     DEFAULT_DROP_POINTS = points;
     return points;
@@ -560,6 +611,7 @@ class DataService {
       managerName: data.managerName,
       openingHours: '08h00 - 18h00',
       isActive: true,
+      credits: 0, // Starts at 0; Admin must top up with credits
     };
 
     // Ajout en mémoire
@@ -584,6 +636,44 @@ class DataService {
     return newDropPoint;
   }
 
+  // Superadmin adds credits to a drop point
+  async addDropPointCredits(dropPointId: string, amount: number): Promise<boolean> {
+    const idx = DEFAULT_DROP_POINTS.findIndex(dp => dp.id === dropPointId);
+    if (idx !== -1) {
+      DEFAULT_DROP_POINTS[idx].credits = (DEFAULT_DROP_POINTS[idx].credits || 0) + amount;
+    }
+    try {
+      const { data: dp } = await supabase.from('drop_points').select('credits').eq('id', dropPointId).maybeSingle();
+      const newCredits = ((dp as any)?.credits || 0) + amount;
+      await supabase.from('drop_points').update({ credits: newCredits }).eq('id', dropPointId);
+      if (idx !== -1) DEFAULT_DROP_POINTS[idx].credits = newCredits;
+    } catch (e) {
+      console.warn('Could not update credits in DB, updated in memory only:', e);
+    }
+    return true;
+  }
+
+  // Deducts 1 credit from a drop point (called when a parcel is handled)
+  async deductDropPointCredit(dropPointId: string): Promise<boolean> {
+    const idx = DEFAULT_DROP_POINTS.findIndex(dp => dp.id === dropPointId);
+    if (idx !== -1) {
+      if ((DEFAULT_DROP_POINTS[idx].credits || 0) <= 0) {
+        throw new Error('Crédits insuffisants. Le Point Relais est inactif. Veuillez recharger des crédits.');
+      }
+      DEFAULT_DROP_POINTS[idx].credits -= 1;
+    }
+    try {
+      const { data: dp } = await supabase.from('drop_points').select('credits').eq('id', dropPointId).maybeSingle();
+      const currentCredits = (dp as any)?.credits || 0;
+      if (currentCredits <= 0) throw new Error('Crédits insuffisants.');
+      await supabase.from('drop_points').update({ credits: currentCredits - 1 }).eq('id', dropPointId);
+    } catch (e: any) {
+      if (e.message?.includes('insuffisants')) throw e;
+      console.warn('Could not update credits in DB:', e);
+    }
+    return true;
+  }
+
   // -- 7. Get Deliveries for a Driver ---------------------------
   async getPackagesForDriver(driverQuery: string): Promise<ColisItem[]> {
     const pkgs = await this.getAllPackages();
@@ -596,9 +686,10 @@ class DataService {
       .from('packages')
       .select(`
         id, tracking_code, vendeur_id, agency_id, driver_id,
-        client_name, client_address, client_phone,
+        client_name, client_address, client_commune, client_phone,
         status, validation_code, created_at, updated_at,
-        paid_by_client, delivery_price,
+        paid_by_client, delivery_price, package_price, weight,
+        is_prepaid, vendor_paid,
         origin_drop_point_id, dest_drop_point_id, delivery_mode,
         inaccessibility_note, rerouted_at,
         agency:agencies(id, profile:profiles(name)),
@@ -616,6 +707,8 @@ class DataService {
     return data.map(p => ({
       ...mapPackage(p),
       agence: (p as any).agency?.profile?.name || null,
+      vendeurName: (p as any).vendeur_name || (p as any).vendeur?.name || null,
+      vendeurAddress: null, // L'adresse vendeur n'est pas encore en DB - utilise l'adresse agence en fallback
     }));
   }
 
@@ -643,8 +736,18 @@ class DataService {
         .from('agencies')
         .select(`
           id,
+          status,
+          billing_type,
+          billing_value,
           address,
           phone,
+          commune_prices,
+          price_per_km,
+          price_per_kg,
+          taux_fc,
+          fleet_size,
+          coverage_zones,
+          manager_name,
           created_at,
           profile:profiles(name, email)
         `);
@@ -660,7 +763,8 @@ class DataService {
     if (!error && data) {
       for (const ag of data as any[]) {
         const cached = agencyMetaCache.get(ag.id);
-        const status: AgencyStatus = cached?.status || (ag as any).status || 'APPROVED';
+        // Priorité : valeur BD → cache mémoire → défaut
+        const status: AgencyStatus = ag.status || cached?.status || 'APPROVED';
         if (statusFilter && status !== statusFilter) continue;
 
         agenciesList.push({
@@ -673,10 +777,17 @@ class DataService {
           recommended: true,
           price: '1.5 USD',
           status,
-          coverageZones: cached?.coverageZones || ['Gombe', 'Limete', 'Bandalungwa'],
-          fleetSize: cached?.fleetSize || 4,
+          coverageZones: ag.coverage_zones || cached?.coverageZones || ['Gombe', 'Limete', 'Bandalungwa'],
+          fleetSize: ag.fleet_size || cached?.fleetSize || 4,
+          managerName: ag.manager_name || cached?.managerName,
           createdAt: ag.created_at || cached?.createdAt || new Date().toISOString(),
           drivers: [],
+          billingType: ag.billing_type || cached?.billingType || 'Commission',
+          billingValue: ag.billing_value ?? cached?.billingValue ?? 15,
+          communePrices: ag.commune_prices || [],
+          pricePerKm: ag.price_per_km ?? 0,
+          pricePerKg: ag.price_per_kg ?? 0,
+          tauxConversionFC: ag.taux_fc ?? undefined,
         });
       }
     }
@@ -699,11 +810,65 @@ class DataService {
           fleetSize: meta.fleetSize || 2,
           createdAt: meta.createdAt || new Date().toISOString(),
           drivers: [],
+          communePrices: [],
         });
       }
     }
 
     return agenciesList;
+  }
+
+  // Get agency commune prices
+  async getAgencyCommunePrices(agencyId: string): Promise<{ commune: string; price: number }[]> {
+    const { data, error } = await supabase
+      .from('agencies')
+      .select('commune_prices')
+      .eq('id', agencyId)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching agency commune prices:', error);
+      return [];
+    }
+    
+    return data?.commune_prices || [];
+  }
+
+  // Update agency commune prices and rate settings
+  async updateAgencyCommunePrices(agencyId: string, prices: { commune: string; price: number }[]): Promise<boolean> {
+    const { error } = await supabase
+      .from('agencies')
+      .update({ commune_prices: prices })
+      .eq('id', agencyId);
+      
+    if (error) {
+      console.error('Error updating agency commune prices:', error);
+      return false;
+    }
+    
+    return true;
+  }
+
+  async updateAgencySettings(agencyId: string, settings: {
+    communePrices: { commune: string; price: number }[];
+    pricePerKm: number;
+    pricePerKg: number;
+  }): Promise<boolean> {
+    const { error } = await supabase
+      .from('agencies')
+      .update({
+        commune_prices: settings.communePrices,
+        price_per_km: settings.pricePerKm,
+        price_per_kg: settings.pricePerKg,
+      })
+      .eq('id', agencyId);
+      
+    if (error) {
+      console.error('Error updating agency settings:', error);
+      return false;
+    }
+    
+    return true;
   }
 
   // Get all agencies pending Superadmin validation
@@ -735,6 +900,25 @@ class DataService {
       console.warn('Could not update agency status in DB, cached in memory:', e);
     }
     return true;
+  }
+
+  // Superadmin updates agency billing model
+  async updateAgencyBilling(agencyId: string, billingType: 'Commission' | 'Mensuel' | 'Annuel', billingValue: number) {
+    const cached = agencyMetaCache.get(agencyId);
+    if (cached) {
+      agencyMetaCache.set(agencyId, { ...cached, billingType, billingValue });
+    } else {
+      agencyMetaCache.set(agencyId, { status: 'APPROVED', billingType, billingValue });
+    }
+    // Persister en base
+    try {
+      await supabase.from('agencies').update({
+        billing_type: billingType,
+        billing_value: billingValue,
+      }).eq('id', agencyId);
+    } catch (e) {
+      console.warn('Could not update agency billing in DB, cached in memory only:', e);
+    }
   }
 
   // Register agency application in cache & state
@@ -830,12 +1014,7 @@ class DataService {
 
   // -- 9. Driver Authentication -----------------------
   async authenticateDriver(phone: string, pin: string): Promise<DriverAccount | null> {
-    // 1. Hash submitted PIN
-    const enc = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(pin));
-    const pinHash = Buffer.from(hashBuffer).toString('hex');
-
-    // 2. Fetch driver by phone + matching pin_code
+    // 1. Fetch driver by phone only (supports both bcrypt and SHA-256 hashes)
     const { data, error } = await supabase
       .from('drivers')
       .select(`
@@ -849,12 +1028,37 @@ class DataService {
         agency:agencies(profile:profiles(name))
       `)
       .eq('phone', phone)
-      .eq('pin_code', pinHash)
       .single();
 
     if (error || !data) return null;
 
     const d = data as any;
+    const storedHash: string = d.pin_code || '';
+
+    // 2. Vérifier le PIN — supporte bcrypt (nouveaux comptes) et SHA-256 (anciens comptes)
+    let pinValid = false;
+
+    if (storedHash.startsWith('$2b$') || storedHash.startsWith('$2a$')) {
+      // Nouveau format : bcrypt
+      const bcrypt = await import('bcryptjs');
+      pinValid = await bcrypt.compare(pin, storedHash);
+    } else if (/^[0-9a-f]{64}$/i.test(storedHash)) {
+      // Ancien format : SHA-256 hex
+      const enc = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(pin));
+      const pinHash = Buffer.from(hashBuffer).toString('hex');
+      pinValid = pinHash === storedHash;
+
+      // Migration automatique : rehacher en bcrypt pour les prochaines connexions
+      if (pinValid) {
+        const bcrypt = await import('bcryptjs');
+        const newHash = await bcrypt.hash(pin, 10);
+        await supabase.from('drivers').update({ pin_code: newHash }).eq('id', d.id);
+      }
+    }
+
+    if (!pinValid) return null;
+
     return {
       id: d.id,
       name: d.profile?.name || 'Inconnu',
@@ -1008,6 +1212,43 @@ class DataService {
 
   /** Verify a 9-digit agent number and return agent info (used by driver UI). */
   async verifyAgentNumber(agentNumber: string): Promise<DropPointAgent | null> {
+    try {
+      const { data, error } = await supabase
+        .from('drop_point_agents')
+        .select('id, agent_number, pin_hash, name, drop_point_id, is_active, created_at')
+        .eq('agent_number', agentNumber)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (!error && data) {
+        dropPointAgentCache.set(agentNumber, {
+          id: data.id,
+          agentNumber: data.agent_number,
+          pinHash: data.pin_hash,
+          name: data.name,
+          dropPointId: data.drop_point_id,
+          isActive: data.is_active,
+          createdAt: data.created_at,
+        });
+
+        const dp = this.getDropPointById(data.drop_point_id);
+        return {
+          id: data.id,
+          agentNumber: data.agent_number,
+          name: data.name,
+          dropPointId: data.drop_point_id,
+          dropPointName: dp?.name || data.drop_point_id,
+          dropPointCommune: dp?.commune || '',
+          isActive: data.is_active,
+          createdAt: data.created_at,
+        };
+      }
+      if (!error && !data) return null;
+    } catch (e) {
+      console.warn('[verifyAgentNumber] DB query failed, checking cache fallback:', e);
+    }
+
+    // Fallback cache si coupure réseau
     const cached = dropPointAgentCache.get(agentNumber);
     if (cached && cached.isActive) {
       const dp = this.getDropPointById(cached.dropPointId);
@@ -1022,41 +1263,7 @@ class DataService {
         createdAt: cached.createdAt,
       };
     }
-
-    try {
-      const { data } = await supabase
-        .from('drop_point_agents')
-        .select('id, agent_number, pin_hash, name, drop_point_id, is_active, created_at')
-        .eq('agent_number', agentNumber)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (!data) return null;
-
-      dropPointAgentCache.set(agentNumber, {
-        id: data.id,
-        agentNumber: data.agent_number,
-        pinHash: data.pin_hash,
-        name: data.name,
-        dropPointId: data.drop_point_id,
-        isActive: data.is_active,
-        createdAt: data.created_at,
-      });
-
-      const dp = this.getDropPointById(data.drop_point_id);
-      return {
-        id: data.id,
-        agentNumber: data.agent_number,
-        name: data.name,
-        dropPointId: data.drop_point_id,
-        dropPointName: dp?.name || data.drop_point_id,
-        dropPointCommune: dp?.commune || '',
-        isActive: data.is_active,
-        createdAt: data.created_at,
-      };
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   /** Get all drop point agents (optionally filtered by dropPointId), always from Supabase. */
@@ -1152,6 +1359,12 @@ class DataService {
     if (!agent) {
       return { success: false, message: 'Numéro agent introuvable ou désactivé.' };
     }
+    const { data: dpData, error } = await supabase.from('drop_points').select('credits').eq('id', agent.dropPointId).single();
+    if (error || !dpData) return { success: false, message: 'Point relais introuvable dans la base de données.' };
+    
+    if (dpData.credits <= 0) {
+      return { success: false, message: 'Opération refusée : Ce Point Relais n\'a plus de crédits.' };
+    }
 
     const now = new Date().toISOString();
     packageMetaCache.set(colisId, {
@@ -1177,15 +1390,19 @@ class DataService {
     return { success: true, message: `Colis attribué au ${agent.dropPointName}.`, agent };
   }
 
-  /** Vendeur attribue un colis à un point relais (via scan de QR code). */
   async assignPackageToDropPointByVendor(
     colisId: string,
     dropPointId: string,
+    agencyId: string,
     vendeurName: string,
     vendeurPhone: string
   ): Promise<{ success: boolean; message: string }> {
-    const dp = this.getDropPointById(dropPointId);
-    if (!dp) return { success: false, message: 'Point relais introuvable.' };
+    const { data: dpData, error } = await supabase.from('drop_points').select('credits, name').eq('id', dropPointId).single();
+    if (error || !dpData) return { success: false, message: 'Point relais introuvable dans la base de données.' };
+    
+    if (dpData.credits <= 0) {
+      return { success: false, message: 'Opération refusée : Ce Point Relais n\'a plus de crédits.' };
+    }
 
     packageMetaCache.set(colisId, {
       ...packageMetaCache.get(colisId),
@@ -1200,24 +1417,51 @@ class DataService {
       await supabase.from('packages').update({
         status: 'PENDING_DROP_POINT_CONFIRMATION',
         origin_drop_point_id: dropPointId,
+        agency_id: agencyId
       }).eq('id', colisId);
     } catch (e) {
       console.warn('[assignPackageToDropPointByVendor] DB update failed:', e);
     }
 
-    return { success: true, message: `Colis attribué au ${dp.name}. Le relais doit confirmer la réception.` };
+    return { success: true, message: `Colis attribué au ${dpData.name}. Le relais doit confirmer la réception.` };
   }
 
   /** Agent confirms physical reception of a parcel. */
   async confirmDropPointReception(
     colisId: string,
-    _agentId: string
-  ): Promise<{ success: boolean; message: string }> {
-    const all = await this.getAllPackages();
-    const colis = all.find(c => c.id === colisId);
+    agentId: string // agentId is the drop point ID or agent ID
+  ): Promise<{ success: boolean; message: string; type?: 'vendor' | 'driver' }> {
+    // 1. Fetch the package directly from DB to get reliable origin vs dest ids
+    const { data: pkg, error } = await supabase.from('packages').select('status, origin_drop_point_id, dest_drop_point_id').eq('id', colisId).single();
     
+    if (error || !pkg) return { success: false, message: 'Colis introuvable.' };
+
+    // Detect type: vendor drop = PENDING_DROP_POINT_CONFIRMATION, driver drop = DEPOSITED_AT_DROP_POINT
+    const isVendorDrop = pkg.status === 'PENDING_DROP_POINT_CONFIRMATION';
+    const isDriverDrop = pkg.status === 'DEPOSITED_AT_DROP_POINT';
+
+    if (!isVendorDrop && !isDriverDrop) {
+      return { success: false, message: `Statut inattendu: ${pkg.status}. Impossible de confirmer.` };
+    }
+
+    const currentDpId = isVendorDrop ? pkg.origin_drop_point_id : pkg.dest_drop_point_id;
+    if (currentDpId) {
+      const { data: dpData } = await supabase.from('drop_points').select('credits').eq('id', currentDpId).single();
+      if (dpData) {
+         if (dpData.credits <= 0) {
+            return { success: false, message: 'Opération refusée : Ce Point Relais n\'a plus de crédits.' };
+         }
+         // Deduct credit — fallback au direct update si la RPC n'existe pas
+         const newCredits = dpData.credits - 1;
+         const { error: rpcError } = await supabase.rpc('decrement_drop_point_credits', { dp_id: currentDpId });
+         if (rpcError) {
+           await supabase.from('drop_points').update({ credits: newCredits }).eq('id', currentDpId);
+         }
+      }
+    }
+
     // S'il vient d'un vendeur (origin), on génère le code et passe en attente de collecte
-    if (colis?.status === 'En attente de confirmation relais') {
+    if (isVendorDrop) {
       const code = generatePickupCode();
       packageMetaCache.set(colisId, {
         ...packageMetaCache.get(colisId),
@@ -1232,7 +1476,7 @@ class DataService {
       } catch (e) {
         console.warn('DB update failed', e);
       }
-      return { success: true, message: 'Réception confirmée. Vous pouvez maintenant assigner une agence.' };
+      return { success: true, type: 'vendor', message: 'Réception confirmée. Vous pouvez maintenant assigner une agence.' };
     }
 
     // Cas normal : colis déposé par le livreur, disponible pour le client
@@ -1251,7 +1495,7 @@ class DataService {
       console.warn('[confirmDropPointReception] DB update failed, cached in memory:', e);
     }
 
-    return { success: true, message: 'Réception confirmée. Le client peut maintenant récupérer son colis.' };
+    return { success: true, type: 'driver', message: 'Réception confirmée. Le client peut maintenant récupérer son colis.' };
   }
 
   /** Assign an agency to a vendor-deposited ColisItem (after drop point confirmation). */
@@ -1272,16 +1516,48 @@ class DataService {
     } catch (e) {
       console.warn('DB update failed', e);
     }
-    return { success: true, message: 'Agence assignée avec succès.' };
+    return { success: true, message: 'Dépôt du vendeur confirmé avec succès.' };
   }
 
-  /** Get packages deposited at a drop point waiting for agent confirmation OR waiting for agency assignment. */
-  async getIncomingPackagesForDropPoint(dropPointId: string): Promise<ColisItem[]> {
+  /** Agent hands over the package to the driver using pickup_code */
+  async handoverPackageToDriver(pickupCode: string, dropPointId: string): Promise<{ success: boolean; message: string }> {
+    const { data: pkg, error } = await supabase
+      .from('packages')
+      .select('id, status, origin_drop_point_id')
+      .eq('pickup_code', pickupCode)
+      .eq('origin_drop_point_id', dropPointId)
+      .single();
+
+    if (error || !pkg) return { success: false, message: 'Code de collecte invalide ou colis introuvable.' };
+    
+    if (pkg.status !== 'WAITING_FOR_AGENCY_PICKUP') {
+      return { success: false, message: 'Ce colis n\'est pas en attente de collecte.' };
+    }
+
+    try {
+      await supabase.from('packages').update({ status: 'IN_TRANSIT' }).eq('id', pkg.id);
+      
+      packageMetaCache.set(pkg.id, {
+        ...packageMetaCache.get(pkg.id),
+        customStatus: 'En transit',
+      });
+      return { success: true, message: 'Colis remis au livreur avec succès.' };
+    } catch (e) {
+      console.warn('handoverPackageToDriver error', e);
+      return { success: false, message: 'Erreur lors de la mise à jour.' };
+    }
+  }
+
+  /** Get packages deposited by vendors waiting for agent confirmation. */
+  async getIncomingVendorPackagesForDropPoint(dropPointId: string): Promise<ColisItem[]> {
     const all = await this.getAllPackages();
-    return all.filter(p =>
-      (p.destDropPointId === dropPointId && p.status === 'Déposé en point relais') ||
-      (p.originDropPointId === dropPointId && (p.status === 'En attente de confirmation relais' || p.status === 'En attente de collecte'))
-    );
+    return all.filter(p => p.originDropPointId === dropPointId && p.status === 'En attente de confirmation relais');
+  }
+
+  /** Get packages deposited by drivers waiting for agent confirmation. */
+  async getIncomingDriverPackagesForDropPoint(dropPointId: string): Promise<ColisItem[]> {
+    const all = await this.getAllPackages();
+    return all.filter(p => p.destDropPointId === dropPointId && p.status === 'Déposé en point relais');
   }
 
   /** Get packages already confirmed available for pickup at a drop point. */
@@ -1293,13 +1569,18 @@ class DataService {
     );
   }
 
+  /** Get vendor deposits confirmed by the drop point (waiting for agency / agency already assigned). */
+  async getVendorDepositsForDropPoint(dropPointId: string): Promise<ColisItem[]> {
+    const all = await this.getAllPackages();
+    return all.filter(p =>
+      p.originDropPointId === dropPointId &&
+      (p.status === 'En attente de collecte' || p.status === 'Déposé en point relais')
+    );
+  }
+
   // -- Vendor Deposit Flow -------------------------------------------
 
-  /**
-   * Register a parcel deposited by a vendor at a drop point.
-   * Returns the generated pickup code (displayed on the ticket).
-   */
-  createVendorDeposit(data: {
+  async createVendorDeposit(data: {
     dropPointId: string;
     vendeurName: string;
     vendeurPhone: string;
@@ -1307,76 +1588,89 @@ class DataService {
     clientPhone: string;
     clientAddress: string;
     description?: string;
-  }): VendorDeposit {
+  }): Promise<ColisItem> {
     const dp = this.getDropPointById(data.dropPointId);
     if (!dp) throw new Error('Point relais introuvable.');
 
+    const trackCode = 'MC-' + Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const pickupCode = generatePickupCode();
-    const deposit: VendorDeposit = {
-      id: `vd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      pickupCode,
-      dropPointId: data.dropPointId,
-      dropPointName: dp.name,
-      vendeurName: data.vendeurName,
-      vendeurPhone: data.vendeurPhone,
-      clientName: data.clientName,
-      clientPhone: data.clientPhone,
-      clientAddress: data.clientAddress,
-      description: data.description || '',
-      agencyId: null,
-      agencyName: null,
-      status: 'PENDING_AGENCY',
-      createdAt: new Date().toISOString(),
-      collectedAt: null,
+
+    // On crée directement dans la table packages Supabase
+    // On utilise un vendeur_id générique ou on le laisse null si le schéma le permet (ici vendeur_id est NOT NULL dans schema.sql)
+    // Donc on va chercher le premier vendeur, ou on doit adapter pour utiliser le vrai vendeur
+    const { data: defaultVendeur } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'vendeur')
+      .limit(1)
+      .single();
+    
+    const vendeurId = defaultVendeur?.id || '11111111-1111-1111-1111-111111111111';
+
+    const insertData: any = {
+      tracking_code: trackCode,
+      vendeur_id: vendeurId,
+      client_name: data.clientName,
+      client_phone: data.clientPhone,
+      client_address: data.clientAddress,
+      status: 'DEPOSITED_AT_DROP_POINT', // Le statut immédiat
+      validation_code: otp,
+      delivery_mode: 'DROP_POINT_FIRST_MILE',
+      origin_drop_point_id: data.dropPointId,
+      pickup_code: pickupCode,
+      paid_by_client: true,
+      delivery_price: 0,
+      package_price: 0,
     };
 
-    vendorDepositCache.set(pickupCode, deposit);
-    return deposit;
-  }
+    const { data: pkg, error } = await supabase.from('packages').insert(insertData).select().single();
+    if (error) throw error;
 
-  /** Get all vendor deposits for a given drop point. */
-  getVendorDepositsForDropPoint(dropPointId: string): VendorDeposit[] {
-    const result: VendorDeposit[] = [];
-    for (const [, d] of vendorDepositCache) {
-      if (d.dropPointId === dropPointId) result.push(d);
-    }
-    return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    // Cache pour les métadonnées hors BDD si nécessaire
+    packageMetaCache.set(pkg.id, {
+      deliveryMode: 'DROP_POINT_FIRST_MILE',
+      originDropPointId: data.dropPointId,
+      pickupCode: pickupCode,
+      vendeurName: data.vendeurName,
+      vendeurPhone: data.vendeurPhone,
+      customStatus: 'Déposé en point relais',
+    });
+
+    const result = await this.getPackageByTracking(pkg.id);
+    if (!result) throw new Error('Erreur lors de la récupération du colis créé.');
+    return result;
   }
 
   /** Assign an agency to collect a vendor deposit. Sets agencyId on the deposit. */
-  assignVendorDepositToAgency(
-    pickupCode: string,
+  async assignVendorDepositToAgency(
+    colisId: string,
     agencyId: string
-  ): { success: boolean; deposit?: VendorDeposit; message: string } {
-    const deposit = vendorDepositCache.get(pickupCode);
-    if (!deposit) return { success: false, message: 'Code retrait introuvable.' };
-    if (deposit.status === 'COLLECTED') return { success: false, message: 'Ce colis a déjà été collecté.' };
-
-    // Find agency name from in-memory cache or use id
-    const agencies = Array.from(agencyMetaCache.entries());
-    const agencyName = agencies.find(([id]) => id === agencyId)?.[1] as unknown as string || agencyId;
-
-    const updated: VendorDeposit = {
-      ...deposit,
-      agencyId,
-      agencyName: agencyName || agencyId,
-      status: 'AGENCY_ASSIGNED',
-    };
-    vendorDepositCache.set(pickupCode, updated);
-    return { success: true, deposit: updated, message: 'Agence assignée avec succès.' };
+  ): Promise<{ success: boolean; message: string }> {
+    return this.assignAgencyById(colisId, agencyId).then(() => ({
+      success: true,
+      message: 'Agence assignée avec succès.'
+    })).catch((e) => ({
+      success: false,
+      message: 'Erreur lors de l\'assignation : ' + (e as Error).message
+    }));
   }
 
   /** Mark a vendor deposit as collected by the driver. */
-  markVendorDepositCollected(pickupCode: string): { success: boolean; message: string } {
-    const deposit = vendorDepositCache.get(pickupCode);
-    if (!deposit) return { success: false, message: 'Code retrait introuvable.' };
-
-    vendorDepositCache.set(pickupCode, {
-      ...deposit,
-      status: 'COLLECTED',
-      collectedAt: new Date().toISOString(),
-    });
-    return { success: true, message: 'Colis marqué comme collecté.' };
+  async markVendorDepositCollected(colisId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await supabase.from('packages').update({
+        status: 'IN_TRANSIT'
+      }).eq('id', colisId);
+      
+      packageMetaCache.set(colisId, {
+        ...packageMetaCache.get(colisId),
+        customStatus: 'En transit'
+      });
+      return { success: true, message: 'Colis marqué comme collecté.' };
+    } catch (e) {
+      return { success: false, message: 'Erreur lors de la mise à jour.' };
+    }
   }
 
   /** Get a single vendor deposit by pickup code. */
@@ -1390,6 +1684,35 @@ class DataService {
     return agencies
       .filter(a => a.status === 'APPROVED')
       .map(a => ({ id: a.id, name: a.name }));
+  }
+  async getProfile(userId: string) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (error) {
+      console.error('Error fetching profile:', error);
+      return null;
+    }
+    return data;
+  }
+
+  async updateProfile(userId: string, data: { name?: string; phone?: string; metadata?: any }) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        name: data.name,
+        phone: data.phone,
+        metadata: data.metadata
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.error('Error updating profile:', error);
+      return { success: false, message: 'Erreur lors de la mise à jour du profil.' };
+    }
+    return { success: true };
   }
 }
 

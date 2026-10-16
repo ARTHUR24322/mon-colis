@@ -28,7 +28,7 @@ const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] 
   },
   {
     prefix: '/admin-x9k2/dashboard',
-    roles: ['superadmin'],
+    roles: ['superadmin', 'admin_agences', 'admin_relais', 'admin_vendeurs', 'admin_service_client'],
     redirect: '/admin-x9k2',
   },
 ];
@@ -95,7 +95,7 @@ export async function proxy(request: NextRequest) {
     return redirectResponse;
   }
 
-  // ✅ Session valide — laisser passer, injecter les infos dans les headers
+  // [OK] Session valide — laisser passer, injecter les infos dans les headers
   const response = NextResponse.next();
   response.headers.set('x-user-id', payload.userId);
   response.headers.set('x-user-role', payload.role);

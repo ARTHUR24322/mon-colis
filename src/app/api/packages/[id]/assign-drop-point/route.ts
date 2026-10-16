@@ -8,6 +8,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { dataService } from '@/lib/data-service';
 import { getSession } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
+import { z } from 'zod';
+
+const assignSchema = z.object({
+  dropPointNumber: z.string().regex(/^\d{9}$/, 'Le numéro agent doit contenir exactement 9 chiffres.'),
+});
 
 export async function POST(
   request: NextRequest,
@@ -20,21 +25,16 @@ export async function POST(
     }
 
     const { id: colisId } = await params;
-    const { dropPointNumber } = await request.json();
+    const body = await request.json();
+    const resultZod = assignSchema.safeParse(body);
 
-    if (!colisId || !dropPointNumber) {
+    if (!colisId || !resultZod.success) {
       return NextResponse.json(
-        { error: 'colisId et dropPointNumber sont requis.' },
+        { error: resultZod.error ? resultZod.error.issues[0].message : 'colisId et dropPointNumber sont requis.' },
         { status: 400 }
       );
     }
-
-    if (!/^\d{9}$/.test(dropPointNumber)) {
-      return NextResponse.json(
-        { error: 'Le numéro agent doit contenir exactement 9 chiffres.' },
-        { status: 400 }
-      );
-    }
+    const { dropPointNumber } = resultZod.data;
 
     // Vérifier que le colis existe et appartient au livreur
     const { data: pkg, error: pkgError } = await supabase
