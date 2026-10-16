@@ -78,6 +78,7 @@ export default function LivreurPage() {
   const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
   const [otpErrors, setOtpErrors] = useState<Record<string, string>>({});
   const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
+  const [validatingOtpIds, setValidatingOtpIds] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<'to_collect' | 'deposited' | 'to_deliver' | 'delivered'>('to_collect');
 
   // Drop Point rerouting state (zone inaccessible)
@@ -207,21 +208,33 @@ export default function LivreurPage() {
     }
   };
 
-  /* --- OTP Validation --- */
+  /* --- OTP Validation (Clic unique / anti double-soumission) --- */
   const handleValidateOtp = async (colisId: string) => {
+    // Si déjà en cours de validation ou déjà validé, bloquer immédiatement
+    if (validatingOtpIds[colisId] || otpSuccess[colisId]) return;
+
     const code = otpInputs[colisId] || '';
     if (code.length < 6) {
       setOtpErrors(prev => ({ ...prev, [colisId]: 'Le code OTP doit contenir 6 chiffres.' }));
       return;
     }
 
-    const res = await dataService.validateDeliveryOtp(colisId, code);
-    if (res.success) {
-      setOtpSuccess(prev => ({ ...prev, [colisId]: true }));
-      setOtpErrors(prev => ({ ...prev, [colisId]: '' }));
-      await loadCourses();
-    } else {
-      setOtpErrors(prev => ({ ...prev, [colisId]: res.message }));
+    // Verrouiller immédiatement le bouton pour ce colis
+    setValidatingOtpIds(prev => ({ ...prev, [colisId]: true }));
+    setOtpErrors(prev => ({ ...prev, [colisId]: '' }));
+
+    try {
+      const res = await dataService.validateDeliveryOtp(colisId, code);
+      if (res.success) {
+        setOtpSuccess(prev => ({ ...prev, [colisId]: true }));
+        await loadCourses();
+      } else {
+        setOtpErrors(prev => ({ ...prev, [colisId]: res.message }));
+        setValidatingOtpIds(prev => ({ ...prev, [colisId]: false }));
+      }
+    } catch {
+      setOtpErrors(prev => ({ ...prev, [colisId]: 'Erreur de connexion. Veuillez réessayer.' }));
+      setValidatingOtpIds(prev => ({ ...prev, [colisId]: false }));
     }
   };
 
@@ -506,6 +519,7 @@ export default function LivreurPage() {
                 onCollect={() => handleCollectDeposit(c.id)}
                 error={otpErrors[c.id]}
                 success={otpSuccess[c.id]}
+                isValidating={!!validatingOtpIds[c.id]}
                 formatPrice={formatPrice}
               />
             ))}
@@ -1053,6 +1067,7 @@ function DeliveryCard({
   onCollect,
   error,
   success,
+  isValidating,
   formatPrice
 }: {
   colis: ColisItem;
@@ -1064,6 +1079,7 @@ function DeliveryCard({
   onCollect?: () => void;
   error?: string;
   success?: boolean;
+  isValidating?: boolean;
   formatPrice: (priceInUsd: number) => string;
 }) {
   return (
@@ -1387,43 +1403,55 @@ function DeliveryCard({
                   maxLength={6}
                   placeholder="• • • • • •"
                   value={otpValue}
+                  disabled={isValidating || success}
                   onChange={e => onOtpChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   style={{
                     flex: 1,
                     padding: '0.75rem',
                     borderRadius: '10px',
-                    background: 'rgba(255, 255, 255, 0.06)',
+                    background: (isValidating || success) ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.06)',
                     border: error ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
-                    color: '#fff',
+                    color: (isValidating || success) ? '#94a3b8' : '#fff',
                     fontSize: '1.4rem',
                     fontWeight: '900',
                     letterSpacing: '6px',
                     textAlign: 'center',
-                    outline: 'none'
+                    outline: 'none',
+                    cursor: (isValidating || success) ? 'not-allowed' : 'text'
                   }}
                 />
                 <button
                   type="button"
                   onClick={onValidate}
-                  disabled={otpValue.length < 6}
+                  disabled={otpValue.length < 6 || isValidating || success}
                   style={{
                     padding: '0.75rem 1.1rem',
                     borderRadius: '10px',
-                    background: otpValue.length >= 6 ? '#22c55e' : 'rgba(255, 255, 255, 0.06)',
+                    background: (otpValue.length >= 6 && !isValidating && !success) ? '#22c55e' : 'rgba(255, 255, 255, 0.06)',
                     border: 'none',
-                    color: otpValue.length >= 6 ? '#000' : '#64748b',
+                    color: (otpValue.length >= 6 && !isValidating && !success) ? '#000' : '#64748b',
                     fontWeight: '700',
                     fontSize: '0.9rem',
-                    cursor: otpValue.length >= 6 ? 'pointer' : 'not-allowed',
+                    cursor: (otpValue.length >= 6 && !isValidating && !success) ? 'pointer' : 'not-allowed',
+                    opacity: isValidating ? 0.8 : 1,
                     transition: 'all 0.2s',
                     flexShrink: 0,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.3rem'
+                    gap: '0.4rem'
                   }}
                 >
-                  <ShieldCheck size={16} />
-                  Valider
+                  {isValidating ? (
+                    <>
+                      <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span>Validation...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={16} />
+                      <span>Valider</span>
+                    </>
+                  )}
                 </button>
               </div>
 
