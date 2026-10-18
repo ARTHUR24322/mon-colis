@@ -24,6 +24,8 @@ export interface DropPointAgent {
 
 export interface DropPoint {
   id: string;
+  code?: string;
+  qrToken?: string;
   name: string;
   commune: string;
   address: string;
@@ -51,7 +53,10 @@ export interface ColisItem {
   largeur: number;
   hauteur: number;
   distance: number;
-  status: 'Créé' | "En attente d'agence" | 'Accepté' | 'En transit' | 'En attente de confirmation relais' | 'Déposé en point relais' | 'Disponible au point relais' | 'En attente de collecte' | 'Livré' | 'Annulé';
+  status: 'Créé' | "En attente d'agence" | 'Accepté' | 'En transit' | 'En attente de confirmation relais' | 'Déposé en point relais' | 'Disponible au point relais' | 'En attente de collecte' | 'Refusé par le point relais' | 'En réclamation' | 'Livré' | 'Annulé';
+  claimStatus?: 'NONE' | 'OPEN' | 'RESOLVED';
+  claimReason?: string | null;
+  refusalComment?: string | null;
   pickupCode?: string | null;    // Code retrait point relais (ex: ABC123)
   vendeurName?: string | null;   // Nom du vendeur ayant déposé
   vendeurPhone?: string | null;  // Téléphone du vendeur
@@ -153,6 +158,9 @@ const dropPointAgentCache = new Map<string, {
   createdAt: string;
 }>();
 
+// Map de verrouillage brute-force pour les agents
+const agentLockoutMap = new Map<string, { attempts: number; lockedUntil: number }>();
+
 // Tracks parcels deposited by drivers, awaiting agent confirmation
 // key = colisId
 const pendingConfirmations = new Map<string, { agentId: string; depositedAt: string }>();
@@ -212,6 +220,10 @@ const mapStatusToApp = (dbStatus: string, packageId?: string): ColisItem['status
       return 'Disponible au point relais';
     case 'WAITING_FOR_AGENCY_PICKUP':
       return 'En attente de collecte';
+    case 'REFUSED_BY_DROP_POINT':
+      return 'Refusé par le point relais';
+    case 'IN_DISPUTE':
+      return 'En réclamation';
     case 'DELIVERED': return 'Livré';
     case 'CANCELLED': return 'Annulé';
     default: return 'Créé';
@@ -227,9 +239,14 @@ export function mapPackage(p: any): ColisItem {
   const originDropPoint = originDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === originDpId) || null) : null;
   const destDropPoint = destDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === destDpId) || null) : null;
 
+  // Safe seller name resolution
+  const rawVendeur = Array.isArray(p.vendeur) ? p.vendeur[0] : p.vendeur;
+  const resolvedVendorName = rawVendeur?.name || p.vendeur_name || meta.vendeurName || null;
+  const resolvedVendorPhone = rawVendeur?.phone || p.vendeur_phone || meta.vendeurPhone || null;
+
   return {
     id: p.id,
-    trackingCode: p.tracking_code,
+    trackingCode: p.tracking_code || ('MC-' + p.id.slice(0, 8).toUpperCase()),
     vendeurId: p.vendeur_id || '',
     clientName: p.client_name,
     clientPhone: p.client_phone || '',
@@ -243,13 +260,16 @@ export function mapPackage(p: any): ColisItem {
     hauteur: 0,
     distance: p.distance || 0,
     status: meta.customStatus || mapStatusToApp(p.status, p.id),
+    claimStatus: p.claim_status || (p.status === 'IN_DISPUTE' ? 'OPEN' : 'NONE'),
+    claimReason: p.claim_reason || null,
+    refusalComment: p.refusal_comment || null,
     agence: p.agency?.profile?.name || null,
     agencyId: p.agency_id,
     livreur: p.driver?.profile?.name || null,
     livreurPhone: p.driver?.phone || null,
     driverId: p.driver_id,
     otp: p.validation_code,
-    date: new Date(p.created_at).toLocaleDateString('fr-FR'),
+    date: p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : '—',
     confirmed: false,
     deliveredAt: null,
     paidByClient: p.paid_by_client !== undefined ? p.paid_by_client : true,
@@ -264,8 +284,8 @@ export function mapPackage(p: any): ColisItem {
     inaccessibilityNote: meta.inaccessibilityNote || p.inaccessibility_note || null,
     reroutedAt: meta.reroutedAt || p.rerouted_at || null,
     pickupCode: p.pickup_code || meta.pickupCode || null,
-    vendeurName: p.vendeur_name || meta.vendeurName || null,
-    vendeurPhone: p.vendeur_phone || meta.vendeurPhone || null,
+    vendeurName: resolvedVendorName,
+    vendeurPhone: resolvedVendorPhone,
   };
 }
 
@@ -286,7 +306,8 @@ class DataService {
           origin_drop_point_id, dest_drop_point_id, delivery_mode,
           inaccessibility_note, rerouted_at, pickup_code,
           agency:agencies(id, profile:profiles(name)),
-          driver:drivers(id, phone, profile:profiles(name))
+          driver:drivers(id, phone, profile:profiles(name)),
+          vendeur:profiles!packages_vendeur_id_fkey(id, name, phone)
         `)
         .order('created_at', { ascending: false });
       data = res.data;
@@ -301,7 +322,48 @@ class DataService {
       return [];
     }
 
-    return data.map(mapPackage);
+    // Fallback : si la jointure FK vendeur n'a pas résolu certains noms,
+    // récupérer les profils vendeurs manquants en une seule requête groupée.
+    const missingVendeurIds = [...new Set(
+      (data as any[])
+        .filter(p => {
+          const v = Array.isArray(p.vendeur) ? p.vendeur[0] : p.vendeur;
+          return !v?.name && p.vendeur_id;
+        })
+        .map(p => p.vendeur_id as string)
+    )];
+
+    let vendeurFallbackMap: Record<string, { name: string; phone?: string }> = {};
+    if (missingVendeurIds.length > 0) {
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, name, phone')
+          .in('id', missingVendeurIds);
+        if (profiles) {
+          profiles.forEach(prof => {
+            vendeurFallbackMap[prof.id] = { name: prof.name, phone: prof.phone };
+          });
+        }
+      } catch (fallbackErr) {
+        console.warn('Fallback vendeur profiles fetch failed:', fallbackErr);
+      }
+    }
+
+    return (data as any[]).map(p => {
+      // Injecter le nom vendeur dans le cache mémoire si la FK a échoué
+      const v = Array.isArray(p.vendeur) ? p.vendeur[0] : p.vendeur;
+      if (!v?.name && p.vendeur_id && vendeurFallbackMap[p.vendeur_id]) {
+        const fb = vendeurFallbackMap[p.vendeur_id];
+        const existing = packageMetaCache.get(p.id) || {};
+        packageMetaCache.set(p.id, {
+          ...existing,
+          vendeurName: fb.name,
+          vendeurPhone: fb.phone,
+        });
+      }
+      return mapPackage(p);
+    });
   }
 
   async getPackagesForVendor(vendeurId: string): Promise<ColisItem[]> {
@@ -353,7 +415,8 @@ class DataService {
         origin_drop_point_id, dest_drop_point_id, delivery_mode,
         inaccessibility_note, rerouted_at, pickup_code,
         agency:agencies(id, profile:profiles(name)),
-        driver:drivers(id, phone, profile:profiles(name))
+        driver:drivers(id, phone, profile:profiles(name)),
+        vendeur:profiles!packages_vendeur_id_fkey(id, name, phone)
       `)
       .or(`id.eq.${cleanQuery},tracking_code.eq.${cleanQuery},validation_code.eq.${cleanQuery}`)
       .single();
@@ -479,6 +542,23 @@ class DataService {
 
   // -- 6. Validate Delivery -------------------------------------
   async validateDelivery(colisId: string): Promise<boolean> {
+    // Vérification côté serveur : interdire qu'un colis passe à "Livré" avec 0$ ou sans agence
+    const { data: pkg, error: checkErr } = await supabase
+      .from('packages')
+      .select('agency_id, delivery_price')
+      .eq('id', colisId)
+      .single();
+
+    if (checkErr || !pkg) return false;
+    if (!pkg.agency_id) {
+      console.warn(`[validateDelivery] Refus: colis ${colisId} non rattaché à une agence.`);
+      return false;
+    }
+    if (Number(pkg.delivery_price || 0) <= 0) {
+      console.warn(`[validateDelivery] Refus: montant de livraison nul (0.00 USD) sur le colis ${colisId}.`);
+      return false;
+    }
+
     const { error } = await supabase.from('packages').update({
       status: 'DELIVERED',
     }).eq('id', colisId);
@@ -507,15 +587,31 @@ class DataService {
   async validateDeliveryOtp(colisId: string, otp: string): Promise<{ success: boolean; message: string; package?: ColisItem }> {
     const { data: pkg, error } = await supabase
       .from('packages')
-      .select('validation_code')
+      .select('validation_code, agency_id, delivery_price, status, claim_status')
       .eq('id', colisId)
       .single();
 
     if (error || !pkg) return { success: false, message: 'Colis introuvable.' };
+
+    if (pkg.status === 'IN_DISPUTE' || pkg.claim_status === 'OPEN') {
+      return {
+        success: false,
+        message: 'Retrait strictement bloqué : ce colis fait l\'objet d\'une réclamation vendeur non résolue.',
+      };
+    }
+
     if (pkg.validation_code !== otp) return { success: false, message: 'Le code OTP est incorrect.' };
 
+    // Validation financière stricte
+    if (!pkg.agency_id) {
+      return { success: false, message: 'Impossible de valider : ce colis n\'est rattaché à aucune agence.' };
+    }
+    if (Number(pkg.delivery_price || 0) <= 0) {
+      return { success: false, message: 'Impossible de valider : le montant de livraison du colis est de 0.00 USD.' };
+    }
+
     const success = await this.validateDelivery(colisId);
-    if (!success) return { success: false, message: 'Erreur lors de la validation.' };
+    if (!success) return { success: false, message: 'Erreur lors de la validation en base.' };
 
     const updatedPkg = await this.getPackageByTracking(colisId);
     return { success: true, message: 'Colis livré avec succès.', package: updatedPkg || undefined };
@@ -575,6 +671,8 @@ class DataService {
     if (error || !data) return [];
     const points = data.map(dp => ({
       id: dp.id,
+      code: dp.code || dp.id,
+      qrToken: dp.qr_token || null,
       name: dp.name,
       commune: dp.commune,
       address: dp.address,
@@ -1091,10 +1189,9 @@ class DataService {
     // Generate 6-digit PIN
     const plainPin = String(Math.floor(100_000 + Math.random() * 900_000));
 
-    // Hash the PIN
-    const enc = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(plainPin));
-    const pinHash = Buffer.from(hashBuffer).toString('hex');
+    // Hash the PIN using bcrypt (jamais en clair)
+    const bcrypt = await import('bcryptjs');
+    const pinHash = await bcrypt.hash(plainPin, 10);
 
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -1141,32 +1238,22 @@ class DataService {
     return { agent, plainPin };
   }
 
-  /** Authenticate a drop point agent by agentNumber + PIN. */
+  /** Authenticate a drop point agent by agentNumber + PIN with brute-force lockout protection. */
   async authenticateDropPointAgent(
     agentNumber: string,
     pin: string
   ): Promise<DropPointAgent | null> {
-    // First try in-memory cache
-    const cached = dropPointAgentCache.get(agentNumber);
-    if (cached) {
-      const enc = new TextEncoder();
-      const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(pin));
-      const pinHash = Buffer.from(hashBuffer).toString('hex');
-      if (pinHash !== cached.pinHash || !cached.isActive) return null;
-      const dp = this.getDropPointById(cached.dropPointId);
-      return {
-        id: cached.id,
-        agentNumber: cached.agentNumber,
-        name: cached.name,
-        dropPointId: cached.dropPointId,
-        dropPointName: dp?.name || cached.dropPointId,
-        dropPointCommune: dp?.commune || '',
-        isActive: cached.isActive,
-        createdAt: cached.createdAt,
-      };
+    // 1. Vérifier si le compte est temporairement verrouillé pour tentatives erronées (brute-force)
+    const now = Date.now();
+    const lockout = agentLockoutMap.get(agentNumber);
+    if (lockout && lockout.lockedUntil > now) {
+      console.warn(`[authenticateDropPointAgent] Compte #${agentNumber} verrouillé jusqu'à ${new Date(lockout.lockedUntil).toISOString()}`);
+      return null;
     }
 
-    // Fallback to Supabase
+    // Récupérer depuis Supabase ou cache
+    let agentRecord: { id: string; agent_number: string; pin_hash: string; name: string; drop_point_id: string; is_active: boolean; created_at: string } | null = null;
+
     try {
       const { data, error } = await supabase
         .from('drop_point_agents')
@@ -1175,39 +1262,95 @@ class DataService {
         .eq('is_active', true)
         .maybeSingle();
 
-      if (error || !data) return null;
+      if (!error && data) agentRecord = data;
+    } catch {/* check cache fallback */}
 
+    if (!agentRecord) {
+      const cached = dropPointAgentCache.get(agentNumber);
+      if (cached && cached.isActive) {
+        agentRecord = {
+          id: cached.id,
+          agent_number: cached.agentNumber,
+          pin_hash: cached.pinHash,
+          name: cached.name,
+          drop_point_id: cached.dropPointId,
+          is_active: cached.isActive,
+          created_at: cached.createdAt,
+        };
+      }
+    }
+
+    if (!agentRecord) return null;
+
+    // 2. Vérification du PIN (supporte bcrypt + migration legacy SHA-256)
+    let pinValid = false;
+    const storedHash = agentRecord.pin_hash || '';
+
+    if (storedHash.startsWith('$2b$') || storedHash.startsWith('$2a$')) {
+      const bcrypt = await import('bcryptjs');
+      pinValid = await bcrypt.compare(pin, storedHash);
+    } else if (/^[0-9a-f]{64}$/i.test(storedHash)) {
       const enc = new TextEncoder();
       const hashBuffer = await crypto.subtle.digest('SHA-256', enc.encode(pin));
-      const pinHash = Buffer.from(hashBuffer).toString('hex');
-      if (pinHash !== data.pin_hash) return null;
+      const sha256 = Buffer.from(hashBuffer).toString('hex');
+      pinValid = sha256 === storedHash;
 
-      // Populate cache
-      dropPointAgentCache.set(agentNumber, {
-        id: data.id,
-        agentNumber: data.agent_number,
-        pinHash: data.pin_hash,
-        name: data.name,
-        dropPointId: data.drop_point_id,
-        isActive: data.is_active,
-        createdAt: data.created_at,
-      });
+      if (pinValid) {
+        // Migration transparente vers bcrypt
+        const bcrypt = await import('bcryptjs');
+        const newHash = await bcrypt.hash(pin, 10);
+        await supabase.from('drop_point_agents').update({ pin_hash: newHash }).eq('id', agentRecord.id);
+      }
+    }
 
-      const dp = this.getDropPointById(data.drop_point_id);
-      return {
-        id: data.id,
-        agentNumber: data.agent_number,
-        name: data.name,
-        dropPointId: data.drop_point_id,
-        dropPointName: dp?.name || data.drop_point_id,
-        dropPointCommune: dp?.commune || '',
-        isActive: data.is_active,
-        createdAt: data.created_at,
-      };
-    } catch (e) {
-      console.warn('[authenticateDropPointAgent] DB query failed:', e);
+    // 3. Gestion des tentatives échouées & verrouillage
+    if (!pinValid) {
+      const currentFailures = (lockout?.attempts || 0) + 1;
+      if (currentFailures >= 5) {
+        // Verrouiller 15 minutes + alerter le centre de sécurité
+        agentLockoutMap.set(agentNumber, { attempts: currentFailures, lockedUntil: now + 15 * 60 * 1000 });
+        try {
+          await supabase.from('security_alerts').insert({
+            type: 'account_locked',
+            severity: 'high',
+            message: `Agent #${agentNumber} verrouillé (bruteforce détecté)`,
+            detail: `5 tentatives de code PIN erronées consécutives. Accès verrouillé pour 15 minutes.`,
+            userName: agentRecord.name,
+            timestamp: new Date().toISOString(),
+            resolved: false,
+          });
+        } catch {/* fallback log */}
+      } else {
+        agentLockoutMap.set(agentNumber, { attempts: currentFailures, lockedUntil: 0 });
+      }
       return null;
     }
+
+    // Connexion réussie -> réinitialiser les tentatives
+    agentLockoutMap.delete(agentNumber);
+
+    // Mettre en cache
+    dropPointAgentCache.set(agentNumber, {
+      id: agentRecord.id,
+      agentNumber: agentRecord.agent_number,
+      pinHash: agentRecord.pin_hash,
+      name: agentRecord.name,
+      dropPointId: agentRecord.drop_point_id,
+      isActive: agentRecord.is_active,
+      createdAt: agentRecord.created_at,
+    });
+
+    const dp = this.getDropPointById(agentRecord.drop_point_id);
+    return {
+      id: agentRecord.id,
+      agentNumber: agentRecord.agent_number,
+      name: agentRecord.name,
+      dropPointId: agentRecord.drop_point_id,
+      dropPointName: dp?.name || agentRecord.drop_point_id,
+      dropPointCommune: dp?.commune || '',
+      isActive: agentRecord.is_active,
+      createdAt: agentRecord.created_at,
+    };
   }
 
   /** Verify a 9-digit agent number and return agent info (used by driver UI). */
@@ -1269,9 +1412,17 @@ class DataService {
   /** Get all drop point agents (optionally filtered by dropPointId), always from Supabase. */
   async getDropPointAgents(dropPointId?: string): Promise<DropPointAgent[]> {
     try {
+      // Ensure drop points list is populated
+      if (DEFAULT_DROP_POINTS.length === 0) {
+        await this.getDropPoints();
+      }
+
       let query = supabase
         .from('drop_point_agents')
-        .select('id, agent_number, pin_hash, name, drop_point_id, is_active, created_at')
+        .select(`
+          id, agent_number, pin_hash, name, drop_point_id, is_active, created_at,
+          drop_point:drop_points(id, name, commune)
+        `)
         .order('created_at', { ascending: false });
 
       if (dropPointId) {
@@ -1315,7 +1466,7 @@ class DataService {
       }
 
       return data.map((row: any) => {
-        const dp = this.getDropPointById(row.drop_point_id);
+        const dp = row.drop_point || this.getDropPointById(row.drop_point_id);
         return {
           id: row.id,
           agentNumber: row.agent_number,

@@ -1,7 +1,7 @@
 /**
  * PATCH /api/agency/cash-requests/[id]
  * L'agence marque une demande comme PAID ou REJECTED.
- * Body: { action: 'PAID' | 'REJECTED', rejectReason?: string }
+ * Body: { action: 'PAID' | 'REJECTED', rejectReason?: string, mobileMoneyRef?: string }
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
@@ -19,7 +19,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    const { action, rejectReason } = await request.json();
+    const { action, rejectReason, mobileMoneyRef } = await request.json();
     if (!['PAID', 'REJECTED'].includes(action)) {
       return NextResponse.json({ error: 'Action invalide.' }, { status: 400 });
     }
@@ -41,6 +41,26 @@ export async function PATCH(
       return NextResponse.json({ error: 'Cette demande a déjà été traitée.' }, { status: 409 });
     }
 
+    // Récupérer le nom réel du livreur
+    const { data: driverProfile } = await supabase
+      .from('profiles')
+      .select('name, phone')
+      .eq('id', req.driver_id)
+      .maybeSingle();
+
+    const realDriverName = driverProfile?.name || 'Livreur';
+
+    // Taux de change actuel
+    let currentRate = 2800;
+    try {
+      const { data: settings } = await supabase
+        .from('system_settings')
+        .select('exchange_rate')
+        .eq('id', 'global')
+        .single();
+      if (settings?.exchange_rate) currentRate = Number(settings.exchange_rate);
+    } catch {/* fallback 2800 */}
+
     const updateData: Record<string, unknown> = {
       status: action,
       resolved_at: new Date().toISOString(),
@@ -59,19 +79,27 @@ export async function PATCH(
       return NextResponse.json({ error: 'Erreur lors de la mise à jour.' }, { status: 500 });
     }
 
+    const idempotencyKey = `IDEM-PAY-CR-${id}-${action}`;
+    const amountUsd = Math.round((req.amount / currentRate) * 100) / 100;
+
     // Log the transaction in the financial audit journal
     await logFinancialAudit({
       action_type: action === 'PAID' ? 'PAYMENT_DRIVER_TO_AGENCY' : 'REJECT_DRIVER_PAYMENT',
-      amount_cdf: req.amount, // assuming amount is in CDF here
-      amount_usd: 0,
+      idempotency_key: idempotencyKey,
+      amount_cdf: req.amount,
+      amount_usd: amountUsd,
+      exchange_rate_applied: currentRate,
       actor_id: session.agencyId,
       actor_name: session.name || 'Agence',
       target_id: req.driver_id,
-      target_name: 'Livreur',
+      target_name: realDriverName,
       target_role: 'livreur',
       status: action === 'PAID' ? 'COMPLETED' : 'REJECTED',
       reference: req.id,
-      notes: action === 'REJECTED' ? `Motif: ${rejectReason}` : 'Versement du livreur reçu par l\'agence'
+      mobile_money_ref: mobileMoneyRef || null,
+      notes: action === 'REJECTED'
+        ? `Motif: ${rejectReason}`
+        : `Versement de ${req.amount.toLocaleString('fr-FR')} FC (~${amountUsd} USD) du livreur ${realDriverName} reçu par l'agence.`
     });
 
     return NextResponse.json({ success: true, action, requestId: id });

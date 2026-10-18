@@ -142,10 +142,24 @@ export async function POST(request: NextRequest) {
         .eq('id', matchedOtp.agency_id)
         .maybeSingle();
 
+      let currentRate = 2800;
+      try {
+        const { data: settings } = await supabase
+          .from('system_settings')
+          .select('exchange_rate')
+          .eq('id', 'global')
+          .single();
+        if (settings?.exchange_rate) currentRate = Number(settings.exchange_rate);
+      } catch {/* fallback 2800 */}
+
+      const amountUsd = Math.round((matchedOtp.amount / currentRate) * 100) / 100;
+
       await logFinancialAudit({
         action_type: 'PAYMENT_AGENCY_TO_VENDOR',
+        idempotency_key: `IDEM-PAY-CONFIRM-${matchedOtp.id}`,
         amount_cdf: matchedOtp.amount,
-        amount_usd: 0,
+        amount_usd: amountUsd,
+        exchange_rate_applied: currentRate,
         actor_id: matchedOtp.agency_id,
         actor_name: agencyProfile?.name || 'Agence',
         target_id: session.userId,
@@ -153,7 +167,7 @@ export async function POST(request: NextRequest) {
         target_role: 'vendeur',
         status: 'COMPLETED',
         reference: matchedOtp.ledger_entry_id,
-        notes: 'Paiement confirmé par le vendeur via validation du code OTP'
+        notes: `Paiement de ${matchedOtp.amount.toLocaleString('fr-FR')} FC (~${amountUsd} USD) confirmé par le vendeur via validation OTP.`
       });
     } catch (auditErr) {
       console.warn('[confirm/route] Erreur enregistrement audit financier:', auditErr);

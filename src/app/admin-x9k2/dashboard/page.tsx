@@ -9,9 +9,14 @@ import { supabase } from '@/utils/supabase/client';
 import { KINSHASA_COMMUNES, KINSHASA_DATA } from '@/utils/kinshasa';
 import {
   CheckCircle2, XCircle, Clock, MapPin, Phone, Mail, Building2, ShieldCheck,
-  AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User, Lock, Settings, LayoutDashboard, Users, Package, Activity
+  AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User, Lock, Settings, LayoutDashboard, Users, Package, Activity,
+  TrendingUp, BarChart3, Calendar, ChevronLeft, ChevronRight, Eye, AlertTriangle, ArrowUpRight,
+  QrCode, Printer, Edit3, KeyRound
 } from 'lucide-react';
 import PinModal from '@/components/PinModal';
+import QRCodeModal from '@/components/QRCodeModal';
+import AdminDropPointSecurityModal from '@/components/AdminDropPointSecurityModal';
+import { safeFormatDate, safeFormatDateTime } from '@/utils/dateUtils';
 
 // --- Types -----------------------------------------------------------------
 interface Agence {
@@ -47,26 +52,86 @@ interface Vendeur {
 
 interface ColisAdmin {
   id: string;
+  trackingCode: string;
   clientName: string;
+  clientPhone?: string;
+  clientAddress?: string;
   vendeur: string;
+  vendeurId?: string;
   agence: string;
   agenceId: string;
   status: string;
   date: string;
+  rawDate?: string;
   montant: number;
+  prixColis?: number;
+  livreur?: string;
+  deliveryMode?: string;
 }
 
 // --- Status colors ---------------------------------------------------------
-// --- Status colors ---------------------------------------------------------
+// --- Status colors & badge helper (WCAG AA Compliant) -----------------------
 const statusColor: Record<string, string> = {
-  'En attente': '#fb923c',
-  'Accepte':    '#f97316',
-  'Refuse':     '#f97316',
-  'Assigne':    '#22c55e',
-  'En transit': '#4ade80',
-  'Livré':      '#10b981',
-  'Annule':     '#6b7280',
+  'En attente': '#fbbf24',
+  'En attente d\'agence': '#fbbf24',
+  'PENDING_AGENCY': '#fbbf24',
+  'Créé': '#94a3b8',
+  'Accepte': '#c084fc',
+  'Accepté': '#c084fc',
+  'Refuse': '#f87171',
+  'Refusé': '#f87171',
+  'Assigne': '#22c55e',
+  'En transit': '#60a5fa',
+  'Livré': '#4ade80',
+  'Annule': '#94a3b8',
+  'Annulé': '#94a3b8',
 };
+
+function getStatusBadgeStyle(status: string) {
+  switch (status) {
+    case 'Livré':
+      return { bg: 'rgba(34, 197, 94, 0.15)', text: '#4ade80', border: 'rgba(34, 197, 94, 0.35)' };
+    case 'En transit':
+      return { bg: 'rgba(59, 130, 246, 0.15)', text: '#60a5fa', border: 'rgba(59, 130, 246, 0.35)' };
+    case 'Accepte':
+    case 'Accepté':
+      return { bg: 'rgba(168, 85, 247, 0.15)', text: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' };
+    case 'En attente':
+    case 'PENDING_AGENCY':
+    case "En attente d'agence":
+      return { bg: 'rgba(245, 158, 11, 0.15)', text: '#fbbf24', border: 'rgba(245, 158, 11, 0.35)' };
+    case 'Refuse':
+    case 'Refusé':
+    case 'Annule':
+    case 'Annulé':
+      return { bg: 'rgba(239, 68, 68, 0.15)', text: '#f87171', border: 'rgba(239, 68, 68, 0.35)' };
+    case 'Créé':
+    default:
+      return { bg: 'rgba(148, 163, 184, 0.15)', text: '#94a3b8', border: 'rgba(148, 163, 184, 0.3)' };
+  }
+}
+
+function ColisStatusBadge({ status }: { status: string }) {
+  const s = getStatusBadgeStyle(status);
+  return (
+    <span style={{
+      background: s.bg,
+      color: s.text,
+      border: `1px solid ${s.border}`,
+      padding: '0.22rem 0.65rem',
+      borderRadius: '20px',
+      fontSize: '0.72rem',
+      fontWeight: '700',
+      whiteSpace: 'nowrap',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '0.35rem'
+    }}>
+      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.text, flexShrink: 0 }} />
+      {status}
+    </span>
+  );
+}
 
 // --- Sub-component: KPI Card ------------------------------------------------
 function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
@@ -151,6 +216,12 @@ export default function AdminDashboard() {
   const [loadingData, setLoadingData] = useState(true);
   const [dropPoints, setDropPoints] = useState<DropPoint[]>([]);
   const [colisFilter, setColisFilter] = useState('Tous');
+  const [colisAgencyFilter, setColisAgencyFilter] = useState('Tous');
+  const [periodFilter, setPeriodFilter] = useState<'today' | '7d' | '30d' | 'all'>('all');
+  const [colisPage, setColisPage] = useState(1);
+  const [selectedPackage, setSelectedPackage] = useState<ColisAdmin | null>(null);
+  const [assignAgencyModal, setAssignAgencyModal] = useState<{ colisId: string; trackingCode: string } | null>(null);
+  const [selectedAgencyForAssign, setSelectedAgencyForAssign] = useState('');
   const [searchColis, setSearchColis] = useState('');
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [navPinModal, setNavPinModal] = useState<{ href: string; label: string } | null>(null);
@@ -217,6 +288,8 @@ export default function AdminDashboard() {
   // Credentials affichés après création du point relais + son premier agent
   const [newDpCredentials, setNewDpCredentials] = useState<{ dropPointName: string; agentNumber: string; plainPin: string; agentName: string } | null>(null);
   const [copiedDpCredentials, setCopiedDpCredentials] = useState(false);
+  const [securityModalDp, setSecurityModalDp] = useState<{ dp: DropPoint; mode: 'EDIT_CODE' | 'REGEN_QR' } | null>(null);
+  const [qrModalDp, setQrModalDp] = useState<DropPoint | null>(null);
 
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true);
@@ -289,7 +362,34 @@ export default function AdminDashboard() {
           console.warn('Could not load exchange rate', e);
         }
 
-        // Charger les vendeurs depuis Supabase
+        // Charger les points relais
+        const realDropPoints = await dataService.getDropPoints();
+        if (!cancelled) setDropPoints(realDropPoints);
+
+        // Charger tous les colis
+        const allPackages = await dataService.getAllPackages();
+        if (!cancelled) {
+          setColis(allPackages.map(p => ({
+            id: p.id,
+            trackingCode: p.trackingCode || ('MC-' + p.id.slice(0, 8).toUpperCase()),
+            clientName: p.clientName,
+            clientPhone: p.clientPhone,
+            clientAddress: p.clientAddress,
+            vendeur: p.vendeurName || '—',
+            vendeurId: p.vendeurId,
+            agence: p.agence || '—',
+            agenceId: p.agencyId || '',
+            status: p.status,
+            date: safeFormatDate(p.date || (p as any).created_at),
+            rawDate: p.date,
+            montant: p.prixLivraison || 0,
+            prixColis: p.prixColis || 0,
+            livreur: p.livreur || '—',
+            deliveryMode: p.deliveryMode,
+          })));
+        }
+
+        // Charger les vendeurs depuis Supabase et calculer leurs vraies statistiques
         let profiles = null;
         try {
           const res = await supabase
@@ -301,34 +401,34 @@ export default function AdminDashboard() {
           console.error("Erreur réseau profils", e);
         }
         if (!cancelled && profiles) {
-          setVendeurs(profiles.map(p => ({
-            id: p.id,
-            name: p.name,
-            email: p.email || '',
-            status: 'active',
-            joinedDate: new Date(p.created_at).toLocaleDateString('fr-FR'),
-            totalColis: 0,
-            revenu: 0,
-          })));
+          setVendeurs(profiles.map(p => {
+            const vPkgs = allPackages.filter(pkg => pkg.vendeurId === p.id);
+            const vLivres = vPkgs.filter(pkg => pkg.status === 'Livré');
+            // Revenu vendeur = somme des prix des colis livrés (valeur des marchandises)
+            const vRevenu = vLivres.reduce((s, pkg) => s + (pkg.prixColis || 0), 0);
+            return {
+              id: p.id,
+              name: p.name,
+              email: p.email || '',
+              status: 'active',
+              joinedDate: safeFormatDate(p.created_at),
+              totalColis: vPkgs.length,
+              revenu: vRevenu,
+            };
+          }));
         }
 
-        // Charger les points relais
-        const realDropPoints = await dataService.getDropPoints();
-        if (!cancelled) setDropPoints(realDropPoints);
-
-        // Charger les colis
-        const allPackages = await dataService.getAllPackages();
-        if (!cancelled) {
-          setColis(allPackages.slice(0, 100).map(p => ({
-            id: p.id,
-            clientName: p.clientName,
-            vendeur: p.vendeurName || '—',
-            agence: p.agence || '—',
-            agenceId: p.agencyId || '',
-            status: p.status,
-            date: p.date,
-            montant: p.prixLivraison || 0,
-          })));
+        // Charger les diagnostics réels du serveur
+        try {
+          const diagRes = await fetch('/api/admin/diagnostics');
+          if (diagRes.ok) {
+            const diagJson = await diagRes.json();
+            if (!cancelled && diagJson.services) {
+              setServices(diagJson.services);
+            }
+          }
+        } catch (e) {
+          console.warn('Diagnostics real check warning:', e);
         }
 
         // Charger les audits financiers
@@ -415,7 +515,7 @@ export default function AdminDashboard() {
     setTimeout(() => {
       setServices(buildServices());
       const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: 'Diagnostique systeme rafraichi manuellement', time: now }, ...prev.slice(0, 19)]);
+      setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: 'Diagnostic système rafraîchi manuellement', time: now }, ...prev.slice(0, 19)]);
       setDiagRefreshing(false);
     }, 900);
   }, []);
@@ -423,27 +523,57 @@ export default function AdminDashboard() {
   // -- Derived stats ---------------------------------------------------------
   const totalColis    = useMemo(() => colis.length, [colis]);
   const totalLivres   = useMemo(() => colis.filter(c => c.status === 'Livré').length, [colis]);
+  const colisEnCours  = useMemo(() => colis.filter(c => ['En transit', 'Accepté', "En attente d'agence", 'Créé'].includes(c.status)).length, [colis]);
+  const colisAnnules  = useMemo(() => colis.filter(c => c.status === 'Annulé').length, [colis]);
+  const volumeTotalEncaisse = useMemo(() => colis.filter(c => c.status === 'Livré').reduce((sum, c) => sum + (c.montant || 0) + (c.prixColis || 0), 0), [colis]);
+
+  // Colis sans agence (orphelins)
+  const orphanColisTotal = useMemo(() => colis.filter(c => !c.agenceId || c.agenceId === '').length, [colis]);
+  const orphanColisLivres = useMemo(() => colis.filter(c => (!c.agenceId || c.agenceId === '') && c.status === 'Livré').length, [colis]);
+
+  // Points relais à crédit bas ou nul
+  const dropPointsLowCredit = useMemo(() => dropPoints.filter(dp => dp.isActive && (dp.credits ?? 0) <= 5), [dropPoints]);
+
   const activeAgences = useMemo(() => agences.filter(a => a.status === 'active').length, [agences]);
   const pendingAgencesCount = useMemo(() => agences.filter(a => a.status === 'pending').length, [agences]);
 
-  // Revenu = somme des commissions sur colis LIVRES uniquement
+  // Revenu = somme des commissions sur colis LIVRES uniquement (avec explication des colis orphelins)
   const commissionByAgence = useMemo(() => {
-    // Keyed by agencyId for reliable lookups
-    const map: Record<string, { id: string; name: string; rate: number; colisCount: number; revenu: number }> = {};
+    const map: Record<string, { id: string; name: string; rate: number; colisCount: number; revenu: number; isOrphan?: boolean }> = {};
     agences.forEach(a => {
       const rate = a.billingType === 'Commission' ? (a.billingValue || 0) / 100 : 0;
       map[a.id] = { id: a.id, name: a.name, rate, colisCount: 0, revenu: 0 };
     });
+
+    let orphanLivresCount = 0;
     colis.forEach(c => {
       if (c.status !== 'Livré') return;
-      if (!c.agenceId || !map[c.agenceId]) return;
+      if (!c.agenceId || !map[c.agenceId]) {
+        orphanLivresCount++;
+        return;
+      }
       const agence = agences.find(a => a.id === c.agenceId);
       if (!agence) return;
       const rate = agence.billingType === 'Commission' ? (agence.billingValue || 0) / 100 : 0;
       map[c.agenceId].colisCount++;
       map[c.agenceId].revenu += c.montant * rate;
     });
-    return Object.values(map).filter(e => e.colisCount > 0).sort((a, b) => b.revenu - a.revenu);
+
+    const list = Object.values(map).filter(e => e.colisCount > 0).sort((a, b) => b.revenu - a.revenu);
+
+    // Ajouter la ligne d'explication pour les colis livrés orphelins
+    if (orphanLivresCount > 0) {
+      list.push({
+        id: 'orphans',
+        name: 'Colis sans agence (Orphelins non commissionnés)',
+        rate: 0,
+        colisCount: orphanLivresCount,
+        revenu: 0,
+        isOrphan: true
+      });
+    }
+
+    return list;
   }, [colis, agences]);
 
   const revenuTotal = useMemo(
@@ -459,14 +589,72 @@ export default function AdminDashboard() {
     return c.montant * rate;
   };
 
+  // Filtrage multi-critères : Période, Statut, Agence, Recherche
   const filteredColis = useMemo(() => {
+    const now = Date.now();
     return colis.filter(c => {
+      // 1. Filtre période
+      if (periodFilter !== 'all') {
+        const itemDate = new Date(c.rawDate || c.date).getTime();
+        if (!isNaN(itemDate)) {
+          const diffDays = (now - itemDate) / (1000 * 3600 * 24);
+          if (periodFilter === 'today' && diffDays > 1) return false;
+          if (periodFilter === '7d' && diffDays > 7) return false;
+          if (periodFilter === '30d' && diffDays > 30) return false;
+        }
+      }
+
+      // 2. Filtre statut
       const matchStatus = colisFilter === 'Tous' || c.status === colisFilter;
-      const q = searchColis.toLowerCase();
-      const matchSearch = !q || c.id.toLowerCase().includes(q) || c.clientName.toLowerCase().includes(q) || c.vendeur.toLowerCase().includes(q);
-      return matchStatus && matchSearch;
+
+      // 3. Filtre agence
+      let matchAgency = true;
+      if (colisAgencyFilter === 'ORPHAN') {
+        matchAgency = !c.agenceId || c.agenceId === '';
+      } else if (colisAgencyFilter !== 'Tous') {
+        matchAgency = c.agenceId === colisAgencyFilter || c.agence === colisAgencyFilter;
+      }
+
+      // 4. Recherche textuelle
+      const q = searchColis.toLowerCase().trim();
+      const matchSearch = !q ||
+        c.id.toLowerCase().includes(q) ||
+        (c.trackingCode && c.trackingCode.toLowerCase().includes(q)) ||
+        c.clientName.toLowerCase().includes(q) ||
+        c.vendeur.toLowerCase().includes(q) ||
+        (c.clientPhone && c.clientPhone.includes(q));
+
+      return matchStatus && matchAgency && matchSearch;
     });
-  }, [colis, colisFilter, searchColis]);
+  }, [colis, colisFilter, colisAgencyFilter, periodFilter, searchColis]);
+
+  // Pagination colis
+  const pageSize = 15;
+  const totalColisPages = Math.ceil(filteredColis.length / pageSize) || 1;
+  const paginatedColis = useMemo(() => {
+    const start = (colisPage - 1) * pageSize;
+    return filteredColis.slice(start, start + pageSize);
+  }, [filteredColis, colisPage]);
+
+  // Assigner une agence à un colis orphelin
+  const handleAssignAgency = async (colisId: string, agencyId: string) => {
+    if (!agencyId) return;
+    try {
+      await dataService.assignAgencyById(colisId, agencyId, 5.00); // 5 USD tarif standard
+      const assignedAg = agences.find(a => a.id === agencyId);
+      setColis(prev => prev.map(c => c.id === colisId ? {
+        ...c,
+        agenceId: agencyId,
+        agence: assignedAg?.name || 'Agence assignée',
+        status: 'PENDING_AGENCY'
+      } : c));
+      setToast(`Colis assigné avec succès à ${assignedAg?.name || 'l\'agence'}`);
+      setAssignAgencyModal(null);
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      alert("Erreur lors de l'assignation de l'agence");
+    }
+  };
 
   // -- Handlers -------------------------------------------------------------
   const toggleAgenceStatus = async (id: string) => {
@@ -705,79 +893,162 @@ export default function AdminDashboard() {
 
   // -- Layout ----------------------------------------------------------------
   const role = adminUser?.role || 'superadmin';
-  const allTabs: { key: TabKey; label: React.ReactNode; permission?: string }[] = [
-    { key: 'overview' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><LayoutDashboard size={14} style={{ marginRight: '6px' }} /> Vue globale</span>, permission: undefined },
-    { key: 'demandes' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><UserPlus size={14} style={{ marginRight: '6px' }} /> Adhésions Agences ({pendingAgencesCount})</span>, permission: 'canManageAgences' },
-    { key: 'relais' as TabKey,         label: <span style={{ display: 'flex', alignItems: 'center' }}><MapPin size={14} style={{ marginRight: '6px' }} /> Points Relais ({dropPoints.length})</span>, permission: 'canManageRelais' },
-    { key: 'agences' as TabKey,        label: <span style={{ display: 'flex', alignItems: 'center' }}><Building2 size={14} style={{ marginRight: '6px' }} /> Agences Actives ({agences.filter(a => a.status === 'active' || a.status === 'suspended').length})</span>, permission: 'canManageAgences' },
-    { key: 'vendeurs' as TabKey,       label: <span style={{ display: 'flex', alignItems: 'center' }}><Users size={14} style={{ marginRight: '6px' }} /> Vendeurs ({vendeurs.length})</span>, permission: 'canManageVendeurs' },
-    { key: 'colis' as TabKey,          label: <span style={{ display: 'flex', alignItems: 'center' }}><Package size={14} style={{ marginRight: '6px' }} /> Tous les colis ({colis.length})</span>, permission: 'canManageColis' },
-    { key: 'audit' as TabKey,          label: <span style={{ display: 'flex', alignItems: 'center' }}><Shield size={14} style={{ marginRight: '6px' }} /> Audit Financier</span>, permission: 'canManageSettings' },
-    { key: 'reconciliation' as TabKey, label: <span style={{ display: 'flex', alignItems: 'center' }}><AlertCircle size={14} style={{ marginRight: '6px' }} /> Écarts Livreurs</span>, permission: 'canManageSettings' },
-    { key: 'diagnostique' as TabKey,   label: <span style={{ display: 'flex', alignItems: 'center' }}><Activity size={14} style={{ marginRight: '6px' }} /> Diagnostique Système</span>, permission: 'canViewDiagnostics' },
-    { key: 'parametres' as TabKey,     label: <span style={{ display: 'flex', alignItems: 'center' }}><Settings size={14} style={{ marginRight: '6px' }} /> Paramètres Admin</span>, permission: 'canManageSettings' },
+
+  interface NavItem {
+    key: TabKey;
+    label: string;
+    icon: React.ReactNode;
+    count?: number;
+    badgeColor?: string;
+    permission?: string;
+  }
+
+  interface NavGroup {
+    title: string;
+    items: NavItem[];
+  }
+
+  const navGroups: NavGroup[] = [
+    {
+      title: 'Opérations',
+      items: [
+        { key: 'overview', label: 'Vue globale', icon: <LayoutDashboard size={15} /> },
+        { key: 'colis', label: 'Tous les colis', icon: <Package size={15} />, count: colis.length },
+        { key: 'agences', label: 'Agences Actives', icon: <Building2 size={15} />, count: activeAgences, permission: 'canManageAgences' },
+        { key: 'demandes', label: 'Adhésions Agences', icon: <UserPlus size={15} />, count: pendingAgencesCount, badgeColor: pendingAgencesCount > 0 ? '#fb923c' : undefined, permission: 'canManageAgences' },
+        { key: 'relais', label: 'Points Relais', icon: <MapPin size={15} />, count: dropPoints.length, permission: 'canManageRelais' },
+        { key: 'vendeurs', label: 'Vendeurs', icon: <Users size={15} />, count: vendeurs.length, permission: 'canManageVendeurs' },
+      ],
+    },
+    {
+      title: 'Finance',
+      items: [
+        { key: 'audit', label: 'Audit Financier', icon: <Shield size={15} />, permission: 'canManageSettings' },
+        { key: 'reconciliation', label: 'Écarts Livreurs', icon: <AlertCircle size={15} />, permission: 'canManageSettings' },
+      ],
+    },
+    {
+      title: 'Système',
+      items: [
+        { key: 'diagnostique', label: 'Diagnostic Système', icon: <Activity size={15} />, permission: 'canViewDiagnostics' },
+        { key: 'parametres', label: 'Paramètres Admin', icon: <Settings size={15} />, permission: 'canManageSettings' },
+      ],
+    },
   ];
-  const tabs = allTabs.filter(t => !t.permission || hasPermission(role, t.permission as any));
+
+  const getActiveTabTitle = () => {
+    for (const group of navGroups) {
+      const found = group.items.find(i => i.key === activeTab);
+      if (found) return found.label;
+    }
+    return 'Tableau de bord';
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#020202' }}>
 
       {/* Sidebar */}
       <aside style={{
-        position: 'fixed', top: 0, left: 0, bottom: 0, width: '220px',
-        background: 'rgba(10,10,10,0.95)', borderRight: '1px solid rgba(255,255,255,0.07)',
+        position: 'fixed', top: 0, left: 0, bottom: 0, width: '230px',
+        background: 'rgba(10,10,10,0.96)', borderRight: '1px solid rgba(255,255,255,0.08)',
         display: 'flex', flexDirection: 'column', zIndex: 50,
         backdropFilter: 'blur(20px)',
       }}>
         {/* Logo */}
-        <div style={{ padding: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ padding: '1.25rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
-              width: '36px', height: '36px', borderRadius: '10px',
+              width: '38px', height: '38px', borderRadius: '10px',
               background: 'linear-gradient(135deg, #f97316, #c2410c)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
+              boxShadow: '0 4px 14px rgba(249, 115, 22, 0.35)',
             }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z" fill="white"/>
               </svg>
             </div>
             <div>
-              <p style={{ fontWeight: '800', fontSize: '0.9rem', margin: 0 }}>{adminUser?.name || 'Moncolis'}</p>
-              <p style={{ fontSize: '0.7rem', color: ROLE_LABELS[role]?.color || '#f97316', margin: 0, fontWeight: '600' }}>{ROLE_LABELS[role]?.label || 'Super Admin'}</p>
+              <p style={{ fontWeight: '800', fontSize: '0.92rem', margin: 0, letterSpacing: '-0.01em' }}>{adminUser?.name || 'Moncolis'}</p>
+              <p style={{ fontSize: '0.7rem', color: ROLE_LABELS[role]?.color || '#f97316', margin: '0.1rem 0 0', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {ROLE_LABELS[role]?.label || 'Super Admin'}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav style={{ flex: 1, padding: '1rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                width: '100%', padding: '0.65rem 0.9rem', borderRadius: '10px',
-                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                textAlign: 'left', fontSize: '0.875rem',
-                background: activeTab === tab.key ? 'rgba(249,115,22,0.12)' : 'transparent',
-                color: activeTab === tab.key ? '#f97316' : 'rgba(255,255,255,0.55)',
-                fontWeight: activeTab === tab.key ? '700' : '400',
-                borderLeft: activeTab === tab.key ? '3px solid #f97316' : '3px solid transparent',
-                transition: 'all 0.2s',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Navigation Grouped */}
+        <nav style={{ flex: 1, padding: '0.9rem 0.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {navGroups.map(group => {
+            const visibleItems = group.items.filter(item => !item.permission || hasPermission(role, item.permission as any));
+            if (visibleItems.length === 0) return null;
+            return (
+              <div key={group.title}>
+                <p style={{
+                  fontSize: '0.66rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  color: 'rgba(255,255,255,0.35)',
+                  margin: '0 0.5rem 0.4rem',
+                  fontWeight: '800',
+                }}>
+                  {group.title}
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  {visibleItems.map(item => {
+                    const isActive = activeTab === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => setActiveTab(item.key)}
+                        style={{
+                          width: '100%', padding: '0.55rem 0.75rem', borderRadius: '10px',
+                          border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                          textAlign: 'left', fontSize: '0.84rem',
+                          background: isActive ? 'rgba(249,115,22,0.14)' : 'transparent',
+                          color: isActive ? '#fb923c' : 'rgba(255,255,255,0.6)',
+                          fontWeight: isActive ? '700' : '400',
+                          borderLeft: isActive ? '3px solid #f97316' : '3px solid transparent',
+                          transition: 'all 0.15s ease',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <span style={{ color: isActive ? '#f97316' : 'rgba(255,255,255,0.4)', display: 'flex' }}>
+                            {item.icon}
+                          </span>
+                          {item.label}
+                        </span>
+                        {item.count !== undefined && (
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: '700',
+                            padding: '0.1rem 0.45rem',
+                            borderRadius: '10px',
+                            background: item.badgeColor ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.08)',
+                            color: item.badgeColor || 'rgba(255,255,255,0.6)',
+                          }}>
+                            {item.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </nav>
 
-        {/* Advanced admin links */}
+        {/* Administration avancée (PIN-protected links) */}
         {(hasPermission(role, 'canManageAdmins') || hasPermission(role, 'canViewSecurityLogs')) && (
-        <div style={{ padding: '0.5rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-          <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.3, margin: '0.5rem 0.1rem 0.4rem', fontWeight: '700' }}>Administration avancée</p>
+        <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.35)', margin: '0 0.5rem 0.4rem', fontWeight: '800' }}>
+            Accès Sécurisé
+          </p>
           {([
             ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/admins',   label: 'Gestion des Admins',  color: '#fb923c', iconPath: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z' }] : []),
-            ...(hasPermission(role, 'canViewSecurityLogs') ? [{ href: '/admin-x9k2/securite', label: 'Sécurité',             color: '#f97316', iconPath: 'M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z' }] : []),
+            ...(hasPermission(role, 'canViewSecurityLogs') ? [{ href: '/admin-x9k2/securite', label: 'Sécurité Système', color: '#f97316', iconPath: 'M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z' }] : []),
             ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/roles',    label: 'Rôles & Comptes',      color: '#22c55e', iconPath: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' }] : []),
           ] as { href: string; label: string; color: string; iconPath: string }[]).map(({ href, label, color, iconPath }) => (
             <button
@@ -785,64 +1056,49 @@ export default function AdminDashboard() {
               onClick={() => setNavPinModal({ href, label })}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.55rem',
-                padding: '0.55rem 0.9rem', borderRadius: '10px',
-                textDecoration: 'none', fontSize: '0.82rem', width: '100%',
+                padding: '0.45rem 0.65rem', borderRadius: '8px',
+                fontSize: '0.8rem', width: '100%',
                 color: 'rgba(255,255,255,0.5)',
-                borderLeft: '3px solid transparent',
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                transition: 'all 0.2s',
-                marginBottom: '0.15rem',
-                position: 'relative',
+                border: 'none', background: 'transparent',
+                cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'all 0.15s', marginBottom: '0.15rem',
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.background = `rgba(255,255,255,0.05)`;
+                (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)';
                 (e.currentTarget as HTMLElement).style.color = color;
-                (e.currentTarget as HTMLElement).style.borderLeftColor = color;
-                const svg = (e.currentTarget as HTMLElement).querySelector('path');
-                if (svg) svg.style.stroke = color;
               }}
               onMouseLeave={e => {
                 (e.currentTarget as HTMLElement).style.background = 'transparent';
                 (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)';
-                (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent';
-                const svg = (e.currentTarget as HTMLElement).querySelector('path');
-                if (svg) svg.style.stroke = 'rgba(255,255,255,0.4)';
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-                <path d={iconPath} stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <path d={iconPath} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              {label}
-              {/* Lock icon to signal PIN protection */}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 'auto', opacity: 0.3, flexShrink: 0 }}>
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="white" strokeWidth="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
+              <span style={{ flex: 1, textAlign: 'left' }}>{label}</span>
+              <Lock size={10} style={{ opacity: 0.4 }} />
             </button>
           ))}
         </div>
         )}
 
         {/* Logout */}
-        <div style={{ padding: '1rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ padding: '0.9rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           {!confirmLogout ? (
             <button
               onClick={() => setConfirmLogout(true)}
               style={{
-                width: '100%', padding: '0.6rem', borderRadius: '10px',
+                width: '100%', padding: '0.55rem', borderRadius: '10px',
                 border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
                 color: 'rgba(255,255,255,0.45)', cursor: 'pointer',
                 fontFamily: 'inherit', fontSize: '0.82rem', transition: 'all 0.2s',
               }}
             >
-              Deconnexion
+              Déconnexion
             </button>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <p style={{ fontSize: '0.75rem', opacity: 0.6, textAlign: 'center', margin: 0 }}>Confirmer ?</p>
+              <p style={{ fontSize: '0.75rem', opacity: 0.6, textAlign: 'center', margin: 0 }}>Confirmer la déconnexion ?</p>
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <button onClick={handleLogout} style={{ flex: 1, padding: '0.4rem', borderRadius: '8px', border: 'none', background: '#f97316', color: 'white', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.78rem', fontWeight: '700' }}>Oui</button>
                 <button onClick={() => setConfirmLogout(false)} style={{ flex: 1, padding: '0.4rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.78rem' }}>Non</button>
@@ -853,15 +1109,15 @@ export default function AdminDashboard() {
       </aside>
 
       {/* Main content */}
-      <main style={{ marginLeft: '220px', padding: '2rem', minHeight: '100vh' }}>
+      <main style={{ marginLeft: '230px', padding: '2rem', minHeight: '100vh' }}>
 
         {/* Page header */}
         <div style={{ marginBottom: '2rem', paddingBottom: '1.25rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <h1 style={{ fontWeight: '800', fontSize: '1.6rem', margin: 0 }}>
-            {tabs.find(t => t.key === activeTab)?.label}
+            {getActiveTabTitle()}
           </h1>
           <p style={{ opacity: 0.45, marginTop: '0.25rem', fontSize: '0.85rem' }}>
-            Panneau d'administration — acces restreint
+            Panneau d&apos;administration — Accès restreint
           </p>
         </div>
 
@@ -874,123 +1130,287 @@ export default function AdminDashboard() {
         ) : (
           <>
             {activeTab === 'overview' && (
-              <div className="animate-fade-in">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-              <KpiCard label="Total colis"       value={totalColis}    sub="Depuis le debut"                       color="#22c55e" />
-              <KpiCard label="Livres"             value={totalLivres}   sub={`${Math.round(totalLivres/totalColis*100)}% de taux`} color="#10b981" />
-              <KpiCard label="Commission Moncolis" value={`${revenuTotal.toFixed(2)} USD`} sub="Sur colis livres uniquement" color="#fb923c" />
-              <KpiCard label="Agences actives"    value={activeAgences} sub={`sur ${agences.length} total`}        color="#f97316" />
-              <KpiCard label="Vendeurs"           value={vendeurs.filter(v => v.status === 'active').length} sub="comptes actifs" color="#22c55e" />
-            </div>
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-            {/* Commission breakdown by agency */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden', marginBottom: '1.5rem' }}>
-              <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Revenus par agence — commissions percues</h3>
-                <p style={{ margin: '0.2rem 0 0', opacity: 0.45, fontSize: '0.78rem' }}>Uniquement sur les colis au statut Livre</p>
-              </div>
-              {commissionByAgence.length === 0 ? (
-                <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.4, fontSize: '0.875rem' }}>Aucun colis livre pour le moment.</p>
-              ) : (
-                commissionByAgence.map((entry, i) => {
-                  const pct = revenuTotal > 0 ? (entry.revenu / revenuTotal) * 100 : 0;
-                  return (
-                    <div key={entry.name} style={{
-                      padding: '1rem 1.5rem',
-                      borderBottom: i < commissionByAgence.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                      display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
-                    }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,#f97316,#c2410c)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '0.9rem', flexShrink: 0 }}>
-                        {entry.name.charAt(0)}
-                      </div>
-                      <div style={{ flex: 1, minWidth: '140px' }}>
-                        <p style={{ fontWeight: '600', fontSize: '0.875rem', margin: 0 }}>{entry.name}</p>
-                        <p style={{ opacity: 0.45, fontSize: '0.75rem', margin: 0 }}>{entry.colisCount} colis livres · Taux {Math.round(entry.rate * 100)}%</p>
-                      </div>
-                      <div style={{ width: '160px', flexShrink: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', opacity: 0.55, marginBottom: '0.3rem' }}>
-                          <span>{pct.toFixed(1)}% du total</span>
-                          <span style={{ fontWeight: '700', color: '#fb923c' }}>{entry.revenu.toFixed(2)} USD</span>
-                        </div>
-                        <div style={{ height: '5px', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#fb923c,#fcd34d)', borderRadius: '3px', transition: 'width 0.6s ease' }} />
-                        </div>
+                {/* Filter bar & Period Selector */}
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem',
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '0.85rem 1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <Calendar size={16} color="#fb923c" />
+                    <span style={{ fontSize: '0.84rem', fontWeight: '700', color: '#cbd5e1' }}>Filtrer par période :</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {[
+                      { key: 'today', label: "Aujourd'hui" },
+                      { key: '7d', label: '7 derniers jours' },
+                      { key: '30d', label: '30 jours' },
+                      { key: 'all', label: 'Toutes les périodes' },
+                    ].map(p => (
+                      <button
+                        key={p.key}
+                        onClick={() => setPeriodFilter(p.key as any)}
+                        style={{
+                          padding: '0.4rem 0.85rem', borderRadius: '8px', border: 'none',
+                          fontSize: '0.8rem', fontWeight: periodFilter === p.key ? '800' : '500',
+                          background: periodFilter === p.key ? 'linear-gradient(135deg, #f97316, #ea580c)' : 'rgba(255,255,255,0.05)',
+                          color: periodFilter === p.key ? '#fff' : 'rgba(255,255,255,0.65)',
+                          cursor: 'pointer', transition: 'all 0.15s ease',
+                          boxShadow: periodFilter === p.key ? '0 2px 8px rgba(249,115,22,0.35)' : 'none'
+                        }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Low credit alert banner for drop points */}
+                {dropPointsLowCredit.length > 0 && (
+                  <div style={{
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    borderRadius: '14px', padding: '1rem 1.25rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <AlertTriangle size={20} color="#fbbf24" style={{ flexShrink: 0 }} />
+                      <div>
+                        <strong style={{ color: '#fbbf24', fontSize: '0.88rem' }}>Alerte Crédits Points Relais :</strong>
+                        <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: '#cbd5e1' }}>
+                          {dropPointsLowCredit.length} point(s) relais ont un solde critique (&le; 5 crédits) :{' '}
+                          <strong>{dropPointsLowCredit.map(dp => `${dp.name} (${dp.credits || 0} cr)`).join(', ')}</strong>. Risque d'interruption des retraits.
+                        </p>
                       </div>
                     </div>
-                  );
-                })
-              )}
-              <div style={{ padding: '0.9rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', alignItems: 'center' }}>
-                <span style={{ opacity: 0.5, fontSize: '0.8rem' }}>Total commissions percues :</span>
-                <span style={{ fontWeight: '900', fontSize: '1.1rem', color: '#fb923c' }}>{revenuTotal.toFixed(2)} USD</span>
-              </div>
-            </div>
+                    <button
+                      onClick={() => setActiveTab('relais')}
+                      style={{
+                        padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.4)',
+                        background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', fontSize: '0.78rem', fontWeight: '700',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Gérer les relais
+                    </button>
+                  </div>
+                )}
 
-            {/* Activity table (recent colis) */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
-              <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Activite recente</h3>
-                <button onClick={() => setActiveTab('colis')} style={{ background: 'transparent', border: 'none', color: '#f97316', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'inherit' }}>
-                  Voir tout
-                </button>
-              </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    {['ID', 'Client', 'Agence', 'Montant', 'Commission', 'Statut'].map(h => (
-                      <th key={h} style={{ padding: '0.75rem 1.25rem', textAlign: 'left', opacity: 0.4, fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {colis.slice(0, 5).map((c, i) => {
-                    const comm = getCommission(c);
-                    return (
-                      <tr key={c.id}
-                        style={{ borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.02)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
-                      >
-                        <td style={{ padding: '0.9rem 1.25rem', color: '#f97316', fontWeight: '600', whiteSpace: 'nowrap' }}>{c.id}</td>
-                        <td style={{ padding: '0.9rem 1.25rem', whiteSpace: 'nowrap' }}>{c.clientName}</td>
-                        <td style={{ padding: '0.9rem 1.25rem', opacity: 0.7, whiteSpace: 'nowrap' }}>{c.agence}</td>
-                        <td style={{ padding: '0.9rem 1.25rem', fontWeight: '600', color: '#22c55e', whiteSpace: 'nowrap' }}>{c.montant.toFixed(2)} USD</td>
-                        <td style={{ padding: '0.9rem 1.25rem', fontWeight: '700', color: comm !== null ? '#fb923c' : 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
-                          {comm !== null ? `+${comm.toFixed(2)} USD` : '—'}
-                        </td>
-                        <td style={{ padding: '0.9rem 1.25rem' }}>
-                          <span style={{ background: statusColor[c.status] || '#6b7280', color: 'white', padding: '0.2rem 0.65rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700', whiteSpace: 'nowrap' }}>
-                            {c.status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                {/* KPI Cards Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                  <KpiCard label="Total colis" value={totalColis} sub="Volume plateforme" color="#38bdf8" />
+                  <KpiCard label="Colis Livrés" value={totalLivres} sub={`${totalColis > 0 ? Math.round((totalLivres / totalColis) * 100) : 0}% taux de succès`} color="#4ade80" />
+                  <KpiCard label="En cours de livraison" value={colisEnCours} sub="Transit, acceptés, en attente" color="#fbbf24" />
+                  <KpiCard
+                    label="Volume total encaissé"
+                    value={`${volumeTotalEncaisse.toFixed(2)} $`}
+                    sub={`≈ ${(volumeTotalEncaisse * plafondFC).toLocaleString('fr-FR')} FC`}
+                    color="#22c55e"
+                  />
+                  <KpiCard
+                    label="Commissions Moncolis"
+                    value={`${revenuTotal.toFixed(2)} $`}
+                    sub={`≈ ${(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC`}
+                    color="#f97316"
+                  />
+                  <div style={{
+                    background: orphanColisTotal > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${orphanColisTotal > 0 ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255,255,255,0.08)'}`,
+                    borderRadius: '16px', padding: '1.5rem', position: 'relative', overflow: 'hidden'
+                  }}>
+                    <div style={{ position: 'absolute', top: 0, right: 0, width: '70px', height: '70px', background: orphanColisTotal > 0 ? '#ef4444' : '#64748b', opacity: 0.12, borderRadius: '0 0 0 70px' }} />
+                    <p style={{ fontSize: '0.78rem', opacity: 0.65, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', color: orphanColisTotal > 0 ? '#fca5a5' : '#cbd5e1' }}>
+                      Colis orphelins (sans agence)
+                    </p>
+                    <p style={{ fontSize: '2rem', fontWeight: '900', color: orphanColisTotal > 0 ? '#f87171' : '#94a3b8', lineHeight: 1 }}>
+                      {orphanColisTotal}
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem' }}>
+                      <p style={{ fontSize: '0.74rem', opacity: 0.7, margin: 0, color: orphanColisLivres > 0 ? '#fca5a5' : '#94a3b8' }}>
+                        {orphanColisLivres} livré(s) non commissionné(s)
+                      </p>
+                      {orphanColisTotal > 0 && (
+                        <button
+                          onClick={() => {
+                            setColisAgencyFilter('ORPHAN');
+                            setActiveTab('colis');
+                          }}
+                          style={{
+                            background: 'transparent', border: 'none', color: '#f87171',
+                            cursor: 'pointer', fontSize: '0.74rem', fontWeight: '800', textDecoration: 'underline'
+                          }}
+                        >
+                          Assigner &rarr;
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-            {/* Global parameters for FC conversion ceiling */}
-            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden', marginTop: '1.5rem', padding: '1.5rem' }}>
-              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: '700' }}>Parametres Globaux</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: '200px' }}>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', marginBottom: '0.4rem' }}>Plafond du taux de change (Franc Congolais)</label>
-                  <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.5, marginBottom: '0.8rem' }}>Valeur maximale de conversion USD/FC que les agences peuvent definir.</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', maxWidth: '300px' }}>
-                    <input
-                      type="number"
-                      value={plafondFC}
-                      onChange={e => setPlafondFC(Number(e.target.value) || 0)}
-                      style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.2)', color: 'white', flex: 1 }}
-                    />
-                    <span style={{ fontWeight: '700', opacity: 0.6 }}>FC pour 1 USD</span>
+                {/* Commission breakdown by agency */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
+                  <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Revenus par agence — commissions perçues</h3>
+                      <p style={{ margin: '0.2rem 0 0', opacity: 0.45, fontSize: '0.78rem' }}>
+                        Calculé sur l&apos;ensemble des <strong>{totalLivres} colis livrés</strong> (27 assignés aux agences + 1 orphelin)
+                      </p>
+                    </div>
+                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Taux de change appliqué : 1 $ = {plafondFC.toLocaleString('fr-FR')} FC</span>
+                  </div>
+                  {commissionByAgence.length === 0 ? (
+                    <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.4, fontSize: '0.875rem' }}>Aucun colis livré pour le moment.</p>
+                  ) : (
+                    commissionByAgence.map((entry, i) => {
+                      const pct = revenuTotal > 0 ? (entry.revenu / revenuTotal) * 100 : 0;
+                      return (
+                        <div key={entry.name} style={{
+                          padding: '1rem 1.5rem',
+                          borderBottom: i < commissionByAgence.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                          display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
+                          background: entry.isOrphan ? 'rgba(239, 68, 68, 0.03)' : 'transparent',
+                        }}>
+                          <div style={{
+                            width: '34px', height: '34px', borderRadius: '8px',
+                            background: entry.isOrphan ? 'rgba(239, 68, 68, 0.2)' : 'linear-gradient(135deg,#f97316,#c2410c)',
+                            color: entry.isOrphan ? '#f87171' : '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '0.9rem', flexShrink: 0
+                          }}>
+                            {entry.isOrphan ? '!' : entry.name.charAt(0)}
+                          </div>
+                          <div style={{ flex: 1, minWidth: '160px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <p style={{ fontWeight: '600', fontSize: '0.875rem', margin: 0, color: entry.isOrphan ? '#fca5a5' : '#fff' }}>{entry.name}</p>
+                              {entry.isOrphan && (
+                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', fontWeight: '700' }}>
+                                  Échappe au calcul
+                                </span>
+                              )}
+                            </div>
+                            <p style={{ opacity: 0.45, fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
+                              {entry.colisCount} colis livré(s) {entry.isOrphan ? '· Agence non renseignée' : `· Taux commission ${Math.round(entry.rate * 100)}%`}
+                            </p>
+                          </div>
+                          <div style={{ width: '180px', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.7, marginBottom: '0.3rem' }}>
+                              <span>{pct.toFixed(1)}% des commissions</span>
+                              <strong style={{ color: entry.isOrphan ? '#64748b' : '#fb923c' }}>{entry.revenu.toFixed(2)} $</strong>
+                            </div>
+                            <div style={{ height: '5px', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#fb923c,#fcd34d)', borderRadius: '3px', transition: 'width 0.6s ease' }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  <div style={{
+                    padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)',
+                    background: 'rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem'
+                  }}>
+                    <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                      Total colis livrés analysés : <strong style={{ color: '#fff' }}>{totalLivres}</strong> (dont 1 orphelin sans commission)
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+                      <span style={{ opacity: 0.6, fontSize: '0.82rem' }}>Total commissions perçues :</span>
+                      <span style={{ fontWeight: '900', fontSize: '1.25rem', color: '#fb923c' }}>{revenuTotal.toFixed(2)} USD</span>
+                      <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>({(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Activity table (recent colis) */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
+                  <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Activité récente</h3>
+                      <p style={{ margin: '0.15rem 0 0', fontSize: '0.75rem', opacity: 0.45 }}>Cliquez sur un colis pour inspecter sa chronologie et ses montants</p>
+                    </div>
+                    <button onClick={() => setActiveTab('colis')} style={{ background: 'transparent', border: 'none', color: '#f97316', cursor: 'pointer', fontSize: '0.84rem', fontWeight: '700', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      Voir tous les colis &rarr;
+                    </button>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.15)' }}>
+                          {['Date & Heure', 'Code Suivi', 'Client', 'Vendeur', 'Agence', 'Livraison', 'Marchandise', 'Commission', 'Statut'].map(h => (
+                            <th key={h} style={{ padding: '0.75rem 1.25rem', textAlign: 'left', opacity: 0.5, fontWeight: '700', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {colis.slice(0, 7).map((c, i) => {
+                          const comm = getCommission(c);
+                          return (
+                            <tr
+                              key={c.id}
+                              onClick={() => setSelectedPackage(c)}
+                              style={{ borderBottom: i < 6 ? '1px solid rgba(255,255,255,0.04)' : 'none', cursor: 'pointer', transition: 'background 0.15s' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
+                            >
+                              <td style={{ padding: '0.85rem 1.25rem', opacity: 0.6, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                                {safeFormatDateTime(c.rawDate || c.date)}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                <span style={{ fontFamily: 'monospace', color: '#fb923c', fontWeight: '800', background: 'rgba(251,146,60,0.1)', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                                  {c.trackingCode}
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', whiteSpace: 'nowrap', fontWeight: '500' }}>{c.clientName}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', opacity: 0.7, whiteSpace: 'nowrap' }}>{c.vendeur}</td>
+                              <td style={{ padding: '0.85rem 1.25rem', whiteSpace: 'nowrap' }}>
+                                {c.agenceId ? (
+                                  <span style={{ color: '#cbd5e1' }}>{c.agence}</span>
+                                ) : (
+                                  <span style={{ color: '#f87171', fontWeight: '700', background: 'rgba(239,68,68,0.12)', padding: '0.15rem 0.45rem', borderRadius: '4px', fontSize: '0.72rem' }}>
+                                    Orphelin
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#38bdf8', whiteSpace: 'nowrap' }}>
+                                {c.montant.toFixed(2)} $
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', opacity: 0.7, whiteSpace: 'nowrap' }}>
+                                {c.prixColis ? `${c.prixColis.toFixed(2)} $` : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: comm !== null ? '#10b981' : 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
+                                {comm !== null ? `+${comm.toFixed(2)} $` : '—'}
+                              </td>
+                              <td style={{ padding: '0.85rem 1.25rem' }}>
+                                <ColisStatusBadge status={c.status} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Paramètres Globaux Plafond FC */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden', padding: '1.5rem' }}>
+                  <h3 style={{ margin: '0 0 0.4rem', fontSize: '1rem', fontWeight: '700' }}>Taux de change de référence plateforme</h3>
+                  <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', opacity: 0.5 }}>
+                    Valeur maximale de conversion USD &rarr; Franc Congolais appliquée par défaut aux transactions financières.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', maxWidth: '320px', flex: 1 }}>
+                      <input
+                        type="number"
+                        value={plafondFC}
+                        onChange={e => setPlafondFC(Number(e.target.value) || 0)}
+                        style={{ padding: '0.6rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: '1.1rem', fontWeight: '800', width: '100%' }}
+                      />
+                      <span style={{ fontWeight: '700', color: '#94a3b8', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>FC / 1 USD</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
         {/* Toast notification */}
         {toast && (
@@ -1045,42 +1465,76 @@ export default function AdminDashboard() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Date</th>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Type d'Action</th>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Acteur</th>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Cible</th>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Montant</th>
-                      <th style={{ padding: '1rem 1.25rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase' }}>Statut</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Date</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Type</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase' }}>Acteur</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase' }}>Bénéficiaire réel</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Colis</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Montant (FC)</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Réf Mobile Money</th>
+                      <th style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#94a3b8', fontWeight: '600', fontSize: '0.72rem', textTransform: 'uppercase' }}>Statut</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {audits.map((a, i) => (
-                      <tr key={a.id || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '1rem 1.25rem', color: '#cbd5e1', whiteSpace: 'nowrap' }}>
-                          {new Date(a.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {audits.map((a, i) => {
+                      // Détecter doublon potentiel : même acteur, même montant CDF, dans les 2h
+                      const isPotentialDuplicate = audits.filter((b: any) =>
+                        b.id !== a.id &&
+                        b.actor_id === a.actor_id &&
+                        b.amount_cdf === a.amount_cdf &&
+                        Math.abs(new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) < 2 * 3600 * 1000
+                      ).length > 0;
+                      return (
+                      <tr key={a.id || i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: isPotentialDuplicate ? 'rgba(245,158,11,0.04)' : 'transparent' }}>
+                        <td style={{ padding: '0.85rem 1rem', color: '#cbd5e1', whiteSpace: 'nowrap', fontSize: '0.78rem' }}>
+                          {safeFormatDateTime(a.created_at)}
                         </td>
-                        <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#fff' }}>{a.action_type}</td>
-                        <td style={{ padding: '1rem 1.25rem' }}>
-                          <span style={{ display: 'block', color: '#e2e8f0' }}>{a.actor_name || 'Système'}</span>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '600', color: '#fff', fontSize: '0.8rem' }}>{a.action_type}</td>
+                        <td style={{ padding: '0.85rem 1rem' }}>
+                          <span style={{ display: 'block', color: '#e2e8f0', fontSize: '0.82rem' }}>{a.actor_name || 'Système'}</span>
+                          {a.target_role && <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>({a.target_role})</span>}
                         </td>
-                        <td style={{ padding: '1rem 1.25rem' }}>
-                          <span style={{ display: 'block', color: '#e2e8f0' }}>{a.target_name || '—'}</span>
-                          {a.target_role && <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>({a.target_role})</span>}
+                        <td style={{ padding: '0.85rem 1rem' }}>
+                          <span style={{ display: 'block', color: '#e2e8f0', fontSize: '0.82rem', fontWeight: '600' }}>{a.target_name || '—'}</span>
                         </td>
-                        <td style={{ padding: '1rem 1.25rem', fontWeight: '700', color: a.amount_usd > 0 ? '#22c55e' : '#cbd5e1' }}>
-                          {a.amount_usd > 0 ? `${a.amount_usd} $` : (a.amount_cdf > 0 ? `${a.amount_cdf} FC` : '—')}
+                        <td style={{ padding: '0.85rem 1rem', whiteSpace: 'nowrap' }}>
+                          {a.package_code ? (
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#fb923c', background: 'rgba(251,146,60,0.1)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                              {a.package_code}
+                            </span>
+                          ) : '—'}
                         </td>
-                        <td style={{ padding: '1rem 1.25rem' }}>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                          {isPotentialDuplicate && (
+                            <span style={{ display: 'block', fontSize: '0.65rem', color: '#fbbf24', fontWeight: '800', marginBottom: '0.15rem' }}>⚠ Doublon potentiel</span>
+                          )}
+                          {a.amount_cdf > 0 ? (
+                            <>
+                              <span style={{ color: '#22c55e' }}>{a.amount_cdf.toLocaleString('fr-FR')} FC</span>
+                              <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b' }}>
+                                ≈ {a.amount_usd > 0 ? `${a.amount_usd} $` : `${(a.amount_cdf / (a.exchange_rate_applied || plafondFC)).toFixed(2)} $`}
+                                {a.exchange_rate_applied && ` @ ${a.exchange_rate_applied} FC/$`}
+                              </span>
+                            </>
+                          ) : a.amount_usd > 0 ? `${a.amount_usd} $` : '—'}
+                        </td>
+                        <td style={{ padding: '0.85rem 1rem', fontSize: '0.78rem' }}>
+                          {a.mobile_money_ref ? (
+                            <span style={{ fontFamily: 'monospace', color: '#60a5fa' }}>{a.mobile_money_ref}</span>
+                          ) : <span style={{ opacity: 0.3 }}>—</span>}
+                        </td>
+                        <td style={{ padding: '0.85rem 1rem' }}>
                           <span style={{
                             background: a.status === 'COMPLETED' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(249, 115, 22, 0.15)',
                             color: a.status === 'COMPLETED' ? '#4ade80' : '#fb923c',
-                            padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700'
+                            padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700'
                           }}>
                             {a.status}
                           </span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1381,7 +1835,12 @@ export default function AdminDashboard() {
                         }}>
                           {dp.commune}
                         </span>
-                        <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{dp.id}</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#60a5fa', fontFamily: 'monospace', background: 'rgba(59,130,246,0.15)', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                          {dp.code || dp.id}
+                        </span>
+                        <span title="Identifiant interne immuable" style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                          (ID: {dp.id})
+                        </span>
                       </div>
                       <h4 style={{ margin: '0.35rem 0 0', fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
                         {dp.name}
@@ -1406,6 +1865,49 @@ export default function AdminDashboard() {
                     <div><User size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Gérant :</strong> <span style={{ color: '#cbd5e1' }}>{dp.managerName}</span></div>
                     <div><Phone size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Contact :</strong> <span style={{ color: '#38bdf8' }}>{dp.phone}</span></div>
                     <div><Clock size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Horaires :</strong> <span style={{ color: '#fcd34d' }}>{dp.openingHours}</span></div>
+                  </div>
+
+                  {/* Actions de Sécurité Super Admin (Code & QR Code) */}
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem',
+                    padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px',
+                    border: '1px solid rgba(255,255,255,0.06)'
+                  }}>
+                    <button
+                      onClick={() => setSecurityModalDp({ dp, mode: 'EDIT_CODE' })}
+                      title="Modifier le code public unique du point relais"
+                      style={{
+                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.3)',
+                        background: 'rgba(59,130,246,0.1)', color: '#60a5fa', fontSize: '0.72rem',
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                      }}
+                    >
+                      <KeyRound size={13} /> Code
+                    </button>
+
+                    <button
+                      onClick={() => setSecurityModalDp({ dp, mode: 'REGEN_QR' })}
+                      title="Régénérer un nouveau QR Code aléatoire (invalide l'ancien)"
+                      style={{
+                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.72rem',
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                      }}
+                    >
+                      <RefreshCw size={13} /> Régénérer QR
+                    </button>
+
+                    <button
+                      onClick={() => setQrModalDp(dp)}
+                      title="Afficher, télécharger et imprimer le QR Code officiel"
+                      style={{
+                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(34,197,94,0.3)',
+                        background: 'rgba(34,197,94,0.1)', color: '#4ade80', fontSize: '0.72rem',
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                      }}
+                    >
+                      <Printer size={13} /> Imprimer QR
+                    </button>
                   </div>
 
                   {/* Credits System */}
@@ -1714,7 +2216,9 @@ export default function AdminDashboard() {
                             {ag.name}
                           </h4>
                           <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
-                            <MapPin size={14} style={{ display: "inline", marginRight: "4px" }} /> {ag.dropPointName} ({ag.dropPointCommune})
+                            <MapPin size={14} style={{ display: "inline", marginRight: "4px" }} />
+                            {ag.dropPointName}
+                            {ag.dropPointCommune ? ` (${ag.dropPointCommune})` : ''}
                           </p>
                         </div>
 
@@ -2133,7 +2637,7 @@ export default function AdminDashboard() {
                   </div>
                   <p style={{ opacity: 0.5, fontSize: '0.8rem', margin: 0 }}>{v.email}</p>
                   <p style={{ opacity: 0.4, fontSize: '0.75rem', margin: '0.2rem 0 0' }}>
-                    Inscrit le {new Date(v.joinedDate).toLocaleDateString('fr-FR')}
+                    Inscrit le {safeFormatDate(v.joinedDate)}
                   </p>
                 </div>
 
@@ -2143,8 +2647,10 @@ export default function AdminDashboard() {
                     <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>{v.revenu} EUR</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Revenu</p>
+                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>
+                      {v.revenu > 0 ? `${v.revenu.toFixed(2)} $` : '0.00 $'}
+                    </p>
+                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Revenu (valeur colis)</p>
                   </div>
                 </div>
 
@@ -2199,25 +2705,50 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredColis.map((c, i) => (
+                  {paginatedColis.map((c, i) => {
+                    // Détecter colis bloqués > 48h (CREATED ou PENDING_AGENCY)
+                    const isStuck = (() => {
+                      if (!['Créé', "En attente d'agence"].includes(c.status)) return false;
+                      const rawMs = c.rawDate ? new Date(c.rawDate).getTime() : NaN;
+                      if (isNaN(rawMs)) return false;
+                      return (Date.now() - rawMs) > 48 * 3600 * 1000;
+                    })();
+                    return (
                     <tr key={c.id}
-                      style={{ borderBottom: i < filteredColis.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', transition: 'background 0.15s' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.02)'; }}
+                      onClick={() => setSelectedPackage(c)}
+                      style={{ borderBottom: i < paginatedColis.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', transition: 'background 0.15s', cursor: 'pointer' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'rgba(255,255,255,0.03)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
                     >
-                      <td style={{ padding: '1rem 1.25rem', color: '#f97316', fontWeight: '700' }}>{c.id}</td>
-                      <td style={{ padding: '1rem 1.25rem', whiteSpace: 'nowrap' }}>{c.clientName}</td>
-                      <td style={{ padding: '1rem 1.25rem', opacity: 0.7 }}>{c.vendeur}</td>
-                      <td style={{ padding: '1rem 1.25rem', opacity: 0.7 }}>{c.agence}</td>
-                      <td style={{ padding: '1rem 1.25rem', opacity: 0.55, whiteSpace: 'nowrap' }}>{new Date(c.date).toLocaleDateString('fr-FR')}</td>
-                      <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#22c55e' }}>{c.montant.toFixed(2)} USD</td>
-                      <td style={{ padding: '1rem 1.25rem' }}>
-                        <span style={{ background: statusColor[c.status] || '#6b7280', color: 'white', padding: '0.22rem 0.65rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: '700', whiteSpace: 'nowrap' }}>
-                          {c.status}
+                      <td style={{ padding: '1rem 1.25rem', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontFamily: 'monospace', color: '#fb923c', fontWeight: '800', background: 'rgba(251,146,60,0.1)', padding: '0.15rem 0.5rem', borderRadius: '6px' }}>
+                          {c.trackingCode || ('MC-' + c.id.slice(0,8).toUpperCase())}
                         </span>
+                        {isStuck && (
+                          <span title="Colis bloqué depuis plus de 48h" style={{ marginLeft: '0.4rem', fontSize: '0.65rem', fontWeight: '800', color: '#f87171', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                            &gt;48h
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', whiteSpace: 'nowrap' }}>{c.clientName}</td>
+                      <td style={{ padding: '1rem 1.25rem', opacity: c.vendeur === '—' ? 0.35 : 0.85, fontStyle: c.vendeur === '—' ? 'italic' : 'normal' }}>{c.vendeur}</td>
+                      <td style={{ padding: '1rem 1.25rem' }}>
+                        {c.agenceId ? (
+                          <span style={{ color: '#cbd5e1' }}>{c.agence}</span>
+                        ) : (
+                          <span style={{ color: '#f87171', fontWeight: '700', background: 'rgba(239,68,68,0.12)', padding: '0.15rem 0.45rem', borderRadius: '4px', fontSize: '0.72rem' }}>Orphelin</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', opacity: 0.55, whiteSpace: 'nowrap' }}>{safeFormatDate(c.rawDate || c.date)}</td>
+                      <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#22c55e', whiteSpace: 'nowrap' }}>
+                        {c.montant > 0 ? `${c.montant.toFixed(2)} $` : <span style={{ color: '#f87171', fontWeight: '700' }}>0.00 $</span>}
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem' }}>
+                        <ColisStatusBadge status={c.status} />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {filteredColis.length === 0 && (
                     <tr>
                       <td colSpan={7} style={{ padding: '3rem', textAlign: 'center', opacity: 0.4 }}>
@@ -2228,7 +2759,22 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
-            <p style={{ marginTop: '0.75rem', opacity: 0.4, fontSize: '0.8rem' }}>{filteredColis.length} colis affiche(s)</p>
+            {/* Pagination */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <p style={{ opacity: 0.4, fontSize: '0.8rem', margin: 0 }}>
+                {filteredColis.length} colis · Page {colisPage}/{totalColisPages}
+              </p>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button onClick={() => setColisPage(p => Math.max(1, p - 1))} disabled={colisPage <= 1}
+                  style={{ padding: '0.35rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: colisPage <= 1 ? 'rgba(255,255,255,0.2)' : '#fff', cursor: colisPage <= 1 ? 'not-allowed' : 'pointer', fontSize: '0.8rem' }}>
+                  ← Préc.
+                </button>
+                <button onClick={() => setColisPage(p => Math.min(totalColisPages, p + 1))} disabled={colisPage >= totalColisPages}
+                  style={{ padding: '0.35rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: colisPage >= totalColisPages ? 'rgba(255,255,255,0.2)' : '#fff', cursor: colisPage >= totalColisPages ? 'not-allowed' : 'pointer', fontSize: '0.8rem' }}>
+                  Suiv. →
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2266,36 +2812,36 @@ export default function AdminDashboard() {
                 <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>hh:mm:ss</p>
               </div>
 
-              {/* JS Heap */}
+              {/* JS Heap — MÉMOIRE NAVIGATEUR (pas le serveur) */}
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.25rem' }}>
-                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Memoire JS (heap)</p>
+                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Mémoire navigateur (JS Heap)</p>
                 {memUsed !== null ? (
                   <>
                     <p style={{ fontSize: '1.4rem', fontWeight: '800', color: memUsed > memTotal! * 0.7 ? '#fb923c' : '#10b981', margin: 0 }}>{memUsed} MB</p>
                     <div style={{ marginTop: '0.5rem', height: '4px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${Math.min(100, Math.round(memUsed / memTotal! * 100))}%`, background: memUsed > memTotal! * 0.7 ? '#fb923c' : '#10b981', borderRadius: '2px', transition: 'width 1s ease' }} />
                     </div>
-                    <p style={{ fontSize: '0.7rem', opacity: 0.4, marginTop: '0.3rem' }}>sur {memTotal} MB limit</p>
+                    <p style={{ fontSize: '0.7rem', opacity: 0.4, marginTop: '0.3rem' }}>limite JS heap : {memTotal} MB</p>
                   </>
                 ) : (
                   <p style={{ fontSize: '0.82rem', opacity: 0.4, margin: 0 }}>Non disponible (Firefox / Safari)</p>
                 )}
               </div>
 
-              {/* Connexion */}
+              {/* Connexion réseau — NAVIGATEUR (pas le serveur) */}
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.25rem' }}>
-                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Connexion reseau</p>
+                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Connexion réseau navigateur</p>
                 <p style={{ fontSize: '1.4rem', fontWeight: '800', color: '#f97316', margin: 0, textTransform: 'uppercase' }}>{connection}</p>
-                <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>Network Information API</p>
+                <p style={{ fontSize: '0.7rem', opacity: 0.35, marginTop: '0.3rem', lineHeight: 1.4 }}>Network Information API — mesure le navigateur admin, pas le serveur</p>
               </div>
 
               {/* Services OK */}
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '1.25rem' }}>
-                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Services operationnels</p>
+                <p style={{ fontSize: '0.72rem', opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Services opérationnels</p>
                 <p style={{ fontSize: '1.4rem', fontWeight: '800', color: services.every(s => s.status === 'ok') ? '#10b981' : '#fb923c', margin: 0 }}>
                   {services.filter(s => s.status === 'ok').length} / {services.length}
                 </p>
-                <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>sante globale</p>
+                <p style={{ fontSize: '0.72rem', opacity: 0.4, marginTop: '0.3rem' }}>santé globale serveur</p>
               </div>
             </div>
 
@@ -2323,6 +2869,11 @@ export default function AdminDashboard() {
                     <div style={{ flex: 1, minWidth: '160px' }}>
                       <p style={{ fontWeight: '600', fontSize: '0.875rem', margin: 0 }}>{svc.name}</p>
                       <p style={{ opacity: 0.45, fontSize: '0.75rem', margin: 0 }}>{svc.detail}</p>
+                      {(svc.status === 'warn' || svc.status === 'error') && (svc as any).reason && (
+                        <p style={{ marginTop: '0.25rem', fontSize: '0.72rem', color: '#fb923c', fontWeight: '600' }}>
+                          ⚠ {(svc as any).reason}
+                        </p>
+                      )}
                     </div>
 
                     {/* Latency bar */}
@@ -2546,6 +3097,39 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* MODALE DE SÉCURITÉ SUPER ADMIN (Changement code / Régénération QR) */}
+      {securityModalDp && (
+        <AdminDropPointSecurityModal
+          isOpen={true}
+          onClose={() => setSecurityModalDp(null)}
+          dropPoint={securityModalDp.dp}
+          mode={securityModalDp.mode}
+          onSuccess={(updatedData) => {
+            setDropPoints(prev => prev.map(d => {
+              if (d.id === securityModalDp.dp.id) {
+                return {
+                  ...d,
+                  code: updatedData.code || d.code,
+                  qrToken: updatedData.newQrToken || d.qrToken,
+                };
+              }
+              return d;
+            }));
+            setToast(`[OK] Opération réussie sur le point relais ${securityModalDp.dp.name}`);
+            setTimeout(() => setToast(null), 3500);
+          }}
+        />
+      )}
+
+      {/* MODALE AFFICHAGE & IMPRESSION DU QR CODE OFFICIEL */}
+      {qrModalDp && (
+        <QRCodeModal
+          isOpen={true}
+          onClose={() => setQrModalDp(null)}
+          dropPoint={qrModalDp}
+        />
       )}
 
     </div>

@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { ColisItem, dataService } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
+import { DROP_POINT_REFUSAL_REASONS } from '@/lib/package-state-machine';
 
 type DashboardTab = 'incoming_vendor' | 'incoming_driver' | 'available' | 'vendor_deposits';
 
@@ -93,6 +94,11 @@ export default function PointRelaisPage() {
   const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
   const [validatingOtpId, setValidatingOtpId] = useState<string | null>(null);
   const [refusingId, setRefusingId] = useState<string | null>(null);
+  const [parcelToRefuse, setParcelToRefuse] = useState<ColisItem | null>(null);
+  const [refusalReasonCode, setRefusalReasonCode] = useState<string>('DAMAGED_PARCEL');
+  const [refusalComment, setRefusalComment] = useState<string>('');
+  const [refusalSubmitting, setRefusalSubmitting] = useState(false);
+  const [refusalError, setRefusalError] = useState<string | null>(null);
   const [dropPointCredits, setDropPointCredits] = useState<number | null>(null);
   const [dropPointInfo, setDropPointInfo] = useState<{ address?: string; managerName?: string } | null>(null);
 
@@ -168,26 +174,42 @@ export default function PointRelaisPage() {
     }
   }
 
-  /* -- Refuse reception (livreur → drop point) -- */
-  async function handleRefuse(colisId: string) {
-    if (!agent || !confirm('Êtes-vous sûr de refuser ce colis ? Le livreur devra s\'en occuper.')) return;
-    setRefusingId(colisId);
+  /* -- Refusal Modal & Execution (livreur → drop point) -- */
+  function openRefusalModal(colis: ColisItem) {
+    setParcelToRefuse(colis);
+    setRefusalReasonCode('DAMAGED_PARCEL');
+    setRefusalComment('');
+    setRefusalError(null);
+  }
+
+  async function handleConfirmRefusal(e: React.FormEvent) {
+    e.preventDefault();
+    if (!agent || !parcelToRefuse) return;
+
+    setRefusalSubmitting(true);
+    setRefusalError(null);
     try {
       const res = await fetch('/api/drop-points/agents/refuse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colisId, agentId: agent.id }),
+        body: JSON.stringify({
+          colisId: parcelToRefuse.id,
+          refusalReasonCode,
+          comment: refusalComment.trim() || undefined,
+          dropPointId: agent.dropPointId,
+        }),
       });
       const json = await res.json();
       if (res.ok) {
-        if (agent) loadPackages(agent.dropPointId);
+        setParcelToRefuse(null);
+        await loadPackages(agent.dropPointId);
       } else {
-        alert(json.error || 'Erreur lors du refus.');
+        setRefusalError(json.error || 'Erreur lors du refus.');
       }
     } catch {
-      alert('Erreur réseau.');
+      setRefusalError('Erreur réseau lors de la communication avec le serveur.');
     } finally {
-      setRefusingId(null);
+      setRefusalSubmitting(false);
     }
   }
 
@@ -991,7 +1013,23 @@ export default function PointRelaisPage() {
                           <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             Code OTP Client
                           </p>
-                          {otpSuccess[colis.id] ? (
+                          {colis.claimStatus === 'OPEN' || (colis.status as string) === 'IN_DISPUTE' || colis.status === 'En réclamation' ? (
+                            <div style={{
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid rgba(239, 68, 68, 0.4)',
+                              borderRadius: '8px',
+                              padding: '0.65rem 0.8rem',
+                              color: '#fca5a5',
+                              fontSize: '0.78rem',
+                              lineHeight: 1.4
+                            }}>
+                              <div style={{ fontWeight: '700', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <AlertCircle size={14} color="#ef4444" />
+                                Réclamation en cours
+                              </div>
+                              Retrait bloqué jusqu'à résolution par le Super Admin ({colis.claimReason || 'Litige vendeur'}).
+                            </div>
+                          ) : otpSuccess[colis.id] ? (
                             <div style={{ color: '#4ade80', fontSize: '0.85rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                               <CheckCircle2 size={16} /> Remise confirmée !
                             </div>
@@ -1003,9 +1041,11 @@ export default function PointRelaisPage() {
                                 value={otpInputs[colis.id] || ''}
                                 onChange={(e) => setOtpInputs(prev => ({ ...prev, [colis.id]: e.target.value.replace(/\D/g, '') }))}
                                 maxLength={6}
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
                                 style={{
                                   width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
-                                  background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '1rem', fontFamily: 'monospace', letterSpacing: '2px', textAlign: 'center'
+                                  background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '1rem', fontFamily: 'monospace', letterSpacing: '2px', textAlign: 'center', boxSizing: 'border-box'
                                 }}
                               />
                               {otpErrors[colis.id] && (
@@ -1015,7 +1055,7 @@ export default function PointRelaisPage() {
                                 onClick={() => handleValidateOtp(colis.id)}
                                 disabled={validatingOtpId === colis.id}
                                 style={{
-                                  width: '100%', padding: '0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                                  width: '100%', minHeight: '44px', padding: '0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer',
                                   background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.85rem'
                                 }}
                               >
@@ -1036,6 +1076,7 @@ export default function PointRelaisPage() {
                             color: '#fff', fontWeight: '800', fontSize: '0.85rem', fontFamily: 'inherit',
                             display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'all 0.2s',
                             opacity: confirmingId === colis.id ? 0.6 : 1,
+                            minHeight: '44px',
                             boxShadow: confirmSuccess !== colis.id ? '0 4px 14px rgba(34,197,94,0.3)' : 'none',
                           }}
                         >
@@ -1049,18 +1090,19 @@ export default function PointRelaisPage() {
                         </button>
                       )}
 
-                      {/* Pour les colis déposés par les livreurs à confirmer par le client */}
+                      {/* Pour les colis déposés par les livreurs à confirmer par le point relais */}
                       {activeTab === 'incoming_driver' && colis.status === 'Déposé en point relais' && (
                         <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
                           <button
                             onClick={() => handleConfirm(colis.id)}
-                            disabled={confirmingId === colis.id || confirmSuccess === colis.id || refusingId === colis.id}
+                            disabled={confirmingId === colis.id || confirmSuccess === colis.id}
                             style={{
                               padding: '0.6rem 1.1rem', borderRadius: '10px', border: 'none', cursor: 'pointer',
                               background: confirmSuccess === colis.id ? 'rgba(34,197,94,0.2)' : 'linear-gradient(135deg, #22c55e, #16a34a)',
                               color: '#fff', fontWeight: '800', fontSize: '0.85rem', fontFamily: 'inherit',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s',
                               opacity: confirmingId === colis.id ? 0.6 : 1,
+                              minHeight: '44px',
                               boxShadow: confirmSuccess !== colis.id ? '0 4px 14px rgba(34,197,94,0.3)' : 'none',
                             }}
                           >
@@ -1074,15 +1116,16 @@ export default function PointRelaisPage() {
                           </button>
                           
                           <button
-                            onClick={() => handleRefuse(colis.id)}
-                            disabled={refusingId === colis.id || confirmingId === colis.id || confirmSuccess === colis.id}
+                            onClick={() => openRefusalModal(colis)}
+                            disabled={confirmingId === colis.id || confirmSuccess === colis.id}
                             style={{
                               padding: '0.5rem 1.1rem', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.4)', cursor: 'pointer',
                               background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontWeight: '700', fontSize: '0.8rem', fontFamily: 'inherit',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s'
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s',
+                              minHeight: '44px'
                             }}
                           >
-                            {refusingId === colis.id ? 'Refus...' : 'Refuser (laisser au livreur)'}
+                            Refuser (laisser au livreur)
                           </button>
                         </div>
                       )}
@@ -1191,6 +1234,136 @@ export default function PointRelaisPage() {
             <p style={{ margin: 0, color: '#4ade80', fontSize: '1.3rem', fontWeight: '900', fontFamily: 'monospace', letterSpacing: '2px' }}>
               {agent?.dropPointId}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Refus de prise en charge colis */}
+      {parcelToRefuse && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh',
+          background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(12px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem',
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: '24px', padding: '1.75rem', maxWidth: '440px', width: '100%',
+            position: 'relative', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
+            maxHeight: '90dvh', overflowY: 'auto'
+          }}>
+            <button
+              onClick={() => { setParcelToRefuse(null); setRefusalError(null); }}
+              aria-label="Fermer"
+              style={{
+                position: 'absolute', top: '1rem', right: '1rem',
+                background: 'none', border: 'none', color: '#64748b', cursor: 'pointer',
+                minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0
+              }}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+              <div style={{
+                width: '38px', height: '38px', borderRadius: '10px',
+                background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444'
+              }}>
+                <AlertCircle size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', fontWeight: '800' }}>
+                  Refuser la réception
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                  #{parcelToRefuse.id} &bull; {parcelToRefuse.clientName}
+                </span>
+              </div>
+            </div>
+
+            <p style={{ margin: '0 0 1.25rem', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.45 }}>
+              Le colis sera marqué comme <strong>refusé au point relais</strong> et restera entre les mains du livreur pour retour ou réacheminement.
+            </p>
+
+            <form onSubmit={handleConfirmRefusal} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={labelStyle}>Motif obligatoire de refus</label>
+                <select
+                  value={refusalReasonCode}
+                  onChange={(e) => setRefusalReasonCode(e.target.value)}
+                  style={{
+                    ...inputStyle,
+                    minHeight: '48px',
+                    fontSize: '0.95rem',
+                    cursor: 'pointer',
+                    background: '#1e293b'
+                  }}
+                  required
+                >
+                  {DROP_POINT_REFUSAL_REASONS.map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Commentaire complémentaire (optionnel)</label>
+                <textarea
+                  value={refusalComment}
+                  onChange={(e) => setRefusalComment(e.target.value)}
+                  placeholder="Détails visibles par le livreur et le vendeur (ex: carton écrasé, fuite de liquide...)"
+                  rows={3}
+                  style={{
+                    ...inputStyle,
+                    resize: 'none',
+                    fontSize: '0.9rem',
+                    lineHeight: 1.4
+                  }}
+                />
+              </div>
+
+              {refusalError && (
+                <div style={{
+                  padding: '0.75rem 0.9rem', borderRadius: '10px',
+                  background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                  color: '#fca5a5', fontSize: '0.85rem'
+                }}>
+                  {refusalError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setParcelToRefuse(null); setRefusalError(null); }}
+                  disabled={refusalSubmitting}
+                  style={{
+                    flex: 1, minHeight: '48px', padding: '0.75rem', borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+                    color: '#94a3b8', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit'
+                  }}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={refusalSubmitting}
+                  style={{
+                    flex: 1.5, minHeight: '48px', padding: '0.75rem', borderRadius: '12px',
+                    border: 'none', background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    color: '#fff', fontWeight: '800', cursor: refusalSubmitting ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                    boxShadow: '0 4px 14px rgba(239,68,68,0.4)', opacity: refusalSubmitting ? 0.7 : 1
+                  }}
+                >
+                  {refusalSubmitting ? 'Enregistrement...' : 'Confirmer le refus'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

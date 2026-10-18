@@ -7,8 +7,10 @@ import {
   Shield, Lock, LockOpen, AlertTriangle, AlertCircle,
   Ban, Globe, User, RefreshCw, CheckCircle2, X, Check,
   Database, Key, FileText, Settings, Info, Lightbulb,
-  ArrowLeft, ShieldAlert, ShieldCheck, Clock, Mail, Save
+  ArrowLeft, ShieldAlert, ShieldCheck, Clock, Mail, Save,
+  Eye, EyeOff
 } from 'lucide-react';
+import PinModal from '@/components/PinModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SecurityAlert {
@@ -283,6 +285,32 @@ export default function SecuritePage() {
   const [resendStatus, setResendStatus] = useState<'loading' | 'configured' | 'not_configured'>('loading');
   const [savingResend, setSavingResend] = useState(false);
 
+  const [showResolveAllPinModal, setShowResolveAllPinModal] = useState(false);
+  const [unmaskedAttempts, setUnmaskedAttempts] = useState<Set<string>>(new Set());
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Déconnexion automatique après 15 minutes d'inactivité
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    const resetTimer = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        alert("Session expirée pour cause d'inactivité (15 minutes). Redirection vers la page de connexion.");
+        router.replace('/admin-x9k2');
+      }, 15 * 60 * 1000);
+    };
+
+    window.addEventListener('mousemove', resetTimer);
+    window.addEventListener('keydown', resetTimer);
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('mousemove', resetTimer);
+      window.removeEventListener('keydown', resetTimer);
+    };
+  }, [router]);
+
   // Auth guard
   useEffect(() => {
     if (!isAuthenticated()) router.replace('/admin-x9k2');
@@ -387,8 +415,53 @@ export default function SecuritePage() {
     } catch {/* silencieux */}
   };
 
-  const handleResolveAll = () => {
+  // Résolution collective sécurisée par PIN et enregistrée dans le journal d'audit
+  const confirmResolveAll = () => {
+    setShowResolveAllPinModal(true);
+  };
+
+  const executeResolveAll = async () => {
+    setShowResolveAllPinModal(false);
     setAlerts(prev => prev.map(a => ({ ...a, resolved: true })));
+    try {
+      const res = await fetch('/api/admin/security/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolve_all' }),
+      });
+      if (res.ok) {
+        setToastMessage("Toutes les alertes ont été résolues et l'action a été journalisée avec succès.");
+        setTimeout(() => setToastMessage(null), 4000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Masquage partiel de téléphone/email (ex: 098••••657)
+  const formatMaskedIdentifier = (val?: string, isUnmasked: boolean = false): string => {
+    if (!val) return '—';
+    if (isUnmasked) return val;
+    const clean = val.trim();
+    if (/^\+?\d{7,15}$/.test(clean.replace(/\s+/g, ''))) {
+      const digits = clean.replace(/\s+/g, '');
+      if (digits.length <= 6) return digits;
+      return `${digits.slice(0, 3)}••••${digits.slice(-3)}`;
+    }
+    if (clean.includes('@')) {
+      const [user, domain] = clean.split('@');
+      return `${user.slice(0, 2)}••••@${domain}`;
+    }
+    return clean;
+  };
+
+  const toggleUnmask = (id: string) => {
+    setUnmaskedAttempts(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   // Stats
@@ -501,7 +574,7 @@ export default function SecuritePage() {
               </label>
               {unresolvedCount > 0 && (
                 <button
-                  onClick={handleResolveAll}
+                  onClick={confirmResolveAll}
                   style={{
                     background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e',
                     padding: '0.35rem 0.85rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: '700',
@@ -575,20 +648,58 @@ export default function SecuritePage() {
                         </span>
                       </td>
                       <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle' }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', opacity: 0.85 }}>{attempt.email || '—'}</span>
-                      </td>
-                      <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle' }}>
-                        <span style={{ background: 'rgba(139,92,246,0.12)', color: '#8b5cf6', padding: '0.15rem 0.5rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '600' }}>
-                          {attempt.role}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle' }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: attempt.ip.startsWith('185') ? '#f97316' : 'rgba(255,255,255,0.6)' }}>
-                          {attempt.ip}
-                          {attempt.ip.startsWith('185') && (
-                            <AlertTriangle size={11} color="#f97316" style={{ marginLeft: '0.3rem', display: 'inline', verticalAlign: 'middle' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', opacity: attempt.email ? 0.9 : 0.35, fontStyle: attempt.email ? 'normal' : 'italic' }}>
+                            {attempt.email
+                              ? formatMaskedIdentifier(attempt.email, unmaskedAttempts.has(attempt.id))
+                              : '— (utilisateur inconnu)'}
+                          </span>
+                          {attempt.email && (
+                            <button
+                              type="button"
+                              onClick={() => toggleUnmask(attempt.id)}
+                              title={unmaskedAttempts.has(attempt.id) ? "Masquer l'identifiant" : "Afficher l'identifiant (journalisé)"}
+                              style={{
+                                background: 'rgba(255,255,255,0.06)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '4px',
+                                padding: '0.15rem 0.35rem',
+                                cursor: 'pointer',
+                                color: unmaskedAttempts.has(attempt.id) ? '#f97316' : 'rgba(255,255,255,0.4)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                              }}
+                            >
+                              {unmaskedAttempts.has(attempt.id) ? <EyeOff size={11} /> : <Eye size={11} />}
+                            </button>
                           )}
+                        </div>
+                      </td>
+                      <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle' }}>
+                        <span style={{ background: attempt.role ? 'rgba(139,92,246,0.12)' : 'rgba(100,116,139,0.1)', color: attempt.role ? '#8b5cf6' : '#64748b', padding: '0.15rem 0.5rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '600', fontStyle: attempt.role ? 'normal' : 'italic' }}>
+                          {attempt.role || 'Inconnu'}
                         </span>
+                      </td>
+                      <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle' }}>
+                        {(() => {
+                          const ip = attempt.ip || '—';
+                          const isSuspicious = attempt.status !== 'success';
+                          // Masquer les 2 octets centraux : 185.12.xxx.xxx → 185.12.•••.•••
+                          const maskedIp = unmaskedAttempts.has(attempt.id)
+                            ? ip
+                            : ip.replace(/(\d+\.\d+\.)(\d+)(\.)( \d+)/, '$1•••$3•••')
+                              .replace(/^(\d+\.\d+\.)(\d+\.)(\d+)$/, (_, a, b, c) => `${a}•••.•••`);
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: isSuspicious ? '#f97316' : 'rgba(255,255,255,0.6)' }}>
+                                {maskedIp}
+                              </span>
+                              {isSuspicious && (
+                                <AlertTriangle size={11} color="#f97316" style={{ flexShrink: 0, verticalAlign: 'middle' }} />
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '0.8rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'middle', maxWidth: '280px', opacity: 0.7, fontSize: '0.8rem' }}>
                         {attempt.detail}
@@ -724,6 +835,30 @@ export default function SecuritePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999,
+          background: 'rgba(34, 197, 94, 0.95)', color: '#000',
+          padding: '0.85rem 1.25rem', borderRadius: '12px',
+          fontWeight: '700', fontSize: '0.88rem',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+        }}>
+          <CheckCircle2 size={16} />
+          {toastMessage}
+        </div>
+      )}
+
+      {/* PinModal for Tout Résoudre confirmation */}
+      {showResolveAllPinModal && (
+        <PinModal
+          destination="Confirmation Résolution Globale des Alertes"
+          onSuccess={executeResolveAll}
+          onCancel={() => setShowResolveAllPinModal(false)}
+        />
       )}
     </div>
   );

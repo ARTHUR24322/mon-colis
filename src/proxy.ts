@@ -45,20 +45,35 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
 
-  // -- Vérifier si la route est protégée -------------------------------------
+  // -- 1. REDIRECTION DES SESSIONS ACTIVES DEPUIS L'ACCUEIL OU LOGIN --------
+  // Un utilisateur déjà connecté ne doit pas rester sur l'écran d'accueil ou de login
+  if (pathname === '/' || pathname === '/login') {
+    if (token) {
+      const payload = await verifyToken(token);
+      if (payload && payload.role) {
+        let destination = '/dashboard/vendeur';
+        if (payload.role === 'agence') destination = '/dashboard/agence';
+        else if (payload.role === 'livreur') destination = '/livreur';
+        else if (payload.role === 'point_relais') destination = '/point-relais';
+        else if (payload.role === 'superadmin') destination = '/admin-x9k2/dashboard';
+
+        const redirectResponse = NextResponse.redirect(new URL(destination, request.url));
+        return applySecurityHeaders(redirectResponse);
+      }
+    }
+    return applySecurityHeaders(NextResponse.next());
+  }
+
+  // -- 2. VÉRIFICATION DES ROUTES PROTÉGÉES ---------------------------------
   const matched = PROTECTED_ROUTES.find((r) => pathname.startsWith(r.prefix));
 
   if (!matched) {
     return applySecurityHeaders(NextResponse.next());
   }
 
-  // C4 FIX: Pour le dashboard admin, les headers no-cache sont ajoutés en fin de fonction
-  // après vérification de la session (plus de return anticipé qui court-circuitait l'auth).
-
   // -- Vérification cookie de session ----------------------------------------
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-
   if (!token) {
     // Pas de session — redirection vers la page de connexion
     const loginUrl = new URL(matched.redirect, request.url);
@@ -113,6 +128,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/',
+    '/login',
     '/dashboard/vendeur/:path*',
     '/dashboard/agence/:path*',
     '/livreur/:path*',

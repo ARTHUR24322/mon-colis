@@ -54,10 +54,15 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Erreur de connexion. Vérifiez vos identifiants.');
+        setError(data.error || 'Identifiant ou mot de passe incorrect. Veuillez vérifier vos accès.');
         setLoading(false);
         return;
       }
+
+      // Mémorisation de l'espace dans le stockage local
+      try {
+        localStorage.setItem('moncolis_last_role', role);
+      } catch {}
 
       // Redirect to dashboard (or the originally requested page)
       let defaultRedirect = '/dashboard/vendeur';
@@ -76,19 +81,20 @@ export default function LoginPage() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: '2rem 1rem',
-      background: 'radial-gradient(circle at 50% 20%, rgba(34, 197, 94, 0.08), transparent 60%), radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.06), transparent 50%), #07090e'
+      padding: 'calc(1.5rem + env(safe-area-inset-top)) 1rem calc(1.5rem + env(safe-area-inset-bottom))',
+      background: 'radial-gradient(circle at 50% 20%, rgba(34, 197, 94, 0.08), transparent 60%), radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.06), transparent 50%), #07090e',
+      boxSizing: 'border-box'
     }}>
       <div style={{
-        maxWidth: '460px',
+        maxWidth: '440px',
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: '1.75rem'
+        gap: '1.5rem'
       }}>
         {/* Back Link */}
         <Link href="/" style={{
@@ -98,7 +104,9 @@ export default function LoginPage() {
           fontSize: '0.9rem',
           color: '#94a3b8',
           transition: 'color 0.2s ease',
-          alignSelf: 'flex-start'
+          alignSelf: 'flex-start',
+          minHeight: '44px',
+          padding: '0.25rem 0'
         }}>
           <ArrowLeft size={16} />
           Retour à l'accueil
@@ -109,12 +117,12 @@ export default function LoginPage() {
           background: 'rgba(255, 255, 255, 0.03)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           borderRadius: '24px',
-          padding: '2.5rem',
+          padding: '2rem 1.5rem',
           backdropFilter: 'blur(20px)',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)'
         }}>
           {/* Brand header */}
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
             <div style={{
               width: '52px',
               height: '52px',
@@ -142,11 +150,11 @@ export default function LoginPage() {
               {isAgence ? <Truck size={28} /> : isPointRelais ? <MapPin size={28} /> : isLivreur ? <User size={28} /> : <Store size={28} />}
             </div>
             
-            <h1 style={{ fontSize: '1.75rem', fontWeight: '800', color: '#fff', marginBottom: '0.5rem' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#fff', marginBottom: '0.4rem', letterSpacing: '-0.02em' }}>
               Espace {isAgence ? 'Agence de Livraison' : isPointRelais ? 'Point Relais' : isLivreur ? 'Livreur' : 'Vendeur & Boutique'}
             </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: 0 }}>
-              Connectez-vous pour accéder à votre espace de travail
+            <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0, lineHeight: 1.4 }}>
+              Connectez-vous pour accéder à vos opérations
             </p>
           </div>
 
@@ -159,7 +167,7 @@ export default function LoginPage() {
               background: 'rgba(255, 255, 255, 0.05)',
               padding: '0.35rem',
               borderRadius: '14px',
-              marginBottom: '1.75rem',
+              marginBottom: '1.5rem',
               border: '1px solid rgba(255, 255, 255, 0.08)'
             }}>
               <Link
@@ -169,7 +177,8 @@ export default function LoginPage() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '0.5rem',
-                  padding: '0.65rem',
+                  minHeight: '44px',
+                  padding: '0.5rem',
                   borderRadius: '10px',
                   fontSize: '0.9rem',
                   fontWeight: '600',
@@ -191,7 +200,8 @@ export default function LoginPage() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '0.5rem',
-                  padding: '0.65rem',
+                  minHeight: '44px',
+                  padding: '0.5rem',
                   borderRadius: '10px',
                   fontSize: '0.9rem',
                   fontWeight: '600',
@@ -225,8 +235,10 @@ export default function LoginPage() {
                     placeholder={isAgence ? 'contact@agence.com' : 'boutique@exemple.com'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    style={{ paddingLeft: '2.75rem' }}
+                    style={{ paddingLeft: '2.75rem', fontSize: '1rem', minHeight: '48px', boxSizing: 'border-box' }}
                     required 
+                    autoComplete="username"
+                    inputMode="email"
                   />
                 </div>
               </div>
@@ -241,13 +253,15 @@ export default function LoginPage() {
                 <div style={{ position: 'relative' }}>
                   <User size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                   <input 
-                    type="text" 
+                    type="tel" 
                     className="input-field" 
-                    placeholder="ex: 0712345678"
+                    placeholder="ex: 0812345678"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    style={{ paddingLeft: '2.75rem' }}
+                    style={{ paddingLeft: '2.75rem', fontSize: '1rem', minHeight: '48px', boxSizing: 'border-box' }}
                     required 
+                    autoComplete="tel"
+                    inputMode="tel"
                   />
                 </div>
               </div>
@@ -266,9 +280,11 @@ export default function LoginPage() {
                     className="input-field" 
                     placeholder="ex: 123456789"
                     value={agentNumber}
-                    onChange={(e) => setAgentNumber(e.target.value)}
-                    style={{ paddingLeft: '2.75rem' }}
+                    onChange={(e) => setAgentNumber(e.target.value.replace(/\D/g, ''))}
+                    style={{ paddingLeft: '2.75rem', fontSize: '1rem', minHeight: '48px', boxSizing: 'border-box' }}
                     required 
+                    autoComplete="username"
+                    inputMode="numeric"
                   />
                 </div>
               </div>
@@ -278,10 +294,10 @@ export default function LoginPage() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <label style={{ fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
-                  {isLivreur || isPointRelais ? 'Code PIN' : 'Mot de passe'}
+                  {isLivreur || isPointRelais ? 'Code PIN (6 chiffres)' : 'Mot de passe'}
                 </label>
                 {!isLivreur && !isPointRelais && (
-                  <a href="#" onClick={(e) => { e.preventDefault(); alert('Fonctionnalité disponible prochainement'); }} style={{ fontSize: '0.8rem', color: isAgence ? '#60a5fa' : '#4ade80', opacity: 0.9 }}>
+                  <a href="#" onClick={(e) => { e.preventDefault(); alert('Veuillez contacter le support Moncolis Kinshasa via WhatsApp pour réinitialiser votre accès.'); }} style={{ fontSize: '0.8rem', color: isAgence ? '#60a5fa' : '#4ade80', opacity: 0.9 }}>
                     Mot de passe oublié ?
                   </a>
                 )}
@@ -294,21 +310,29 @@ export default function LoginPage() {
                   placeholder={isLivreur || isPointRelais ? '••••••' : '••••••••'} 
                   value={isLivreur || isPointRelais ? pinCode : password}
                   onChange={(e) => isLivreur || isPointRelais ? setPinCode(e.target.value) : setPassword(e.target.value)}
-                  style={{ paddingLeft: '2.75rem', paddingRight: '2.75rem' }}
+                  style={{ paddingLeft: '2.75rem', paddingRight: '3rem', fontSize: '1rem', minHeight: '48px', boxSizing: 'border-box' }}
                   required 
+                  autoComplete={isLivreur || isPointRelais ? 'one-time-code' : 'current-password'}
+                  inputMode={isLivreur || isPointRelais ? 'numeric' : 'text'}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                   style={{
                     position: 'absolute',
-                    right: '1rem',
+                    right: '0.25rem',
                     top: '50%',
                     transform: 'translateY(-50%)',
                     background: 'none',
                     border: 'none',
                     color: '#64748b',
                     cursor: 'pointer',
+                    minWidth: '44px',
+                    minHeight: '44px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     padding: 0
                   }}
                 >
@@ -330,7 +354,7 @@ export default function LoginPage() {
                 color: '#fca5a5',
                 fontSize: '0.875rem',
               }}>
-                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>{error}</span>
               </div>
             )}
@@ -341,10 +365,11 @@ export default function LoginPage() {
               style={{
                 marginTop: '0.5rem',
                 width: '100%',
+                minHeight: '48px',
                 padding: '0.85rem',
                 borderRadius: '12px',
                 border: 'none',
-                fontWeight: '600',
+                fontWeight: '700',
                 fontSize: '1rem',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 color: '#fff',
@@ -363,14 +388,18 @@ export default function LoginPage() {
                   : isLivreur
                   ? '0 4px 14px rgba(249, 115, 22, 0.4)'
                   : '0 4px 14px rgba(34, 197, 94, 0.4)',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem'
               }}
             >
               {loading ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Search size={16} /> Vérification en cours...
+                  <Search size={16} /> Connexion en cours...
                 </span>
-              ) : `Se connecter comme ${isAgence ? 'Agence' : isPointRelais ? 'Point Relais' : isLivreur ? 'Livreur' : 'Vendeur'}`}
+              ) : `Se connecter (${isAgence ? 'Agence' : isPointRelais ? 'Point Relais' : isLivreur ? 'Livreur' : 'Vendeur'})`}
             </button>
           </form>
 
