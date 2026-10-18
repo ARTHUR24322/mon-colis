@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { Store, Truck, ArrowRight, ShieldCheck, ArrowLeft, MapPin, User } from 'lucide-react';
 
+// NOTE: L'espace Agence est intentionnellement absent de cette page publique.
+// Les agences accèdent exclusivement via /agence (URL non référencée).
+
 export default function AuthIndexPage() {
   return (
     <div style={{
@@ -157,104 +160,7 @@ export default function AuthIndexPage() {
             </div>
           </div>
 
-          {/* Card Agence */}
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: '20px',
-            padding: '2.25rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            transition: 'all 0.3s ease',
-            backdropFilter: 'blur(16px)',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              width: '120px',
-              height: '120px',
-              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15), transparent 70%)',
-              pointerEvents: 'none'
-            }} />
 
-            <div>
-              <div style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '16px',
-                background: 'rgba(59, 130, 246, 0.12)',
-                border: '1px solid rgba(59, 130, 246, 0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#60a5fa',
-                marginBottom: '1.5rem'
-              }}>
-                <Truck size={28} />
-              </div>
-
-              <span style={{
-                display: 'inline-block',
-                padding: '0.25rem 0.75rem',
-                borderRadius: '999px',
-                background: 'rgba(59, 130, 246, 0.1)',
-                color: '#93c5fd',
-                fontSize: '0.8rem',
-                fontWeight: '600',
-                marginBottom: '0.75rem'
-              }}>
-                Pour les Transporteurs
-              </span>
-
-              <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#fff', marginBottom: '0.75rem' }}>
-                Espace Agence
-              </h2>
-              <p style={{ color: '#94a3b8', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '2rem' }}>
-                Gérez vos tournées, assignez les colis à vos livreurs, validez les réceptions et développez votre activité logistique avec un tableau de bord complet.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <Link
-                href="/auth/agence/login"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  fontWeight: '600',
-                  padding: '0.75rem 1.5rem',
-                  borderRadius: '9999px',
-                  background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                  color: '#fff',
-                  border: 'none',
-                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
-                }}
-              >
-                Se connecter (Agence)
-                <ArrowRight size={18} />
-              </Link>
-              <Link
-                href="/auth/agence/register"
-                className="btn btn-outline"
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
-                  color: '#e2e8f0'
-                }}
-              >
-                Créer un compte Agence
-              </Link>
-            </div>
-          </div>          {/* Card Livreur */}
           <div style={{
             background: 'rgba(255, 255, 255, 0.03)',
             border: '1px solid rgba(255, 255, 255, 0.1)',

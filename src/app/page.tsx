@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Package, Store, Truck, MapPin, Building2, Search,
-  ArrowRight, ShieldCheck, ChevronRight, Sparkles, Smartphone
+  Package, Store, Truck, MapPin, Search,
+  ArrowRight, ChevronRight
 } from 'lucide-react';
 
 export default function HomeEntryPage() {
@@ -18,7 +18,8 @@ export default function HomeEntryPage() {
     // 1. Lire le dernier espace utilisé dans localStorage (jamais de données sensibles, juste le rôle)
     try {
       const stored = localStorage.getItem('moncolis_last_role');
-      if (stored && ['vendeur', 'livreur', 'point-relais', 'agence'].includes(stored)) {
+      // NB: 'agence' est exclu — l'espace agence n'est pas accessible depuis la page publique
+      if (stored && ['vendeur', 'livreur', 'point-relais'].includes(stored)) {
         setLastRole(stored);
 
         // 2. Détection PWA installée (standalone) : si ouverte depuis l'écran d'accueil, aller directement à la connexion du rôle
@@ -78,15 +79,8 @@ export default function HomeEntryPage() {
       border: 'rgba(6, 182, 212, 0.35)',
       bg: 'rgba(6, 182, 212, 0.08)',
     },
-    {
-      key: 'agence',
-      label: 'Agence',
-      desc: 'Flotte, dispatch & gestion',
-      icon: <Building2 size={22} />,
-      color: '#f59e0b',
-      border: 'rgba(245, 158, 11, 0.35)',
-      bg: 'rgba(245, 158, 11, 0.08)',
-    },
+    // NOTE: L'espace Agence n'est PAS listé ici intentionnellement.
+    // Les agences accèdent uniquement via /agence (URL non référencée).
   ];
 
   return (

@@ -9,6 +9,7 @@ import {
   X, Phone, MapPin, Share2, Copy, Check, AlertTriangle,
   Building2, User, Truck, DollarSign, ShieldAlert, CheckCircle2
 } from 'lucide-react';
+import VendorPackageQuoteAndHandover from '@/components/VendorPackageQuoteAndHandover';
 
 interface MobilePackageDetailSheetProps {
   colis: ColisItem | null;
@@ -17,6 +18,7 @@ interface MobilePackageDetailSheetProps {
   formatPrice: (amountUSD: number) => string;
   role: 'vendeur' | 'livreur';
   onClaimSubmitted?: () => void;
+  onRefresh?: () => void;
   // Actions livreur
   onValidateOtp?: (otp: string) => Promise<boolean>;
   onRerouteRelais?: () => void;
@@ -30,6 +32,7 @@ export default function MobilePackageDetailSheet({
   formatPrice,
   role,
   onClaimSubmitted,
+  onRefresh,
   onValidateOtp,
   onRerouteRelais,
   onCollectRelais,
@@ -228,6 +231,15 @@ export default function MobilePackageDetailSheet({
             </div>
           </div>
         </div>
+
+        {/* Section Vendeur : Attribution Agence & Devis Avant Remise */}
+        {role === 'vendeur' && (
+          <VendorPackageQuoteAndHandover
+            colis={colis}
+            formatPrice={formatPrice}
+            onRefresh={onRefresh}
+          />
+        )}
 
         {/* Section 2 : Montants Financiers */}
         <div style={{

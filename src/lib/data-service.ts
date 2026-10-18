@@ -53,7 +53,8 @@ export interface ColisItem {
   largeur: number;
   hauteur: number;
   distance: number;
-  status: 'Créé' | "En attente d'agence" | 'Accepté' | 'En transit' | 'En attente de confirmation relais' | 'Déposé en point relais' | 'Disponible au point relais' | 'En attente de collecte' | 'Refusé par le point relais' | 'En réclamation' | 'Livré' | 'Annulé';
+  status: 'Créé' | "En attente d'agence" | 'Accepté' | "Décliné par l'agence" | 'En transit' | 'En attente de confirmation relais' | 'Déposé en point relais' | 'Disponible au point relais' | 'En attente de collecte' | 'Refusé par le point relais' | 'En réclamation' | 'Livré' | 'Annulé';
+  rawStatus?: string;
   claimStatus?: 'NONE' | 'OPEN' | 'RESOLVED';
   claimReason?: string | null;
   refusalComment?: string | null;
@@ -209,6 +210,7 @@ const mapStatusToApp = (dbStatus: string, packageId?: string): ColisItem['status
     case 'CREATED': return 'Créé';
     case 'PENDING_AGENCY': return "En attente d'agence";
     case 'ACCEPTED_BY_AGENCY': return 'Accepté';
+    case 'REJECTED_BY_AGENCY': return "Décliné par l'agence";
     case 'IN_TRANSIT':
     case 'ASSIGNED_TO_DRIVER':
       return 'En transit';
@@ -286,6 +288,7 @@ export function mapPackage(p: any): ColisItem {
     pickupCode: p.pickup_code || meta.pickupCode || null,
     vendeurName: resolvedVendorName,
     vendeurPhone: resolvedVendorPhone,
+    rawStatus: p.status,
   };
 }
 
@@ -438,6 +441,7 @@ class DataService {
     isPrepaid: boolean;
     deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE';
     originDropPointId?: string;
+    agencyId?: string;
   }): Promise<ColisItem> {
     const trackCode = 'MC-' + Math.floor(100000 + Math.random() * 900000).toString();
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -454,9 +458,12 @@ class DataService {
       vendeurId = vendeur?.id || '11111111-1111-1111-1111-111111111111';
     }
 
-    const initialStatus = p.deliveryMode === 'DROP_POINT_FIRST_MILE'
-      ? 'DEPOSITED_AT_DROP_POINT'
-      : 'CREATED';
+    let initialStatus = 'CREATED';
+    if (p.agencyId) {
+      initialStatus = 'PENDING_AGENCY';
+    } else if (p.deliveryMode === 'DROP_POINT_FIRST_MILE') {
+      initialStatus = 'DEPOSITED_AT_DROP_POINT';
+    }
 
     const insertData: any = {
       tracking_code: trackCode,
@@ -466,6 +473,8 @@ class DataService {
       client_address: p.clientAddress,
       client_commune: p.clientCommune,
       status: initialStatus,
+      agency_id: p.agencyId || null,
+      origin_drop_point_id: p.originDropPointId || null,
       validation_code: otp,
       paid_by_client: p.paidByClient,
       is_prepaid: p.isPrepaid,

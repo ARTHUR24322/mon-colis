@@ -6,7 +6,7 @@ import CommuneSelect from '@/components/CommuneSelect';
 import {
   Package, DollarSign, Users, User, ArrowRight, Truck, MapPin, Phone, Search,
   Share2, Copy, Check, Plus, X, AlertTriangle, Building2, CheckCircle2, ChevronRight,
-  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home
+  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star
 } from 'lucide-react';
 import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
@@ -60,6 +60,9 @@ export default function VendeurDashboard() {
   const [isPrepaid, setIsPrepaid] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE'>('DIRECT');
   const [originDropPointId, setOriginDropPointId] = useState('');
+  const [selectedAgencyId, setSelectedAgencyId] = useState<string | null>(null);
+  const [agenciesForCommune, setAgenciesForCommune] = useState<any[]>([]);
+  const [loadingAgenciesForCommune, setLoadingAgenciesForCommune] = useState(false);
 
   // Drop points disponibles pour le premier kilomètre
   const [dropPoints, setDropPoints] = useState<DropPoint[]>([]);
@@ -131,6 +134,23 @@ export default function VendeurDashboard() {
       if (updated) setSelectedColis(updated);
     }
   }, [colis]);
+
+  // Chargement des agences disponibles pour la commune de destination
+  useEffect(() => {
+    if (clientCommune) {
+      setLoadingAgenciesForCommune(true);
+      fetch(`/api/vendor/agencies?commune=${encodeURIComponent(clientCommune)}&poids=${encodeURIComponent(poids || 1)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.agencies) setAgenciesForCommune(data.agencies);
+          else setAgenciesForCommune([]);
+        })
+        .catch(() => setAgenciesForCommune([]))
+        .finally(() => setLoadingAgenciesForCommune(false));
+    } else {
+      setAgenciesForCommune([]);
+    }
+  }, [clientCommune, poids]);
 
   /* --- Calculs Statistiques (3 chiffres clés max pour l'accueil) --- */
   const colisLivres = useMemo(() => colis.filter(c => c.status === 'Livré'), [colis]);
@@ -216,7 +236,7 @@ export default function VendeurDashboard() {
     try {
       const fullAddress = `${clientNumero ? 'N°' + clientNumero + ', ' : ''}${clientAvenue ? 'Av. ' + clientAvenue + ', ' : ''}${clientQuartier ? 'Q. ' + clientQuartier + ', ' : ''}${clientCommune}${clientReference ? ' (Réf: ' + clientReference + ')' : ''}`;
 
-      await dataService.createPackage({
+      const newPkg = await dataService.createPackage({
         clientName: clientName.trim(),
         clientAddress: fullAddress.trim(),
         clientPhone: clientPhone.trim(),
@@ -228,7 +248,21 @@ export default function VendeurDashboard() {
         isPrepaid,
         deliveryMode,
         originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
+        agencyId: selectedAgencyId || undefined,
       });
+
+      // Calcul initial du devis
+      if (newPkg?.id) {
+        try {
+          await fetch(`/api/vendor/packages/${newPkg.id}/quote`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'generate' }),
+          });
+        } catch {
+          // non-bloquant
+        }
+      }
 
       await refreshColis();
       setShowModal(false);
@@ -245,6 +279,7 @@ export default function VendeurDashboard() {
       setPrixColis('');
       setIsPrepaid(false);
       setDeliveryMode('DIRECT');
+      setSelectedAgencyId(null);
       setActiveTab('apercu');
     } catch {
       showToast('Erreur lors de la création du colis.');
@@ -986,6 +1021,84 @@ export default function VendeurDashboard() {
                 </div>
               )}
 
+              {/* Étape : Choisir une agence */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                  Attribuer à une agence de livraison :
+                </label>
+
+                {/* Option "Laisser les agences se positionner" */}
+                <div
+                  onClick={() => setSelectedAgencyId(null)}
+                  style={{
+                    padding: '0.65rem 0.75rem', borderRadius: '10px', marginBottom: '0.5rem',
+                    background: selectedAgencyId === null ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)',
+                    border: selectedAgencyId === null ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: selectedAgencyId === null ? '#fcd34d' : '#e2e8f0' }}>
+                      Laisser les agences se positionner
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                      Visible par toutes les agences agréées couvrant la zone.
+                    </div>
+                  </div>
+                  {selectedAgencyId === null && <Check size={16} color="#fcd34d" />}
+                </div>
+
+                {/* Agences filtrées */}
+                {loadingAgenciesForCommune ? (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', padding: '0.3rem 0' }}>Recherche des agences...</div>
+                ) : agenciesForCommune.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
+                    {agenciesForCommune.map((ag: any) => {
+                      const isSelected = selectedAgencyId === ag.id;
+                      return (
+                        <div
+                          key={ag.id}
+                          onClick={() => setSelectedAgencyId(ag.id)}
+                          style={{
+                            padding: '0.6rem 0.75rem', borderRadius: '10px',
+                            background: isSelected ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
+                            border: isSelected ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.08)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: isSelected ? '#4ade80' : '#fff' }}>
+                              {ag.name}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.68rem', color: '#94a3b8' }}>
+                              <span style={{ color: '#fbbf24', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                                <Star size={10} fill="#fbbf24" /> {ag.rating}
+                              </span>
+                              <span>&bull;</span>
+                              <span>~{ag.avgDeliveryHours}h</span>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#4ade80' }}>
+                              {formatPrice(ag.estimatedDeliveryPrice)}
+                            </div>
+                            <div style={{ fontSize: '0.62rem', color: '#64748b' }}>Tarif estimé</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : clientCommune ? (
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', padding: '0.2rem 0' }}>
+                    Aucune agence dédiée pour cette commune pour le moment. L'option "Laisser se positionner" sera appliquée.
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    Sélectionnez d'abord une commune de destination pour voir les agences disponibles.
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -1081,6 +1194,7 @@ export default function VendeurDashboard() {
         onClose={() => setSelectedColis(null)}
         formatPrice={formatPrice}
         role="vendeur"
+        onRefresh={refreshColis}
         onClaimSubmitted={() => {
           refreshColis();
           showToast('Réclamation enregistrée !');

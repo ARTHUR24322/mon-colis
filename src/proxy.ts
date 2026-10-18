@@ -10,9 +10,9 @@ const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] 
     redirect: '/auth/vendeur/login',
   },
   {
-    prefix: '/dashboard/agence',
+    prefix: '/agence/dashboard',
     roles: ['agence'],
-    redirect: '/auth/agence/login',
+    redirect: '/agence/login',
   },
   {
     // C3 FIX: /livreur était entièrement public — maintenant protégé
@@ -36,16 +36,28 @@ const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] 
 const SESSION_COOKIE = 'mc_session';
 
 // -- Headers de sécurité appliqués à toutes les réponses ----------------------
-function applySecurityHeaders(response: NextResponse): NextResponse {
+function applySecurityHeaders(response: NextResponse, pathname?: string): NextResponse {
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // Sécurité renforcée pour l'espace agence (route secrète)
+  if (pathname && pathname.startsWith('/agence')) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  }
+
   return response;
 }
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(SESSION_COOKIE)?.value;
+
+  // -- 0. REDIRECTION DE L'ANCIEN DASHBOARD AGENCE VERS LA ROUTE SECRÈTE --
+  if (pathname.startsWith('/dashboard/agence')) {
+    const newUrl = new URL('/agence/dashboard', request.url);
+    return applySecurityHeaders(NextResponse.redirect(newUrl), pathname);
+  }
 
   // -- 1. REDIRECTION DES SESSIONS ACTIVES DEPUIS L'ACCUEIL OU LOGIN --------
   // Un utilisateur déjà connecté ne doit pas rester sur l'écran d'accueil ou de login
@@ -54,23 +66,23 @@ export async function proxy(request: NextRequest) {
       const payload = await verifyToken(token);
       if (payload && payload.role) {
         let destination = '/dashboard/vendeur';
-        if (payload.role === 'agence') destination = '/dashboard/agence';
+        if (payload.role === 'agence') destination = '/agence/dashboard';
         else if (payload.role === 'livreur') destination = '/livreur';
         else if (payload.role === 'point_relais') destination = '/point-relais';
         else if (payload.role === 'superadmin') destination = '/admin-x9k2/dashboard';
 
         const redirectResponse = NextResponse.redirect(new URL(destination, request.url));
-        return applySecurityHeaders(redirectResponse);
+        return applySecurityHeaders(redirectResponse, pathname);
       }
     }
-    return applySecurityHeaders(NextResponse.next());
+    return applySecurityHeaders(NextResponse.next(), pathname);
   }
 
   // -- 2. VÉRIFICATION DES ROUTES PROTÉGÉES ---------------------------------
   const matched = PROTECTED_ROUTES.find((r) => pathname.startsWith(r.prefix));
 
   if (!matched) {
-    return applySecurityHeaders(NextResponse.next());
+    return applySecurityHeaders(NextResponse.next(), pathname);
   }
 
   // -- Vérification cookie de session ----------------------------------------
@@ -79,7 +91,7 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL(matched.redirect, request.url);
     loginUrl.searchParams.set('redirect', pathname);
     const redirectResponse = NextResponse.redirect(loginUrl);
-    applySecurityHeaders(redirectResponse);
+    applySecurityHeaders(redirectResponse, pathname);
     return redirectResponse;
   }
 
@@ -96,7 +108,7 @@ export async function proxy(request: NextRequest) {
       maxAge: 0,
       path: '/',
     });
-    applySecurityHeaders(redirectResponse);
+    applySecurityHeaders(redirectResponse, pathname);
     return redirectResponse;
   }
 
@@ -106,7 +118,7 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL(matched.redirect, request.url);
     loginUrl.searchParams.set('error', 'role_mismatch');
     const redirectResponse = NextResponse.redirect(loginUrl);
-    applySecurityHeaders(redirectResponse);
+    applySecurityHeaders(redirectResponse, pathname);
     return redirectResponse;
   }
 
@@ -122,18 +134,13 @@ export async function proxy(request: NextRequest) {
     response.headers.set('X-Frame-Options', 'DENY');
   }
 
-  applySecurityHeaders(response);
+  applySecurityHeaders(response, pathname);
   return response;
 }
 
 export const config = {
   matcher: [
     '/',
-    '/login',
-    '/dashboard/vendeur/:path*',
-    '/dashboard/agence/:path*',
-    '/livreur/:path*',
-    '/point-relais/:path*',
-    '/admin-x9k2/dashboard/:path*',
+    '/(.*)',
   ],
 };

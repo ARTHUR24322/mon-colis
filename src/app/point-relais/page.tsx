@@ -12,6 +12,7 @@ import { ColisItem, dataService } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
 import { DROP_POINT_REFUSAL_REASONS } from '@/lib/package-state-machine';
+import DropPointHandoverScanner from '@/components/DropPointHandoverScanner';
 
 type DashboardTab = 'incoming_vendor' | 'incoming_driver' | 'available' | 'vendor_deposits';
 
@@ -544,6 +545,19 @@ export default function PointRelaisPage() {
         ═══════════════════════════════ */}
         {activeTab === 'vendor_deposits' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {/* Scanner / Réception de remise vendeur (Premier Kilomètre) */}
+            {agent && (
+              <DropPointHandoverScanner
+                dropPointId={agent.dropPointId}
+                agentId={agent.id}
+                agentName={agent.name}
+                formatPrice={formatPrice}
+                onSuccess={() => {
+                  loadPackages(agent.dropPointId);
+                }}
+              />
+            )}
 
             {/* Success notification after deposit */}
             {depositResult && (
