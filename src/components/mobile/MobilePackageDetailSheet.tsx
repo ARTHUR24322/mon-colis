@@ -302,9 +302,65 @@ export default function MobilePackageDetailSheet({
               )}
             </div>
           )}
+          {colis.originDropPoint && (
+            <div style={{
+              marginTop: '0.5rem',
+              padding: '0.75rem',
+              borderRadius: '12px',
+              background: 'rgba(249, 115, 22, 0.1)',
+              border: '1px solid rgba(249, 115, 22, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#fb923c', textTransform: 'uppercase' }}>
+                  📍 Relais de collecte (Départ)
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                  {colis.originDropPoint.openingHours}
+                </span>
+              </div>
+              <div style={{ fontWeight: '700', color: '#f8fafc', fontSize: '0.88rem' }}>
+                {colis.originDropPoint.name}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
+                {colis.originDropPoint.address} ({colis.originDropPoint.commune})
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                {colis.originDropPoint.phone && (
+                  <a
+                    href={`tel:${colis.originDropPoint.phone}`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                      padding: '0.35rem 0.65rem', borderRadius: '8px',
+                      background: '#ea580c', color: '#fff', fontSize: '0.75rem',
+                      fontWeight: '700', textDecoration: 'none'
+                    }}
+                  >
+                    <Phone size={12} /> Appeler le relais
+                  </a>
+                )}
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(colis.originDropPoint.name + ' ' + colis.originDropPoint.address + ' ' + colis.originDropPoint.commune)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                    padding: '0.35rem 0.65rem', borderRadius: '8px',
+                    background: 'rgba(255, 255, 255, 0.08)', color: '#fff',
+                    fontSize: '0.75rem', fontWeight: '600', textDecoration: 'none',
+                    border: '1px solid rgba(255, 255, 255, 0.15)'
+                  }}
+                >
+                  <MapPin size={12} /> Itinéraire
+                </a>
+              </div>
+            </div>
+          )}
           {colis.destDropPoint && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#cbd5e1' }}>
-              <MapPin size={15} color="#4ade80" /> Point Relais : <strong>{colis.destDropPoint.name}</strong> ({colis.destDropPoint.commune})
+              <MapPin size={15} color="#4ade80" /> Point Relais Dest. : <strong>{colis.destDropPoint.name}</strong> ({colis.destDropPoint.commune})
             </div>
           )}
         </div>

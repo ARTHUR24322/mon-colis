@@ -33,6 +33,8 @@ interface ColisRow {
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   'PENDING_AGENCY':        { label: 'En attente',    color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  'QUOTE_PENDING':         { label: 'Devis en attente', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  'WAITING_FOR_AGENCY_PICKUP': { label: 'À récupérer au relais', color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
   'ACCEPTED_BY_AGENCY':    { label: 'Accepté',       color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
   'REJECTED_BY_AGENCY':    { label: 'Refusé',        color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
   'ASSIGNED_TO_DRIVER':    { label: 'Assigné',       color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
@@ -143,8 +145,8 @@ export default function AgenceDashboardHome() {
 
   // ── KPIs ──
   const kpis = useMemo(() => {
-    const pending = colis.filter(c => c.status === 'PENDING_AGENCY').length;
-    const inTransit = colis.filter(c => ['IN_TRANSIT', 'ASSIGNED_TO_DRIVER'].includes(c.status)).length;
+    const pending = colis.filter(c => ['PENDING_AGENCY', 'QUOTE_PENDING', 'CREATED'].includes(c.status)).length;
+    const inTransit = colis.filter(c => ['IN_TRANSIT', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP', 'DEPOSITED_AT_DROP_POINT'].includes(c.status)).length;
     const delivered = colis.filter(c => c.status === 'DELIVERED').length;
     const disputes = colis.filter(c => c.status === 'IN_DISPUTE').length;
     return { pending, inTransit, delivered, disputes };
@@ -153,7 +155,19 @@ export default function AgenceDashboardHome() {
   // ── Filtrage + recherche ──
   const filtered = useMemo(() => {
     return colis.filter(c => {
-      const matchStatus = statusFilter === 'all' || c.status === statusFilter;
+      let matchStatus = true;
+      if (statusFilter === 'PENDING_AGENCY') {
+        matchStatus = ['PENDING_AGENCY', 'QUOTE_PENDING', 'CREATED'].includes(c.status);
+      } else if (statusFilter === 'IN_TRANSIT') {
+        matchStatus = ['IN_TRANSIT', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP', 'DEPOSITED_AT_DROP_POINT'].includes(c.status);
+      } else if (statusFilter === 'DELIVERED') {
+        matchStatus = c.status === 'DELIVERED';
+      } else if (statusFilter === 'IN_DISPUTE') {
+        matchStatus = c.status === 'IN_DISPUTE';
+      } else if (statusFilter !== 'all') {
+        matchStatus = c.status === statusFilter;
+      }
+
       const matchSearch = !search ||
         c.trackingCode.toLowerCase().includes(search.toLowerCase()) ||
         c.clientName.toLowerCase().includes(search.toLowerCase()) ||
@@ -352,15 +366,15 @@ export default function AgenceDashboardHome() {
                     </td>
                     <td style={{ padding: '0.65rem 1rem', color: '#475569', whiteSpace: 'nowrap' }}>{c.date}</td>
                     <td style={{ padding: '0.65rem 1rem' }}>
-                      {c.status === 'PENDING_AGENCY' ? (
+                      {['PENDING_AGENCY', 'QUOTE_PENDING', 'CREATED'].includes(c.status) ? (
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                           <button
                             onClick={() => handleAgencyAction(c.id, 'accept')}
                             disabled={actionLoading === c.id}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '3px',
-                              padding: '4px 8px', borderRadius: '6px', border: 'none',
-                              background: '#10b981', color: '#000', fontSize: '0.72rem',
+                              padding: '5px 10px', borderRadius: '6px', border: 'none',
+                              background: '#10b981', color: '#000', fontSize: '0.75rem',
                               fontWeight: '800', cursor: actionLoading === c.id ? 'not-allowed' : 'pointer',
                             }}
                           >
@@ -374,9 +388,9 @@ export default function AgenceDashboardHome() {
                             disabled={actionLoading === c.id}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: '3px',
-                              padding: '4px 8px', borderRadius: '6px',
+                              padding: '5px 10px', borderRadius: '6px',
                               background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
-                              color: '#f87171', fontSize: '0.72rem',
+                              color: '#f87171', fontSize: '0.75rem',
                               fontWeight: '700', cursor: actionLoading === c.id ? 'not-allowed' : 'pointer',
                             }}
                           >
@@ -384,15 +398,15 @@ export default function AgenceDashboardHome() {
                           </button>
                         </div>
                       ) : (
-                        <a
-                          href={`/agence/dashboard/colis/${c.id}`}
+                        <Link
+                          href="/agence/colis"
                           style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '2px',
+                            display: 'inline-flex', alignItems: 'center', gap: '3px',
                             color: '#f59e0b', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none',
                           }}
                         >
-                          Détail <ChevronRight size={12} />
-                        </a>
+                          Gérer <ChevronRight size={12} />
+                        </Link>
                       )}
                     </td>
                   </tr>

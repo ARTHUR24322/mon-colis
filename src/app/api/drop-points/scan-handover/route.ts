@@ -39,18 +39,24 @@ export async function GET(request: NextRequest) {
       // ce n'est pas du JSON, garder brut
     }
 
-    // 1. Recherche du colis
+    // 1. Recherche du colis avec son agence et son éventuel livreur assigné
     let query = supabaseAdmin
       .from('packages')
       .select(`
         id, tracking_code, status, pickup_code, package_price, weight,
         origin_drop_point_id, dest_drop_point_id, delivery_mode,
         paid_by_client, is_prepaid, client_name, client_phone, client_commune,
-        vendeur_id, agency_id, quote_id, quote_accepted_at,
+        vendeur_id, agency_id, driver_id, quote_id, quote_accepted_at,
         quote:package_quotes!quote_id(
           id, status, prix_marchandise, frais_livraison, montant_encaisser, devise, valid_until
         ),
-        vendeur:profiles!vendeur_id(name, phone)
+        vendeur:profiles!vendeur_id(name, phone),
+        agency:agencies!agency_id(
+          id, profile:profiles!id(name, phone)
+        ),
+        driver:drivers!driver_id(
+          id, phone, profile:profiles!id(name)
+        )
       `);
 
     // Tester si c'est un UUID valide ou un tracking_code
@@ -73,32 +79,41 @@ export async function GET(request: NextRequest) {
     const pkg = pkgs[0];
 
     // 2. Vérification d'attribution au point relais
-    // Pour le premier kilomètre, origin_drop_point_id doit correspondre à ce relais
     const isOriginRelay = pkg.origin_drop_point_id === dropPointId;
     const isDestRelay = pkg.dest_drop_point_id === dropPointId;
     const isAssignedToThisRelay = isOriginRelay || isDestRelay;
 
-    // 3. Vérification du devis
-    const hasAcceptedQuote = Boolean(
-      (pkg.quote && (pkg.quote as any).status === 'ACCEPTED') ||
-      pkg.quote_accepted_at
-    );
+    // 3. Règle Option A : L'agence choisie par le vendeur doit avoir accepté le colis
+    const isAcceptedByAgency = ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER'].includes(pkg.status);
+    let handoverBlockReason: string | null = null;
 
-    // 4. Calcul du montant à encaisser (si paiement à la livraison COD)
+    if (!pkg.agency_id) {
+      handoverBlockReason = 'Aucune agence n’a été choisie par le vendeur pour ce colis.';
+    } else if (pkg.status === 'PENDING_AGENCY') {
+      handoverBlockReason = 'L’agence sélectionnée n’a pas encore validé la prise en charge de ce colis. Le dépôt n’est autorisé qu’après acceptation par l’agence.';
+    } else if (pkg.status === 'REJECTED_BY_AGENCY') {
+      handoverBlockReason = 'L’agence a décliné ce colis. Le vendeur doit choisir une nouvelle agence avant tout dépôt.';
+    }
+
+    // 4. Calcul du montant à encaisser
     const quote = pkg.quote as any;
     const montantAEncaisser = quote?.montant_encaisser ?? (pkg.is_prepaid ? 0 : (pkg.package_price || 0));
 
-    // 5. Statut actuel
-    const canAcceptHandover = [
-      'CREATED',
-      'QUOTE_PENDING',
-      'PENDING_AGENCY',
-      'ACCEPTED_BY_AGENCY',
-      'PENDING_DROP_POINT_CONFIRMATION',
-      'WAITING_FOR_AGENCY_PICKUP'
-    ].includes(pkg.status);
+    // 5. Statut d'acceptabilité (Règle Option A stricte)
+    const canAcceptHandover = isAcceptedByAgency && !handoverBlockReason && (
+      pkg.status !== 'DEPOSITED_AT_DROP_POINT' &&
+      pkg.status !== 'WAITING_FOR_AGENCY_PICKUP' &&
+      pkg.status !== 'DELIVERED'
+    );
 
     const vendeurProfile = Array.isArray(pkg.vendeur) ? pkg.vendeur[0] : pkg.vendeur;
+    const agencyProfile = Array.isArray(pkg.agency) ? pkg.agency[0] : pkg.agency;
+    const agencyName = (agencyProfile as any)?.profile?.name || (pkg.agency_id ? 'Agence assignée' : 'Non assignée');
+    const agencyPhone = (agencyProfile as any)?.profile?.phone || '';
+
+    const driverProfile = Array.isArray(pkg.driver) ? pkg.driver[0] : pkg.driver;
+    const expectedDriverName = (driverProfile as any)?.profile?.name || null;
+    const expectedDriverPhone = (driverProfile as any)?.phone || null;
 
     return NextResponse.json({
       found: true,
@@ -111,6 +126,11 @@ export async function GET(request: NextRequest) {
         clientCommune: pkg.client_commune,
         vendeurName: vendeurProfile?.name || 'Vendeur',
         vendeurPhone: vendeurProfile?.phone || '',
+        agencyId: pkg.agency_id,
+        agencyName,
+        agencyPhone,
+        expectedDriverName,
+        expectedDriverPhone,
         weight: pkg.weight || 1,
         packagePrice: pkg.package_price,
         paidByClient: pkg.paid_by_client,
@@ -121,8 +141,9 @@ export async function GET(request: NextRequest) {
       },
       checks: {
         isAssignedToThisRelay,
-        hasAcceptedQuote,
+        isAcceptedByAgency,
         canAcceptHandover,
+        handoverBlockReason,
         alreadyDeposited: pkg.status === 'DEPOSITED_AT_DROP_POINT' || pkg.status === 'WAITING_FOR_AGENCY_PICKUP',
       }
     });
@@ -152,7 +173,7 @@ export async function POST(request: NextRequest) {
     // 1. Récupérer le colis et le point relais
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
-      .select('id, tracking_code, status, vendeur_id, origin_drop_point_id, quote_id, quote_accepted_at')
+      .select('id, tracking_code, status, vendeur_id, agency_id, origin_drop_point_id, quote_id, quote_accepted_at')
       .eq('id', packageId)
       .maybeSingle();
 
@@ -170,16 +191,34 @@ export async function POST(request: NextRequest) {
 
     // 2. Traitement ACCEPT
     if (action === 'ACCEPT') {
-      // Déduire un crédit si disponible
-      if (dp && typeof dp.credits === 'number' && dp.credits > 0) {
-        await supabaseAdmin
-          .from('drop_points')
-          .update({ credits: dp.credits - 1 })
-          .eq('id', dropPointId);
+      // Règle 1 (Option A) : L'agence doit avoir préalablement accepté le colis
+      if (!pkg.agency_id) {
+        return NextResponse.json({
+          error: 'Dépôt impossible : le vendeur n’a pas encore sélectionné d’agence.'
+        }, { status: 400 });
       }
 
-      // Mettre à jour le statut du colis
-      // Passe à WAITING_FOR_AGENCY_PICKUP ou DEPOSITED_AT_DROP_POINT
+      if (!['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER'].includes(pkg.status)) {
+        return NextResponse.json({
+          error: 'Dépôt impossible : l’agence sélectionnée n’a pas encore accepté le colis. Le dépôt n’est autorisé qu’après validation par l’agence.'
+        }, { status: 400 });
+      }
+
+      // Règle 2 : À 0 crédit, le point relais est bloqué et ne peut plus réceptionner
+      const currentCredits = dp?.credits ?? 0;
+      if (currentCredits <= 0) {
+        return NextResponse.json({
+          error: 'Solde de crédits insuffisant (0 crédit). Votre point relais ne peut plus réceptionner de colis. Veuillez recharger vos crédits.'
+        }, { status: 403 });
+      }
+
+      // Déduire 1 crédit
+      await supabaseAdmin
+        .from('drop_points')
+        .update({ credits: currentCredits - 1 })
+        .eq('id', dropPointId);
+
+      // Mettre à jour le statut du colis vers WAITING_FOR_AGENCY_PICKUP
       const newStatus = 'WAITING_FOR_AGENCY_PICKUP';
 
       const { error: updErr } = await supabaseAdmin

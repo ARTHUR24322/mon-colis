@@ -238,8 +238,31 @@ export function mapPackage(p: any): ColisItem {
   const originDpId = p.origin_drop_point_id || meta.originDropPointId || null;
   const destDpId = p.dest_drop_point_id || meta.destDropPointId || null;
 
-  const originDropPoint = originDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === originDpId) || null) : null;
-  const destDropPoint = destDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === destDpId) || null) : null;
+  const rawOriginDp = Array.isArray(p.origin_drop_point) ? p.origin_drop_point[0] : p.origin_drop_point;
+  const originDropPoint: DropPoint | null = rawOriginDp ? {
+    id: rawOriginDp.id,
+    name: rawOriginDp.name,
+    commune: rawOriginDp.commune || '',
+    address: rawOriginDp.address || '',
+    phone: rawOriginDp.phone || '',
+    managerName: rawOriginDp.manager_name || '',
+    openingHours: rawOriginDp.opening_hours || '8h - 18h',
+    isActive: rawOriginDp.is_active !== false,
+    credits: rawOriginDp.credits || 0,
+  } : (originDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === originDpId) || null) : null);
+
+  const rawDestDp = Array.isArray(p.dest_drop_point) ? p.dest_drop_point[0] : p.dest_drop_point;
+  const destDropPoint: DropPoint | null = rawDestDp ? {
+    id: rawDestDp.id,
+    name: rawDestDp.name,
+    commune: rawDestDp.commune || '',
+    address: rawDestDp.address || '',
+    phone: rawDestDp.phone || '',
+    managerName: rawDestDp.manager_name || '',
+    openingHours: rawDestDp.opening_hours || '8h - 18h',
+    isActive: rawDestDp.is_active !== false,
+    credits: rawDestDp.credits || 0,
+  } : (destDpId ? (DEFAULT_DROP_POINTS.find(dp => dp.id === destDpId) || null) : null);
 
   // Safe seller name resolution
   const rawVendeur = Array.isArray(p.vendeur) ? p.vendeur[0] : p.vendeur;
@@ -310,7 +333,9 @@ class DataService {
           inaccessibility_note, rerouted_at, pickup_code,
           agency:agencies(id, profile:profiles(name)),
           driver:drivers(id, phone, profile:profiles(name)),
-          vendeur:profiles!packages_vendeur_id_fkey(id, name, phone)
+          vendeur:profiles!packages_vendeur_id_fkey(id, name, phone),
+          origin_drop_point:drop_points!origin_drop_point_id(id, name, commune, address, phone, manager_name, opening_hours),
+          dest_drop_point:drop_points!dest_drop_point_id(id, name, commune, address, phone, manager_name, opening_hours)
         `)
         .order('created_at', { ascending: false });
       data = res.data;
@@ -1734,7 +1759,7 @@ class DataService {
     const all = await this.getAllPackages();
     return all.filter(p =>
       p.originDropPointId === dropPointId &&
-      (p.status === 'En attente de collecte' || p.status === 'Déposé en point relais')
+      (p.status === 'En attente de collecte' || p.status === 'Déposé en point relais' || p.rawStatus === 'WAITING_FOR_AGENCY_PICKUP')
     );
   }
 

@@ -1,22 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   MapPin, LogOut, Package, CheckCircle2,
-  Clock, AlertCircle,
-  RefreshCw, Plus, QrCode, Truck, Building2,
-  X, Copy, Check, Lock
+  Clock, AlertCircle, RefreshCw, QrCode, Truck,
+  Building2, X, Copy, Check, Lock, Search, AlertTriangle,
+  Phone, Share2, ArrowRight, ShieldCheck, ShieldAlert,
+  ChevronRight, Calendar, User, CheckCircle, Camera
 } from 'lucide-react';
 import Link from 'next/link';
 import { ColisItem, dataService } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
-import { DROP_POINT_REFUSAL_REASONS } from '@/lib/package-state-machine';
-import DropPointHandoverScanner from '@/components/DropPointHandoverScanner';
+import QRScanner from '@/components/QRScanner';
 
-type DashboardTab = 'incoming_vendor' | 'incoming_driver' | 'available' | 'vendor_deposits';
-
-type DepositResult = { trackingCode: string; otp: string; pickupCode?: string | null; };
+// Types navigation
+type NavTab = 'accueil' | 'stock' | 'scanner' | 'plus';
+type StockFilter = 'all' | 'collecte_livreur' | 'retrait_client';
+type ScannerMode = 'vendor_reception' | 'driver_handover' | 'client_otp';
 
 interface AgentSession {
   id: string;
@@ -27,87 +28,105 @@ interface AgentSession {
   dropPointCommune: string;
 }
 
-interface Agency {
-  id: string;
-  name: string;
+// Helper audio & vibration synthétique pour feedback immédiat
+function playHapticFeedback(type: 'success' | 'error') {
+  try {
+    if (typeof window === 'undefined') return;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'success') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(784, ctx.currentTime); // G5
+        osc.frequency.exponentialRampToValueAtTime(1046, ctx.currentTime + 0.12); // C6
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.22);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, ctx.currentTime);
+        osc.frequency.setValueAtTime(160, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    }
+    if (navigator?.vibrate) {
+      if (type === 'success') {
+        navigator.vibrate([80]);
+      } else {
+        navigator.vibrate([120, 60, 120, 60, 200]);
+      }
+    }
+  } catch {
+    // Non bloquant si audio non initialisé
+  }
 }
 
 export default function PointRelaisPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
   const { formatPrice } = useCurrency();
-  
+
   const [agent, setAgent] = useState<AgentSession | null>(null);
 
-  // Auto-login if session exists
-  useEffect(() => {
-    if (sessionChecked && user?.role === 'point_relais') {
-      const a = {
-        id: user.id,
-        agentNumber: user.agentNumber || '',
-        name: user.name,
-        dropPointId: user.dropPointId || user.agencyId || 'dp-1',
-        dropPointName: user.dropPointName || 'Point Relais',
-        dropPointCommune: user.dropPointCommune || 'Commune'
-      };
-      setAgent(a);
-      loadPackages(a.dropPointId);
-      loadAgencies();
-    }
-  }, [user, sessionChecked]);
+  // Navigation
+  const [currentTab, setCurrentTab] = useState<NavTab>('accueil');
+  const [stockFilter, setStockFilter] = useState<StockFilter>('all');
+  const [stockSearch, setStockSearch] = useState('');
 
-  /* -- UI state -- */
-  const [showQrModal, setShowQrModal] = useState(false);
-
-  /* -- Dashboard state -- */
+  // Données des colis
   const [incomingVendor, setIncomingVendor] = useState<ColisItem[]>([]);
   const [incomingDriver, setIncomingDriver] = useState<ColisItem[]>([]);
   const [available, setAvailable] = useState<ColisItem[]>([]);
   const [vendorDeposits, setVendorDeposits] = useState<ColisItem[]>([]);
   const [loadingData, setLoadingData] = useState(false);
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<DashboardTab>('vendor_deposits');
-
-  /* -- Vendor deposit form state -- */
-  const [showDepositForm, setShowDepositForm] = useState(false);
-  const [depositForm, setDepositForm] = useState({
-    vendeurName: '',
-    vendeurPhone: '',
-    clientName: '',
-    clientPhone: '',
-    clientAddress: '',
-    description: '',
-  });
-  const [depositSubmitting, setDepositSubmitting] = useState(false);
-  const [depositResult, setDepositResult] = useState<DepositResult | null>(null);
-  const [copiedCode, setCopiedCode] = useState(false);
-
-  /* -- Agency assign state -- */
-  const [agencies, setAgencies] = useState<Agency[]>([]);
-  const [assigningDeposit, setAssigningDeposit] = useState<string | null>(null); // pickupCode
-  const [selectedAgencyId, setSelectedAgencyId] = useState('');
-  const [assignLoading, setAssignLoading] = useState(false);
-  const [assignSuccess, setAssignSuccess] = useState<string | null>(null);
-
-  /* -- OTP & Refusal state -- */
-  const [otpInputs, setOtpInputs] = useState<Record<string, string>>({});
-  const [otpErrors, setOtpErrors] = useState<Record<string, string>>({});
-  const [otpSuccess, setOtpSuccess] = useState<Record<string, boolean>>({});
-  const [validatingOtpId, setValidatingOtpId] = useState<string | null>(null);
-  const [refusingId, setRefusingId] = useState<string | null>(null);
-  const [parcelToRefuse, setParcelToRefuse] = useState<ColisItem | null>(null);
-  const [refusalReasonCode, setRefusalReasonCode] = useState<string>('DAMAGED_PARCEL');
-  const [refusalComment, setRefusalComment] = useState<string>('');
-  const [refusalSubmitting, setRefusalSubmitting] = useState(false);
-  const [refusalError, setRefusalError] = useState<string | null>(null);
   const [dropPointCredits, setDropPointCredits] = useState<number | null>(null);
-  const [dropPointInfo, setDropPointInfo] = useState<{ address?: string; managerName?: string } | null>(null);
+  const [dropPointInfo, setDropPointInfo] = useState<{ address?: string; managerName?: string; phone?: string; qrToken?: string } | null>(null);
 
-  /* -- Handover to Driver state -- */
-  const [driverPickupCode, setDriverPickupCode] = useState('');
+  // Modals
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [selectedColisDetail, setSelectedColisDetail] = useState<ColisItem | null>(null);
+
+  // Scanner state
+  const [scannerMode, setScannerMode] = useState<ScannerMode>('vendor_reception');
+  const [cameraActive, setCameraActive] = useState(false);
+  const [manualCode, setManualCode] = useState('');
+  const [scanResultToast, setScanResultToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [scannerLoading, setScannerLoading] = useState(false);
+
+  // Modal Retrait Client (OTP)
+  const [otpModalColis, setOtpModalColis] = useState<ColisItem | null>(null);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+
+  // Modal Remise Livreur
+  const [handoverModalColis, setHandoverModalColis] = useState<ColisItem | null>(null);
+  const [driverIdentifierInput, setDriverIdentifierInput] = useState('');
   const [handoverLoading, setHandoverLoading] = useState(false);
+  const [handoverError, setHandoverError] = useState<string | null>(null);
 
-  async function loadPackages(dpId: string) {
+  // Modal Clôture & Inventaire fin de journée
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [inventoryScannedCodes, setInventoryScannedCodes] = useState<string[]>([]);
+  const [inventoryInput, setInventoryInput] = useState('');
+
+  // Toast notification
+  const triggerToast = (message: string, type: 'success' | 'error') => {
+    playHapticFeedback(type);
+    setScanResultToast({ message, type });
+    setTimeout(() => setScanResultToast(null), 4000);
+  };
+
+  // Chargement des données
+  const loadPackages = async (dpId: string) => {
     setLoadingData(true);
     try {
       const res = await fetch(`/api/drop-points/${dpId}/dashboard`, { cache: 'no-store' });
@@ -121,7 +140,12 @@ export default function PointRelaisPage() {
         setVendorDeposits(data.vendorDeposits ?? []);
         if (data.dropPoint) {
           setDropPointCredits(data.dropPoint.credits);
-          setDropPointInfo({ address: data.dropPoint.address, managerName: data.dropPoint.managerName });
+          setDropPointInfo({
+            address: data.dropPoint.address,
+            managerName: data.dropPoint.managerName,
+            phone: data.dropPoint.phone,
+            qrToken: data.dropPoint.id,
+          });
         }
       }
     } catch (e) {
@@ -129,1276 +153,1472 @@ export default function PointRelaisPage() {
     } finally {
       setLoadingData(false);
     }
-  }
+  };
 
-  async function loadAgencies() {
-    try {
-      const list = await dataService.getAgenciesForDropPoint();
-      setAgencies(list);
-    } catch {
-      // silently fail
+  // Initialisation session
+  useEffect(() => {
+    if (sessionChecked && user?.role === 'point_relais') {
+      const a: AgentSession = {
+        id: user.id,
+        agentNumber: user.agentNumber || '000000',
+        name: user.name,
+        dropPointId: user.dropPointId || user.agencyId || 'dp-1',
+        dropPointName: user.dropPointName || 'Point Relais',
+        dropPointCommune: user.dropPointCommune || 'Kinshasa',
+      };
+      setAgent(a);
+      loadPackages(a.dropPointId);
     }
-  }
+  }, [user, sessionChecked]);
 
-  /* -- Login is now handled by /auth/point-relais/login -- */
+  // Colis unifiés en stock
+  const allStockColis = useMemo(() => {
+    const list: ColisItem[] = [];
+    // 1. Dépôts vendeurs à collecter
+    vendorDeposits.forEach(p => {
+      if (!list.some(x => x.id === p.id)) list.push(p);
+    });
+    // 2. Colis disponibles pour retrait client
+    available.forEach(p => {
+      if (!list.some(x => x.id === p.id)) list.push(p);
+    });
+    return list;
+  }, [vendorDeposits, available]);
 
-  /* -- Confirm reception -- */
-  async function handleConfirm(colisId: string) {
+  // Filtrage du stock
+  const filteredStock = useMemo(() => {
+    return allStockColis.filter(c => {
+      const isCollecte = vendorDeposits.some(p => p.id === c.id);
+      const isRetrait = available.some(p => p.id === c.id);
+
+      let matchType = true;
+      if (stockFilter === 'collecte_livreur') matchType = isCollecte;
+      if (stockFilter === 'retrait_client') matchType = isRetrait;
+
+      const q = stockSearch.toLowerCase().trim();
+      const matchQuery = !q ||
+        c.trackingCode.toLowerCase().includes(q) ||
+        c.clientName.toLowerCase().includes(q) ||
+        (c.vendeurName && c.vendeurName.toLowerCase().includes(q)) ||
+        (c.pickupCode && c.pickupCode.toLowerCase().includes(q));
+
+      return matchType && matchQuery;
+    });
+  }, [allStockColis, stockFilter, stockSearch, vendorDeposits, available]);
+
+  // Actions Scanner
+  const handleProcessScanCode = async (code: string) => {
     if (!agent) return;
-    setConfirmingId(colisId);
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+
+    setScannerLoading(true);
+
     try {
-      const res = await fetch('/api/drop-points/agents/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colisId, agentId: agent.id }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        setConfirmSuccess(colisId);
-        setTimeout(async () => {
-          setConfirmSuccess(null);
-          await loadPackages(agent.dropPointId); // aussi recharge les crédits
-          // Rediriger selon le type de colis confirmé
-          if (json.type === 'vendor') {
-            setActiveTab('vendor_deposits');
-          } else {
-            setActiveTab('available');
-          }
-        }, 1500);
-      } else {
-        alert(json.error || 'Erreur lors de la confirmation.');
-      }
-    } catch {
-      alert('Erreur réseau.');
-    } finally {
-      setConfirmingId(null);
-    }
-  }
+      if (scannerMode === 'vendor_reception') {
+        // Mode Réception Dépôt Vendeur
+        if (dropPointCredits !== null && dropPointCredits <= 0) {
+          triggerToast('Réception impossible : votre solde de crédits est épuisé (0 crédit). Rechargez votre compte.', 'error');
+          return;
+        }
 
-  /* -- Refusal Modal & Execution (livreur → drop point) -- */
-  function openRefusalModal(colis: ColisItem) {
-    setParcelToRefuse(colis);
-    setRefusalReasonCode('DAMAGED_PARCEL');
-    setRefusalComment('');
-    setRefusalError(null);
-  }
+        // 1. Vérification scan-handover
+        const verifyRes = await fetch(`/api/drop-points/scan-handover?code=${encodeURIComponent(cleanCode)}&dropPointId=${encodeURIComponent(agent.dropPointId)}`);
+        const verifyJson = await verifyRes.json();
 
-  async function handleConfirmRefusal(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agent || !parcelToRefuse) return;
+        if (!verifyRes.ok || !verifyJson.found) {
+          triggerToast(verifyJson.error || 'Colis introuvable ou déjà réceptionné.', 'error');
+          return;
+        }
 
-    setRefusalSubmitting(true);
-    setRefusalError(null);
-    try {
-      const res = await fetch('/api/drop-points/agents/refuse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          colisId: parcelToRefuse.id,
-          refusalReasonCode,
-          comment: refusalComment.trim() || undefined,
-          dropPointId: agent.dropPointId,
-        }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        setParcelToRefuse(null);
-        await loadPackages(agent.dropPointId);
-      } else {
-        setRefusalError(json.error || 'Erreur lors du refus.');
-      }
-    } catch {
-      setRefusalError('Erreur réseau lors de la communication avec le serveur.');
-    } finally {
-      setRefusalSubmitting(false);
-    }
-  }
-
-  /* -- Validate OTP (client pickup) -- */
-  async function handleValidateOtp(colisId: string) {
-    const code = otpInputs[colisId];
-    if (!code || code.length < 6) {
-      setOtpErrors(prev => ({ ...prev, [colisId]: 'Veuillez saisir les 6 chiffres.' }));
-      return;
-    }
-    setValidatingOtpId(colisId);
-    setOtpErrors(prev => ({ ...prev, [colisId]: '' }));
-    try {
-      // Route correcte : /api/packages/[id]/validate-otp
-      const res = await fetch(`/api/packages/${colisId}/validate-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otp: code }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        setOtpSuccess(prev => ({ ...prev, [colisId]: true }));
-        setTimeout(() => {
-          if (agent) loadPackages(agent.dropPointId);
-        }, 2000);
-      } else {
-        setOtpErrors(prev => ({ ...prev, [colisId]: json.error || 'Code incorrect.' }));
-      }
-    } catch {
-      setOtpErrors(prev => ({ ...prev, [colisId]: 'Erreur réseau.' }));
-    } finally {
-      setValidatingOtpId(null);
-    }
-  }
-
-  /* -- Create vendor deposit -- */
-  async function handleDepositSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agent) return;
-    setDepositSubmitting(true);
-    try {
-      const res = await fetch('/api/drop-points/vendor-deposit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dropPointId: agent.dropPointId,
-          ...depositForm,
-        }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        const pkg: ColisItem = json.deposit;
-        setDepositResult({
-          trackingCode: pkg.trackingCode,
-          otp: pkg.otp,
-          pickupCode: pkg.pickupCode,
+        // 2. Validation de la prise en charge
+        const acceptRes = await fetch('/api/drop-points/scan-handover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packageId: verifyJson.package.id,
+            dropPointId: agent.dropPointId,
+            agentId: agent.id,
+            agentName: agent.name,
+            action: 'ACCEPT',
+          }),
         });
-        // Rafraîchir la liste depuis la BDD
-        await loadPackages(agent.dropPointId);
-        setDepositForm({ vendeurName: '', vendeurPhone: '', clientName: '', clientPhone: '', clientAddress: '', description: '' });
-      } else {
-        alert(json.error || 'Erreur lors de la création du dépôt.');
-      }
-    } catch {
-      alert('Erreur réseau.');
-    } finally {
-      setDepositSubmitting(false);
-    }
-  }
 
-  /* -- Handover package to Driver -- */
-  async function handleHandoverPackage(e: React.FormEvent) {
-    e.preventDefault();
-    if (!agent || !driverPickupCode) return;
+        const acceptJson = await acceptRes.json();
+        if (acceptRes.ok) {
+          triggerToast(`✅ Dépôt réceptionné ! Colis ${verifyJson.package.trackingCode} prêt pour l'agence.`, 'success');
+          setManualCode('');
+          setCameraActive(false);
+          await loadPackages(agent.dropPointId);
+        } else {
+          triggerToast(acceptJson.error || 'Erreur lors de la prise en charge.', 'error');
+        }
+      } else if (scannerMode === 'driver_handover') {
+        // Mode Remise au Livreur : le code peut être le tracking du colis ou le code livreur
+        // Si on a déjà un colis en cours, c'est l'identifiant livreur
+        if (handoverModalColis) {
+          await submitHandoverToDriver(handoverModalColis.id, cleanCode);
+        } else {
+          // Trouver le colis correspondant dans le stock
+          const found = vendorDeposits.find(p =>
+            p.trackingCode.toLowerCase() === cleanCode.toLowerCase() ||
+            p.id.toLowerCase() === cleanCode.toLowerCase() ||
+            (p.pickupCode && p.pickupCode.toLowerCase() === cleanCode.toLowerCase())
+          );
+          if (found) {
+            setHandoverModalColis(found);
+            setDriverIdentifierInput('');
+            triggerToast('Colis identifié. Scannez maintenant le QR dynamique du livreur.', 'success');
+          } else {
+            triggerToast('Aucun colis à remettre au livreur ne correspond à ce code.', 'error');
+          }
+        }
+      } else if (scannerMode === 'client_otp') {
+        // Mode Retrait Client
+        const found = available.find(p =>
+          p.trackingCode.toLowerCase() === cleanCode.toLowerCase() ||
+          p.id.toLowerCase() === cleanCode.toLowerCase() ||
+          (p.pickupCode && p.pickupCode.toLowerCase() === cleanCode.toLowerCase())
+        );
+        if (found) {
+          setOtpModalColis(found);
+          setOtpInput('');
+          setOtpError(null);
+        } else {
+          triggerToast('Colis pour retrait client introuvable avec ce code.', 'error');
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      triggerToast('Erreur de connexion au serveur.', 'error');
+    } finally {
+      setScannerLoading(false);
+    }
+  };
+
+  // Soumission de la remise au livreur sécurisée (Vérification stricte de l'agence)
+  const submitHandoverToDriver = async (packageId: string, driverIdentifier: string) => {
+    if (!agent) return;
     setHandoverLoading(true);
+    setHandoverError(null);
+
     try {
-      const res = await fetch('/api/drop-points/agents/handover', {
+      const res = await fetch('/api/drop-points/handover-to-driver', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pickupCode: driverPickupCode, dropPointId: agent.dropPointId }),
+        body: JSON.stringify({
+          packageId,
+          dropPointId: agent.dropPointId,
+          driverIdentifier: driverIdentifier.trim(),
+          agentId: agent.id,
+          agentName: agent.name,
+        }),
       });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        alert('Colis remis avec succès au livreur.');
-        setDriverPickupCode('');
+
+      const data = await res.json();
+      if (res.ok) {
+        triggerToast(`🎉 ${data.message || 'Colis remis avec succès au livreur.'}`, 'success');
+        setHandoverModalColis(null);
+        setDriverIdentifierInput('');
+        setCameraActive(false);
         await loadPackages(agent.dropPointId);
       } else {
-        alert(json.error || 'Code invalide ou colis introuvable.');
+        // En cas de mauvaise agence : message d'erreur très explicite
+        const errMsg = data.error || 'Erreur lors de la remise au livreur.';
+        setHandoverError(errMsg);
+        triggerToast(`⛔ ${errMsg}`, 'error');
       }
     } catch {
-      alert('Erreur réseau.');
+      setHandoverError('Erreur de communication réseau.');
+      triggerToast('Erreur réseau.', 'error');
     } finally {
       setHandoverLoading(false);
     }
-  }
+  };
 
-  /* -- Assign agency to vendor deposit (uses colisId, not pickupCode) -- */
-  async function handleAssignAgency(colisId: string) {
-    if (!selectedAgencyId) return;
-    setAssignLoading(true);
+  // Validation Retrait Client (Code OTP)
+  const submitClientOtp = async (packageId: string, otp: string) => {
+    if (!agent) return;
+    if (!otp || otp.trim().length < 6) {
+      setOtpError('Veuillez saisir le code à 6 chiffres fourni par le client.');
+      return;
+    }
+
+    setOtpLoading(true);
+    setOtpError(null);
+
     try {
-      const res = await fetch('/api/drop-points/colis-deposit/assign', {
+      const res = await fetch(`/api/packages/${packageId}/validate-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ colisId, agencyId: selectedAgencyId }),
+        body: JSON.stringify({ otp: otp.trim() }),
       });
-      const json = await res.json();
+
+      const data = await res.json();
       if (res.ok) {
-        setAssignSuccess(colisId);
-        setAssigningDeposit(null);
-        setSelectedAgencyId('');
-        if (agent) await loadPackages(agent.dropPointId);
-        setTimeout(() => setAssignSuccess(null), 3000);
+        triggerToast('🎉 Colis remis avec succès au client destinataire !', 'success');
+        setOtpModalColis(null);
+        setOtpInput('');
+        await loadPackages(agent.dropPointId);
       } else {
-        alert(json.error || 'Erreur lors de l\'assignation.');
+        const msg = data.error || 'Code OTP incorrect ou retrait bloqué.';
+        setOtpError(msg);
+        triggerToast(`⛔ ${msg}`, 'error');
       }
     } catch {
-      alert('Erreur réseau.');
+      setOtpError('Erreur de validation réseau.');
+      triggerToast('Erreur réseau.', 'error');
     } finally {
-      setAssignLoading(false);
+      setOtpLoading(false);
     }
-  }
+  };
 
-  /* -- Assign agency to ColisItem deposit (alias) -- */
-  async function handleAssignAgencyColis(colisId: string) {
-    return handleAssignAgency(colisId);
-  }
-
-  async function handleLogout() {
-    await logout();
-    setAgent(null);
-    setIncomingVendor([]);
-    setIncomingDriver([]);
-    setAvailable([]);
-    setVendorDeposits([]);
-    setDepositResult(null);
-    setShowDepositForm(false);
-  }
-
-  function copyCode(code: string) {
-    navigator.clipboard.writeText(code).catch(() => {});
-    setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
-  }
-
-
-  // Pour ColisItem, on considère tous les dépôts vendeurs comme "en attente d'agence"
-  const pendingDeposits = vendorDeposits.filter(d => !d.agencyId);
-  const assignedDeposits = vendorDeposits.filter(d => !!d.agencyId);
-
-  /* ═══════════════════════════════════════
-     DASHBOARD SCREEN
-  ═══════════════════════════════════════ */
-  
   if (authLoading && !sessionChecked) {
     return (
       <div style={{ minHeight: '100vh', background: '#07090e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: '#94a3b8' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}><Lock size={40} color="#94a3b8" /></div>
-          <p>Vérification de la session...</p>
+          <Lock size={40} color="#3b82f6" style={{ margin: '0 auto 12px' }} />
+          <p style={{ fontWeight: '600', fontSize: '0.9rem' }}>Vérification de la session Point Relais...</p>
         </div>
       </div>
     );
   }
-  const tabColis = activeTab === 'incoming_vendor' ? incomingVendor : activeTab === 'incoming_driver' ? incomingDriver : available;
 
-  const bottomNavTabs = [
-    { key: 'vendor_deposits' as DashboardTab, icon: Package, label: 'Dépôts', count: pendingDeposits.length },
-    { key: 'incoming_vendor' as DashboardTab, icon: Truck, label: 'Entrants', count: incomingVendor.length + incomingDriver.length },
-    { key: 'available' as DashboardTab, icon: CheckCircle2, label: 'Retrait', count: available.length },
-  ];
+  const isCreditsEmpty = dropPointCredits !== null && dropPointCredits <= 0;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#07090e', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{
+      minHeight: '100vh',
+      background: '#07090e',
+      color: '#f8fafc',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      paddingBottom: '80px',
+      maxWidth: '480px',
+      margin: '0 auto',
+      position: 'relative',
+      boxShadow: '0 0 30px rgba(0,0,0,0.8)'
+    }}>
 
-      {/* Topbar Mobile-First */}
+      {/* ── TOPBAR MOBILE ── */}
       <header style={{
+        position: 'sticky', top: 0, zIndex: 50,
         background: 'rgba(7, 9, 14, 0.95)',
         backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        position: 'sticky', top: 0, zIndex: 40,
-        padding: '0.75rem 1rem',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        padding: '12px 16px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between'
       }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem',
-        }}>
-          {/* Drop Point Identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
-            <div style={{
-              width: '36px', height: '36px', borderRadius: '10px',
-              background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+          <div style={{
+            width: '38px', height: '38px', borderRadius: '10px',
+            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+          }}>
+            <MapPin size={20} color="#fff" />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{
+              margin: 0, fontSize: '0.95rem', fontWeight: '800', color: '#fff',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
             }}>
-              <MapPin size={18} color="white" />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{
-                margin: 0, fontWeight: '800', fontSize: '0.9rem', color: '#fff',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
-              }}>
-                {agent?.dropPointName}
-              </div>
-              <div style={{ margin: 0, fontSize: '0.72rem', color: '#94a3b8' }}>
-                {agent?.dropPointCommune} &bull; #{agent?.agentNumber}
-              </div>
+              {agent?.dropPointName || 'Point Relais'}
+            </h1>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>{agent?.dropPointCommune}</span>
+              <span>•</span>
+              <span style={{ color: '#60a5fa', fontWeight: '700' }}>Agent #{agent?.agentNumber}</span>
             </div>
           </div>
+        </div>
 
-          {/* Quick Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
-            <button
-              onClick={() => setShowQrModal(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.3rem',
-                padding: '0.45rem 0.65rem', borderRadius: '10px',
-                background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.35)',
-                color: '#4ade80', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit'
-              }}
-            >
-              <QrCode size={15} />
-              <span>QR Code</span>
-            </button>
+        {/* Crédits & Action QR */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setCurrentTab('plus')}
+            style={{
+              padding: '6px 10px', borderRadius: '8px',
+              background: isCreditsEmpty ? 'rgba(239, 68, 68, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+              border: `1px solid ${isCreditsEmpty ? 'rgba(239, 68, 68, 0.4)' : 'rgba(59, 130, 246, 0.3)'}`,
+              color: isCreditsEmpty ? '#f87171' : '#60a5fa',
+              fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '4px'
+            }}
+          >
+            <span>{dropPointCredits !== null ? dropPointCredits : '—'}</span>
+            <span style={{ fontSize: '0.65rem' }}>crédits</span>
+          </button>
 
-            <button
-              onClick={handleLogout}
-              aria-label="Déconnexion"
-              style={{
-                background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)',
-                borderRadius: '10px', padding: '0.45rem', cursor: 'pointer',
-                color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
+          <button
+            onClick={() => setShowQrModal(true)}
+            aria-label="Mon QR Code Relais"
+            style={{
+              padding: '8px', borderRadius: '8px',
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+              color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}
+          >
+            <QrCode size={18} />
+          </button>
         </div>
       </header>
 
-      <div style={{ maxWidth: '780px', margin: '0 auto', padding: '1rem 0.9rem 6rem' }}>
-
-        {/* Compact Mobile Stats Strip */}
+      {/* ── ALERTE SOLDE ÉPUISÉ ── */}
+      {isCreditsEmpty && (
         <div style={{
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '16px', padding: '0.85rem', marginBottom: '1.25rem',
-          display: 'flex', flexDirection: 'column', gap: '0.75rem'
+          margin: '12px 16px 0',
+          padding: '12px 14px', borderRadius: '12px',
+          background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)',
+          display: 'flex', alignItems: 'center', gap: '10px'
         }}>
-          {dropPointInfo?.address && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-              <MapPin size={13} color="#3b82f6" />
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {dropPointInfo.address}
-              </span>
-            </div>
-          )}
-
-          {/* 4 Equal Responsive Counters */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
-            <div style={{
-              background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)',
-              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
-            }}>
-              <p style={{ margin: 0, fontWeight: '900', color: dropPointCredits !== null ? (dropPointCredits > 10 ? '#3b82f6' : (dropPointCredits > 0 ? '#f59e0b' : '#ef4444')) : '#94a3b8', fontSize: '1.15rem' }}>
-                {dropPointCredits !== null ? dropPointCredits : '-'}
-              </p>
-              <p style={{ margin: 0, fontSize: '0.62rem', color: '#93c5fd', fontWeight: '600' }}>Crédits</p>
-            </div>
-
-            <div style={{
-              background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
-              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
-            }}>
-              <p style={{ margin: 0, fontWeight: '900', color: '#f59e0b', fontSize: '1.15rem' }}>{pendingDeposits.length}</p>
-              <p style={{ margin: 0, fontSize: '0.62rem', color: '#fcd34d', fontWeight: '600' }}>Dépôts</p>
-            </div>
-
-            <div style={{
-              background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)',
-              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
-            }}>
-              <p style={{ margin: 0, fontWeight: '900', color: '#c084fc', fontSize: '1.15rem' }}>{incomingVendor.length + incomingDriver.length}</p>
-              <p style={{ margin: 0, fontSize: '0.62rem', color: '#d8b4fe', fontWeight: '600' }}>À conf.</p>
-            </div>
-
-            <div style={{
-              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
-              borderRadius: '10px', padding: '0.5rem 0.2rem', textAlign: 'center'
-            }}>
-              <p style={{ margin: 0, fontWeight: '900', color: '#4ade80', fontSize: '1.15rem' }}>{available.length}</p>
-              <p style={{ margin: 0, fontSize: '0.62rem', color: '#86efac', fontWeight: '600' }}>Dispos</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Banner for credits */}
-        {dropPointCredits !== null && dropPointCredits <= 10 && (
-          <div style={{
-            background: dropPointCredits === 0 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
-            border: `1px solid ${dropPointCredits === 0 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
-            borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem',
-            display: 'flex', alignItems: 'flex-start', gap: '0.75rem'
-          }}>
-            <AlertCircle size={20} color={dropPointCredits === 0 ? '#ef4444' : '#f59e0b'} style={{ flexShrink: 0, marginTop: '2px' }} />
-            <div>
-              <h4 style={{ margin: '0 0 0.25rem', color: dropPointCredits === 0 ? '#ef4444' : '#f59e0b', fontSize: '0.95rem' }}>
-                {dropPointCredits === 0 ? 'Crédits épuisés' : 'Crédits faibles'}
-              </h4>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.4 }}>
-                {dropPointCredits === 0 
-                  ? "Vous n'avez plus de crédits (0). Vous ne pouvez plus recevoir de colis. Contactez l'administrateur pour recharger votre compte." 
-                  : `Il ne vous reste que ${dropPointCredits} crédit(s). Pensez à recharger votre compte prochainement.`}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Section title */}
-        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
-            {activeTab === 'vendor_deposits' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Package size={16} /> Dépôts vendeurs</span>}
-            {activeTab === 'incoming_vendor' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Truck size={16} /> Colis entrants (vendeur)</span>}
-            {activeTab === 'incoming_driver' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><Truck size={16} /> Colis entrants (livreur)</span>}
-            {activeTab === 'available' && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}><CheckCircle2 size={16} /> Retrait client</span>}
-          </h2>
-        </div>
-
-
-
-        {/* ═══════════════════════════════
-            TAB: VENDOR DEPOSITS
-        ═══════════════════════════════ */}
-        {activeTab === 'vendor_deposits' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Scanner / Réception de remise vendeur (Premier Kilomètre) */}
-            {agent && (
-              <DropPointHandoverScanner
-                dropPointId={agent.dropPointId}
-                agentId={agent.id}
-                agentName={agent.name}
-                formatPrice={formatPrice}
-                onSuccess={() => {
-                  loadPackages(agent.dropPointId);
-                }}
-              />
-            )}
-
-            {/* Success notification after deposit */}
-            {depositResult && (
-              <div style={{
-                background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
-                borderRadius: '20px', padding: '1.5rem', textAlign: 'center',
-              }}>
-                <CheckCircle2 size={40} color="#22c55e" style={{ marginBottom: '0.75rem' }} />
-                <h3 style={{ margin: '0 0 0.35rem', fontSize: '1.1rem', fontWeight: '800', color: '#4ade80' }}>
-                  Dépôt enregistré !
-                </h3>
-                <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#94a3b8' }}>
-                  Code de collecte pour le livreur :
-                </p>
-                {/* Pickup Code — BIG display */}
-                <div style={{
-                  background: 'rgba(0,0,0,0.4)', border: '2px dashed rgba(34,197,94,0.5)',
-                  borderRadius: '16px', padding: '1.25rem 1.5rem', marginBottom: '1rem',
-                  display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem',
-                }}>
-                  <span style={{ fontSize: '0.68rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Code retrait</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: '2.5rem', fontWeight: '900', letterSpacing: '6px', color: '#4ade80', textShadow: '0 0 20px rgba(74,222,128,0.4)' }}>
-                    {depositResult.pickupCode}
-                  </span>
-                  <button
-                    onClick={() => copyCode(depositResult.pickupCode ?? depositResult.trackingCode)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '0.35rem 0.75rem', cursor: 'pointer', color: '#4ade80', fontSize: '0.78rem', fontFamily: 'inherit', fontWeight: '700' }}
-                  >
-                    {copiedCode ? <><Check size={12} /> Copié !</> : <><Copy size={12} /> Copier le code</>}
-                  </button>
-                </div>
-                <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
-                  Remettez ce code au livreur qui viendra collecter le colis pour la livraison.
-                </p>
-                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => setDepositResult(null)}
-                    style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#94a3b8', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'inherit' }}
-                  >
-                    Fermer
-                  </button>
-                  <button
-                    onClick={() => { setDepositResult(null); setShowDepositForm(true); }}
-                    style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'inherit', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                  >
-                    <Plus size={14} /> Nouveau dépôt
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* New deposit button + form */}
-            {!depositResult && (
-              <>
-                {!showDepositForm ? (
-                  <button
-                    onClick={() => {
-                      if (dropPointCredits === 0) {
-                        alert("Impossible d'enregistrer un dépôt : crédits épuisés.");
-                        return;
-                      }
-                      setShowDepositForm(true);
-                    }}
-                    style={{
-                      width: '100%', padding: '1rem', borderRadius: '14px', border: dropPointCredits === 0 ? '2px dashed rgba(239,68,68,0.4)' : '2px dashed rgba(34,197,94,0.4)',
-                      background: dropPointCredits === 0 ? 'rgba(239,68,68,0.05)' : 'rgba(34,197,94,0.05)', color: dropPointCredits === 0 ? '#ef4444' : '#4ade80', cursor: dropPointCredits === 0 ? 'not-allowed' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                      fontSize: '0.95rem', fontWeight: '700', fontFamily: 'inherit', transition: 'all 0.2s',
-                    }}
-                  >
-                    <Plus size={18} />
-                    Enregistrer un dépôt vendeur
-                  </button>
-                ) : (
-                  <div style={{
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '20px', padding: '1.5rem',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
-                        Nouveau dépôt vendeur
-                      </h3>
-                      <button onClick={() => setShowDepositForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 0 }}>
-                        <X size={18} />
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleDepositSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      {/* Vendor info */}
-                      <div style={{ background: 'rgba(59,130,246,0.06)', borderRadius: '12px', padding: '1rem', border: '1px solid rgba(59,130,246,0.15)' }}>
-                        <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', fontWeight: '700', color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          Informations vendeur
-                        </p>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                          <div>
-                            <label style={labelStyle}>Nom du vendeur *</label>
-                            <input
-                              type="text"
-                              required
-                              value={depositForm.vendeurName}
-                              onChange={e => setDepositForm(f => ({ ...f, vendeurName: e.target.value }))}
-                              placeholder="Ex : Jean Kakudi"
-                              style={inputStyle}
-                            />
-                          </div>
-                          <div>
-                            <label style={labelStyle}>Téléphone vendeur *</label>
-                            <input
-                              type="tel"
-                              required
-                              value={depositForm.vendeurPhone}
-                              onChange={e => setDepositForm(f => ({ ...f, vendeurPhone: e.target.value }))}
-                              placeholder="+243 8X X..."
-                              style={inputStyle}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Client info */}
-                      <div style={{ background: 'rgba(34,197,94,0.06)', borderRadius: '12px', padding: '1rem', border: '1px solid rgba(34,197,94,0.15)' }}>
-                        <p style={{ margin: '0 0 0.75rem', fontSize: '0.78rem', fontWeight: '700', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          Informations destinataire (client)
-                        </p>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                          <div>
-                            <label style={labelStyle}>Nom du client *</label>
-                            <input
-                              type="text"
-                              required
-                              value={depositForm.clientName}
-                              onChange={e => setDepositForm(f => ({ ...f, clientName: e.target.value }))}
-                              placeholder="Ex : Marie Kasonga"
-                              style={inputStyle}
-                            />
-                          </div>
-                          <div>
-                            <label style={labelStyle}>Téléphone client *</label>
-                            <input
-                              type="tel"
-                              required
-                              value={depositForm.clientPhone}
-                              onChange={e => setDepositForm(f => ({ ...f, clientPhone: e.target.value }))}
-                              placeholder="+243 8X X..."
-                              style={inputStyle}
-                            />
-                          </div>
-                        </div>
-                        <div style={{ marginTop: '0.75rem' }}>
-                          <label style={labelStyle}>Adresse de livraison *</label>
-                          <input
-                            type="text"
-                            required
-                            value={depositForm.clientAddress}
-                            onChange={e => setDepositForm(f => ({ ...f, clientAddress: e.target.value }))}
-                            placeholder="Ex : Av. Kabambare n°12, Kalamu"
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div style={{ marginTop: '0.75rem' }}>
-                          <label style={labelStyle}>Description du colis (optionnel)</label>
-                          <input
-                            type="text"
-                            value={depositForm.description}
-                            onChange={e => setDepositForm(f => ({ ...f, description: e.target.value }))}
-                            placeholder="Ex : Chaussures taille 42, vêtements..."
-                            style={inputStyle}
-                          />
-                        </div>
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={depositSubmitting}
-                        style={{
-                          width: '100%', padding: '0.9rem', borderRadius: '12px', border: 'none',
-                          background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                          color: '#fff', fontWeight: '800', fontSize: '0.95rem',
-                          cursor: depositSubmitting ? 'not-allowed' : 'pointer',
-                          opacity: depositSubmitting ? 0.7 : 1,
-                          fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                          boxShadow: '0 4px 14px rgba(34,197,94,0.3)',
-                        }}
-                      >
-                        {depositSubmitting ? 'Enregistrement...' : <><QrCode size={16} /> Enregistrer & générer le code</>}
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* BARRE DE RECHERCHE POUR REMISE AU LIVREUR */}
-            <div style={{
-              background: 'rgba(34,197,94,0.05)',
-              border: '1px solid rgba(34,197,94,0.2)',
-              borderRadius: '16px',
-              padding: '1.5rem',
-              marginBottom: '1rem',
-              marginTop: '1rem'
-            }}>
-              <h3 style={{ margin: '0 0 0.5rem', color: '#4ade80', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <QrCode size={18} /> Remettre un colis à un livreur
-              </h3>
-              <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-                Tapez le code fourni par le livreur pour valider le départ du colis (ex: MCL-...).
-              </p>
-              <form onSubmit={handleHandoverPackage} style={{ display: 'flex', gap: '0.75rem' }}>
-                <input 
-                  type="text"
-                  placeholder="Code de collecte (ex: MCL-ABC12)"
-                  value={driverPickupCode}
-                  onChange={e => setDriverPickupCode(e.target.value.toUpperCase())}
-                  required
-                  style={{
-                    flex: 1, padding: '0.75rem 1rem', borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
-                    color: '#fff', fontSize: '0.95rem', fontFamily: 'monospace', letterSpacing: '1px'
-                  }}
-                />
-                {/* Submit button hidden because we use the button on the package card now, but keep form submit for Enter key */}
-                <button type="submit" disabled={!driverPickupCode || handoverLoading} style={{ display: 'none' }}>
-                  Remettre
-                </button>
-              </form>
-            </div>
-
-            {/* Deposits list */}
-            {vendorDeposits.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Dépôts enregistrés ({vendorDeposits.length})
-                </p>
-                {[...vendorDeposits].sort((a, b) => {
-                  const aMatch = driverPickupCode && (a.pickupCode === driverPickupCode || a.trackingCode === driverPickupCode);
-                  const bMatch = driverPickupCode && (b.pickupCode === driverPickupCode || b.trackingCode === driverPickupCode);
-                  if (aMatch && !bMatch) return -1;
-                  if (!aMatch && bMatch) return 1;
-                  return 0;
-                }).map(dep => {
-                  const isMatch = driverPickupCode && (dep.pickupCode === driverPickupCode || dep.trackingCode === driverPickupCode);
-                  return (
-                  <div key={dep.id} style={{
-                    background: isMatch ? 'rgba(34,197,94,0.1)' : !!dep.agencyId ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.03)',
-                    border: isMatch ? '2px solid rgba(34,197,94,0.6)' : `1px solid ${dep.agencyId ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.25)'}`,
-                    borderRadius: '16px', padding: '1.25rem',
-                    transition: 'all 0.3s ease',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1 }}>
-                        {/* Status + Code */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
-                          <span style={{
-                            padding: '0.2rem 0.65rem', borderRadius: '999px', fontSize: '0.7rem', fontWeight: '800',
-                            background: dep.agencyId ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
-                            color: dep.agencyId ? '#60a5fa' : '#f59e0b',
-                          }}>
-                            {dep.agencyId ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Package size={12} /> Agence assignée</span> : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}><Clock size={12} /> En attente d'agence</span>}
-                          </span>
-                          {/* Pickup Code or Tracking Code */}
-                          <div style={{ fontFamily: 'monospace', fontWeight: '900', fontSize: '0.9rem', color: '#f8fafc', letterSpacing: '2px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '0.15rem 0.5rem' }}>
-                            {dep.pickupCode || dep.trackingCode}
-                          </div>
-                        </div>
-
-                        {/* Vendor + Client info */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                          <div>
-                            <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Vendeur</p>
-                            <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{dep.vendeurName || 'Non renseigné'}</p>
-                            {dep.vendeurPhone && <a href={`tel:${dep.vendeurPhone}`} style={{ fontSize: '0.8rem', color: '#60a5fa', textDecoration: 'none' }}>{dep.vendeurPhone}</a>}
-                          </div>
-                          <div>
-                            <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Destinataire</p>
-                            <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{dep.clientName}</p>
-                            <a href={`tel:${dep.clientPhone}`} style={{ fontSize: '0.8rem', color: '#4ade80', textDecoration: 'none' }}>{dep.clientPhone}</a>
-                          </div>
-                        </div>
-
-                          <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <MapPin size={12} /> {dep.clientAddress}
-                          </p>
-
-                        {dep.agence && (
-                          <p style={{ margin: '0.4rem 0 0', fontSize: '0.8rem', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                            <Building2 size={12} /> Agence : <strong>{dep.agence}</strong>
-                          </p>
-                        )}
-
-                        <p style={{ margin: '0.4rem 0 0', fontSize: '0.72rem', color: '#334155' }}>
-                          <Clock size={11} style={{ display: 'inline', marginRight: '3px' }} />
-                          {dep.date}
-                        </p>
-                      </div>
-
-                      {/* Action: assign agency */}
-                      {!dep.agencyId && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: '160px' }}>
-                          {assignSuccess === dep.id ? (
-                            <div style={{ textAlign: 'center', padding: '0.6rem 0', color: '#4ade80', fontSize: '0.82rem', fontWeight: '700' }}>
-                              <CheckCircle2 size={16} style={{ display: 'inline', marginRight: '4px' }} />
-                              Agence assignée !
-                            </div>
-                          ) : assigningDeposit === dep.id ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                              <select
-                                value={selectedAgencyId}
-                                onChange={e => setSelectedAgencyId(e.target.value)}
-                                style={{
-                                  background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)',
-                                  borderRadius: '8px', color: '#fff', padding: '0.55rem 0.75rem',
-                                  fontSize: '0.82rem', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-                                }}
-                              >
-                                <option value="">-- Choisir agence --</option>
-                                {agencies.length > 0 ? agencies.map(ag => (
-                                  <option key={ag.id} value={ag.id}>{ag.name}</option>
-                                )) : (
-                                  <option value="demo-agency-01">Agence Express Kin (démo)</option>
-                                )}
-                              </select>
-                              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <button
-                                  onClick={() => handleAssignAgency(dep.id)}
-                                  disabled={!selectedAgencyId || assignLoading}
-                                  style={{ flex: 1, padding: '0.55rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'inherit', opacity: !selectedAgencyId ? 0.5 : 1 }}
-                                >
-                                  {assignLoading ? '...' : 'Confirmer'}
-                                </button>
-                                <button
-                                  onClick={() => { setAssigningDeposit(null); setSelectedAgencyId(''); }}
-                                  style={{ padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#64748b', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                  <X size={13} />
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setAssigningDeposit(dep.id)}
-                              style={{
-                                padding: '0.6rem 0.9rem', borderRadius: '10px', border: 'none',
-                                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                                color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
-                                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.35rem',
-                                boxShadow: '0 4px 12px rgba(59,130,246,0.3)',
-                              }}
-                            >
-                              <Truck size={13} />
-                              Assigner agence
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Show otp (pickup code) for agency-assigned */}
-                      {dep.agencyId && (
-                        <div style={{ textAlign: 'center', background: 'rgba(59,130,246,0.1)', border: '1px dashed rgba(59,130,246,0.4)', borderRadius: '12px', padding: '0.75rem 1rem' }}>
-                          <p style={{ margin: '0 0 0.25rem', fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Code pour livreur</p>
-                          <p style={{ margin: 0, fontFamily: 'monospace', fontSize: '1.5rem', fontWeight: '900', letterSpacing: '3px', color: '#60a5fa' }}>
-                            {dep.pickupCode || dep.trackingCode}
-                          </p>
-                        </div>
-                      )}
-                      {isMatch && (
-                        <div style={{ marginTop: '0.75rem', width: '100%' }}>
-                          <button
-                            onClick={() => handleHandoverPackage({ preventDefault: () => {} } as React.FormEvent)}
-                            disabled={handoverLoading}
-                            style={{
-                              width: '100%', padding: '0.8rem', borderRadius: '12px', border: 'none',
-                              background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff',
-                              fontWeight: '800', fontSize: '0.95rem', cursor: handoverLoading ? 'not-allowed' : 'pointer',
-                              fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                              boxShadow: '0 4px 14px rgba(34,197,94,0.3)'
-                            }}
-                          >
-                            <CheckCircle2 size={18} /> {handoverLoading ? 'Validation...' : 'Confirmer la remise au livreur'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )})}
-              </div>
-            )}
-
-            {vendorDeposits.length === 0 && !showDepositForm && !depositResult && (
-              <div style={{ textAlign: 'center', padding: '2.5rem', color: '#475569' }}>
-                <Package size={36} style={{ margin: '0 auto 0.75rem', display: 'block', opacity: 0.4 }} />
-                <p style={{ fontWeight: '700', margin: '0 0 0.35rem', color: '#64748b' }}>Aucun dépôt enregistré</p>
-                <p style={{ margin: 0, fontSize: '0.8rem' }}>Cliquez sur le bouton ci-dessus pour enregistrer le premier dépôt vendeur.</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══════════════════════════════
-            TAB: INCOMING (driver → drop point)
-        ═══════════════════════════════ */}
-        {(activeTab.startsWith('incoming') || activeTab === 'available') && (
-          <>
-            {tabColis.length === 0 && !loadingData && (
-              <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#475569' }}>
-                <Package size={40} style={{ margin: '0 auto 1rem', display: 'block', opacity: 0.4 }} />
-                <p style={{ fontWeight: '700', margin: '0 0 0.35rem', color: '#64748b' }}>
-                  {activeTab.startsWith('incoming') ? 'Aucun colis en attente de confirmation' : 'Aucun colis disponible au retrait'}
-                </p>
-                <p style={{ margin: 0, fontSize: '0.8rem' }}>
-                  {activeTab.startsWith('incoming') ? 'Les colis déposés apparaîtront ici.' : 'Les colis confirmés apparaîtront ici pour le retrait client.'}
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-              {tabColis.map(colis => (
-                <div key={colis.id} style={{
-                  background: confirmSuccess === colis.id ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${confirmSuccess === colis.id ? 'rgba(34,197,94,0.35)' : activeTab.startsWith('incoming') ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)'}`,
-                  borderRadius: '16px', padding: '1.25rem',
-                  transition: 'all 0.3s',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        <span style={{
-                          padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: '700',
-                          background: activeTab.startsWith('incoming') ? 'rgba(245,158,11,0.15)' : 'rgba(34,197,94,0.15)',
-                          color: activeTab.startsWith('incoming') ? '#f59e0b' : '#4ade80',
-                        }}>
-                          {activeTab.startsWith('incoming') ? 'Dépôt à confirmer' : 'Disponible au retrait'}
-                        </span>
-                        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#475569' }}>#{colis.id}</span>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginTop: '0.5rem' }}>
-                        <div>
-                          <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Vendeur</p>
-                          <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{colis.vendeurName || 'Non spécifié'}</p>
-                          {colis.vendeurPhone && (
-                            <a href={`tel:${colis.vendeurPhone}`} style={{ fontSize: '0.8rem', color: '#60a5fa', textDecoration: 'none' }}>{colis.vendeurPhone}</a>
-                          )}
-                        </div>
-                        <div>
-                          <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Destinataire</p>
-                          <p style={{ margin: 0, fontWeight: '700', fontSize: '0.88rem', color: '#fff' }}>{colis.clientName}</p>
-                          {colis.clientPhone && (
-                            <a href={`tel:${colis.clientPhone}`} style={{ fontSize: '0.8rem', color: '#4ade80', textDecoration: 'none' }}>{colis.clientPhone}</a>
-                          )}
-                        </div>
-                      </div>
-
-                      {colis.inaccessibilityNote && (
-                        <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', borderRadius: '6px', padding: '0.35rem 0.6rem' }}>
-                          Motif : {colis.inaccessibilityNote}
-                        </p>
-                      )}
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.5rem', fontSize: '0.78rem', color: '#475569' }}>
-                        <Clock size={12} /> Déposé le {colis.date}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.6rem' }}>
-                      {activeTab === 'available' && (
-                        <div style={{ background: 'rgba(59,130,246,0.1)', border: '1px dashed rgba(59,130,246,0.4)', borderRadius: '12px', padding: '1rem', width: '100%', minWidth: '220px' }}>
-                          <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Code OTP Client
-                          </p>
-                          {colis.claimStatus === 'OPEN' || (colis.status as string) === 'IN_DISPUTE' || colis.status === 'En réclamation' ? (
-                            <div style={{
-                              background: 'rgba(239, 68, 68, 0.15)',
-                              border: '1px solid rgba(239, 68, 68, 0.4)',
-                              borderRadius: '8px',
-                              padding: '0.65rem 0.8rem',
-                              color: '#fca5a5',
-                              fontSize: '0.78rem',
-                              lineHeight: 1.4
-                            }}>
-                              <div style={{ fontWeight: '700', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                <AlertCircle size={14} color="#ef4444" />
-                                Réclamation en cours
-                              </div>
-                              Retrait bloqué jusqu'à résolution par le Super Admin ({colis.claimReason || 'Litige vendeur'}).
-                            </div>
-                          ) : otpSuccess[colis.id] ? (
-                            <div style={{ color: '#4ade80', fontSize: '0.85rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <CheckCircle2 size={16} /> Remise confirmée !
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              <input
-                                type="text"
-                                placeholder="Numéro à 6 chiffres"
-                                value={otpInputs[colis.id] || ''}
-                                onChange={(e) => setOtpInputs(prev => ({ ...prev, [colis.id]: e.target.value.replace(/\D/g, '') }))}
-                                maxLength={6}
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
-                                style={{
-                                  width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
-                                  background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '1rem', fontFamily: 'monospace', letterSpacing: '2px', textAlign: 'center', boxSizing: 'border-box'
-                                }}
-                              />
-                              {otpErrors[colis.id] && (
-                                <div style={{ color: '#ef4444', fontSize: '0.75rem' }}>{otpErrors[colis.id]}</div>
-                              )}
-                              <button
-                                onClick={() => handleValidateOtp(colis.id)}
-                                disabled={validatingOtpId === colis.id}
-                                style={{
-                                  width: '100%', minHeight: '44px', padding: '0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                                  background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', color: '#fff', fontWeight: '700', fontSize: '0.85rem'
-                                }}
-                              >
-                                {validatingOtpId === colis.id ? 'Validation...' : 'Valider'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {activeTab === 'incoming_vendor' && colis.status === 'En attente de confirmation relais' && (
-                        <button
-                          onClick={() => handleConfirm(colis.id)}
-                          disabled={confirmingId === colis.id || confirmSuccess === colis.id}
-                          style={{
-                            padding: '0.6rem 1.1rem', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                            background: confirmSuccess === colis.id ? 'rgba(34,197,94,0.2)' : 'linear-gradient(135deg, #22c55e, #16a34a)',
-                            color: '#fff', fontWeight: '800', fontSize: '0.85rem', fontFamily: 'inherit',
-                            display: 'flex', alignItems: 'center', gap: '0.4rem', transition: 'all 0.2s',
-                            opacity: confirmingId === colis.id ? 0.6 : 1,
-                            minHeight: '44px',
-                            boxShadow: confirmSuccess !== colis.id ? '0 4px 14px rgba(34,197,94,0.3)' : 'none',
-                          }}
-                        >
-                          {confirmSuccess === colis.id ? (
-                            <><CheckCircle2 size={15} /> Confirmé !</>
-                          ) : confirmingId === colis.id ? (
-                            'Confirmation...'
-                          ) : (
-                            <><CheckCircle2 size={15} /> Confirmer la réception</>
-                          )}
-                        </button>
-                      )}
-
-                      {/* Pour les colis déposés par les livreurs à confirmer par le point relais */}
-                      {activeTab === 'incoming_driver' && colis.status === 'Déposé en point relais' && (
-                        <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
-                          <button
-                            onClick={() => handleConfirm(colis.id)}
-                            disabled={confirmingId === colis.id || confirmSuccess === colis.id}
-                            style={{
-                              padding: '0.6rem 1.1rem', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                              background: confirmSuccess === colis.id ? 'rgba(34,197,94,0.2)' : 'linear-gradient(135deg, #22c55e, #16a34a)',
-                              color: '#fff', fontWeight: '800', fontSize: '0.85rem', fontFamily: 'inherit',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s',
-                              opacity: confirmingId === colis.id ? 0.6 : 1,
-                              minHeight: '44px',
-                              boxShadow: confirmSuccess !== colis.id ? '0 4px 14px rgba(34,197,94,0.3)' : 'none',
-                            }}
-                          >
-                            {confirmSuccess === colis.id ? (
-                              <><CheckCircle2 size={15} /> Confirmé !</>
-                            ) : confirmingId === colis.id ? (
-                              'Confirmation...'
-                            ) : (
-                              <><CheckCircle2 size={15} /> Confirmer la réception</>
-                            )}
-                          </button>
-                          
-                          <button
-                            onClick={() => openRefusalModal(colis)}
-                            disabled={confirmingId === colis.id || confirmSuccess === colis.id}
-                            style={{
-                              padding: '0.5rem 1.1rem', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.4)', cursor: 'pointer',
-                              background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontWeight: '700', fontSize: '0.8rem', fontFamily: 'inherit',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s',
-                              minHeight: '44px'
-                            }}
-                          >
-                            Refuser (laisser au livreur)
-                          </button>
-                        </div>
-                      )}
-
-
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Bottom Navigation Bar (Mobile-First) ── */}
-      <nav style={{
-        position: 'fixed', bottom: 0, left: 0, width: '100%',
-        background: 'rgba(7, 9, 14, 0.96)',
-        backdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
-        padding: '0.65rem 0', paddingBottom: 'calc(0.65rem + env(safe-area-inset-bottom))',
-        zIndex: 50
-      }}>
-        {bottomNavTabs.map(tab => {
-          const isActive = activeTab === tab.key ||
-            (tab.key === 'incoming_vendor' && activeTab === 'incoming_driver');
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                flex: 1, background: 'none', border: 'none',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
-                cursor: 'pointer', color: isActive ? '#3b82f6' : '#64748b',
-                transition: 'color 0.2s', padding: '0.25rem',
-              }}
-            >
-              <div style={{ position: 'relative' }}>
-                <Icon size={22} color={isActive ? '#3b82f6' : '#64748b'} />
-                {tab.count > 0 && (
-                  <span style={{
-                    position: 'absolute', top: '-5px', right: '-9px',
-                    background: tab.key === 'available' ? '#22c55e' : '#f59e0b',
-                    color: '#000', fontSize: '0.62rem',
-                    fontWeight: '900', width: '16px', height: '16px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    borderRadius: '50%'
-                  }}>
-                    {tab.count}
-                  </span>
-                )}
-              </div>
-              <span style={{ fontSize: '0.63rem', fontWeight: isActive ? '800' : '600' }}>
-                {tab.label}
-              </span>
-            </button>
-          );
-        })}
-
-        {/* Refresh button */}
-        <button
-          onClick={() => agent && loadPackages(agent.dropPointId)}
-          disabled={loadingData}
-          style={{
-            flex: 1, background: 'none', border: 'none',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
-            cursor: loadingData ? 'not-allowed' : 'pointer',
-            color: '#64748b', padding: '0.25rem',
-          }}
-        >
-          <RefreshCw size={22} color="#64748b" style={{ animation: loadingData ? 'spin 1s linear infinite' : 'none' }} />
-          <span style={{ fontSize: '0.63rem', fontWeight: '600' }}>Sync</span>
-        </button>
-      </nav>
-
-      {/* MODAL: Mon QR Code */}
-      {showQrModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-          background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem'
-        }}>
-          <div style={{
-            background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '24px', padding: '2rem', maxWidth: '400px', width: '100%',
-            textAlign: 'center', position: 'relative'
-          }}>
-            <button
-              onClick={() => setShowQrModal(false)}
-              style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
-            >
-              <X size={20} />
-            </button>
-            <h3 style={{ margin: '0 0 0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: '800' }}>Votre QR Code</h3>
-            <p style={{ margin: '0 0 1.5rem', color: '#94a3b8', fontSize: '0.85rem' }}>Les vendeurs peuvent scanner ce QR code pour vous attribuer des colis.</p>
-            
-            <div style={{
-              background: '#fff', padding: '2rem', borderRadius: '16px', display: 'inline-block', marginBottom: '1.5rem'
-            }}>
-              <QrCode size={120} color="#000" />
-            </div>
-
-            <p style={{ margin: '0 0 0.5rem', color: '#64748b', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>ID Point Relais</p>
-            <p style={{ margin: 0, color: '#4ade80', fontSize: '1.3rem', fontWeight: '900', fontFamily: 'monospace', letterSpacing: '2px' }}>
-              {agent?.dropPointId}
-            </p>
+          <AlertTriangle size={20} color="#ef4444" style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: '0.78rem', color: '#fca5a5' }}>
+            <strong style={{ display: 'block', color: '#fff' }}>Solde de crédits épuisé (0 crédit)</strong>
+            Réceptions bloquées. Rechargez votre compte pour continuer à accueillir des colis.
           </div>
         </div>
       )}
 
-      {/* MODAL: Refus de prise en charge colis */}
-      {parcelToRefuse && (
+      {/* ── TOAST NOTIFICATION FLOTTANT ── */}
+      {scanResultToast && (
         <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh',
-          background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(12px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem',
-          boxSizing: 'border-box'
+          position: 'fixed', top: '70px', left: '16px', right: '16px', zIndex: 100,
+          maxWidth: '448px', margin: '0 auto',
+          padding: '12px 16px', borderRadius: '12px',
+          background: scanResultToast.type === 'success' ? '#064e3b' : '#7f1d1d',
+          border: `1px solid ${scanResultToast.type === 'success' ? '#059669' : '#dc2626'}`,
+          color: '#fff', fontSize: '0.85rem', fontWeight: '700',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px'
         }}>
-          <div style={{
-            background: '#0f172a', border: '1px solid rgba(239,68,68,0.3)',
-            borderRadius: '24px', padding: '1.75rem', maxWidth: '440px', width: '100%',
-            position: 'relative', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)',
-            maxHeight: '90dvh', overflowY: 'auto'
-          }}>
+          <span>{scanResultToast.message}</span>
+          <button onClick={() => setScanResultToast(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* ── CONTENU SELON ONGLET ── */}
+      <main style={{ padding: '16px' }}>
+
+        {/* ══════════════════════════════════════════
+            ONGLET 1 : ACCUEIL
+           ══════════════════════════════════════════ */}
+        {currentTab === 'accueil' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+            {/* Gros Bouton d'action central : SCANNER */}
             <button
-              onClick={() => { setParcelToRefuse(null); setRefusalError(null); }}
-              aria-label="Fermer"
+              onClick={() => {
+                setCurrentTab('scanner');
+                setCameraActive(true);
+              }}
               style={{
-                position: 'absolute', top: '1rem', right: '1rem',
-                background: 'none', border: 'none', color: '#64748b', cursor: 'pointer',
-                minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0
+                width: '100%', minHeight: '64px', borderRadius: '16px',
+                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                border: 'none', color: '#fff', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                boxShadow: '0 8px 24px rgba(37, 99, 235, 0.35)',
+                fontWeight: '900', fontSize: '1.05rem', letterSpacing: '0.02em'
               }}
             >
-              <X size={20} />
+              <Camera size={26} />
+              <span>SCANNER UN COLIS / LIVREUR</span>
             </button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
-              <div style={{
-                width: '38px', height: '38px', borderRadius: '10px',
-                background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444'
-              }}>
-                <AlertCircle size={20} />
+            {/* Compteurs Tactiles */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {/* Dépôts Vendeurs à collecter */}
+              <div
+                onClick={() => {
+                  setCurrentTab('stock');
+                  setStockFilter('collecte_livreur');
+                }}
+                style={{
+                  background: 'rgba(249, 115, 22, 0.08)',
+                  border: '1px solid rgba(249, 115, 22, 0.25)',
+                  borderRadius: '14px', padding: '14px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: '4px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Truck size={18} color="#fb923c" />
+                  <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#fb923c' }}>
+                    {vendorDeposits.length}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#f8fafc' }}>
+                  À collecter
+                </div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                  Dépôts pour agence
+                </div>
               </div>
-              <div>
-                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', fontWeight: '800' }}>
-                  Refuser la réception
-                </h3>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace' }}>
-                  #{parcelToRefuse.id} &bull; {parcelToRefuse.clientName}
-                </span>
+
+              {/* Colis Retrait Client */}
+              <div
+                onClick={() => {
+                  setCurrentTab('stock');
+                  setStockFilter('retrait_client');
+                }}
+                style={{
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  borderRadius: '14px', padding: '14px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: '4px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <CheckCircle2 size={18} color="#4ade80" />
+                  <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#4ade80' }}>
+                    {available.length}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#f8fafc' }}>
+                  Retraits clients
+                </div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                  En attente de retrait
+                </div>
               </div>
             </div>
 
-            <p style={{ margin: '0 0 1.25rem', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.45 }}>
-              Le colis sera marqué comme <strong>refusé au point relais</strong> et restera entre les mains du livreur pour retour ou réacheminement.
-            </p>
+            {/* Bannière Règle Métier Vendeur */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '14px', padding: '14px',
+              display: 'flex', alignItems: 'flex-start', gap: '10px'
+            }}>
+              <ShieldCheck size={20} color="#60a5fa" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '0.78rem', color: '#cbd5e1', lineHeight: '1.4' }}>
+                <strong style={{ color: '#fff', display: 'block' }}>Attribution Agence</strong>
+                Le choix de l'agence est validé par le vendeur lors de la commande. Vous remettez le colis uniquement au livreur de cette agence.
+              </div>
+            </div>
 
-            <form onSubmit={handleConfirmRefusal} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={labelStyle}>Motif obligatoire de refus</label>
-                <select
-                  value={refusalReasonCode}
-                  onChange={(e) => setRefusalReasonCode(e.target.value)}
+            {/* Liste rapide des 5 derniers colis en attente */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
+                  Activité récente
+                </span>
+                <button
+                  onClick={() => setCurrentTab('stock')}
                   style={{
-                    ...inputStyle,
-                    minHeight: '48px',
-                    fontSize: '0.95rem',
-                    cursor: 'pointer',
-                    background: '#1e293b'
+                    background: 'none', border: 'none', color: '#60a5fa',
+                    fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center'
                   }}
-                  required
                 >
-                  {DROP_POINT_REFUSAL_REASONS.map((r) => (
-                    <option key={r.code} value={r.code}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                  Tout voir ({allStockColis.length}) <ChevronRight size={14} />
+                </button>
               </div>
 
-              <div>
-                <label style={labelStyle}>Commentaire complémentaire (optionnel)</label>
-                <textarea
-                  value={refusalComment}
-                  onChange={(e) => setRefusalComment(e.target.value)}
-                  placeholder="Détails visibles par le livreur et le vendeur (ex: carton écrasé, fuite de liquide...)"
-                  rows={3}
-                  style={{
-                    ...inputStyle,
-                    resize: 'none',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.4
-                  }}
-                />
-              </div>
-
-              {refusalError && (
+              {allStockColis.length === 0 ? (
                 <div style={{
-                  padding: '0.75rem 0.9rem', borderRadius: '10px',
-                  background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-                  color: '#fca5a5', fontSize: '0.85rem'
+                  padding: '2rem 1rem', textAlign: 'center', borderRadius: '14px',
+                  background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)',
+                  color: '#64748b', fontSize: '0.82rem'
                 }}>
-                  {refusalError}
+                  Aucun colis stocké actuellement au relais.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {allStockColis.slice(0, 5).map(c => {
+                    const isCollecte = vendorDeposits.some(p => p.id === c.id);
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => setSelectedColisDetail(c)}
+                        style={{
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          borderRadius: '12px', padding: '12px',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{
+                            width: '32px', height: '32px', borderRadius: '8px',
+                            background: isCollecte ? 'rgba(249, 115, 22, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}>
+                            {isCollecte ? <Truck size={16} color="#fb923c" /> : <CheckCircle2 size={16} color="#4ade80" />}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: '800', fontSize: '0.85rem', color: '#fff', fontFamily: 'monospace' }}>
+                              {c.trackingCode}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                              {isCollecte ? `Agence: ${c.agence || 'Assignée'}` : `Client: ${c.clientName}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{
+                            fontSize: '0.68rem', fontWeight: '800', padding: '2px 8px', borderRadius: '6px',
+                            background: isCollecte ? 'rgba(249, 115, 22, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                            color: isCollecte ? '#fb923c' : '#4ade80'
+                          }}>
+                            {isCollecte ? 'À collecter' : 'Retrait'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+          </div>
+        )}
 
-              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-                <button
-                  type="button"
-                  onClick={() => { setParcelToRefuse(null); setRefusalError(null); }}
-                  disabled={refusalSubmitting}
-                  style={{
-                    flex: 1, minHeight: '48px', padding: '0.75rem', borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
-                    color: '#94a3b8', fontWeight: '600', cursor: 'pointer', fontFamily: 'inherit'
-                  }}
-                >
-                  Annuler
-                </button>
+        {/* ══════════════════════════════════════════
+            ONGLET 2 : STOCK & COLIS
+           ══════════════════════════════════════════ */}
+        {currentTab === 'stock' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Barre de Recherche */}
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <input
+                type="text"
+                placeholder="Rechercher code, client, vendeur..."
+                value={stockSearch}
+                onChange={e => setStockSearch(e.target.value)}
+                style={{
+                  width: '100%', height: '44px', borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)',
+                  paddingLeft: '38px', paddingRight: '12px', color: '#fff', fontSize: '0.85rem', boxSizing: 'border-box'
+                }}
+              />
+            </div>
 
-                <button
-                  type="submit"
-                  disabled={refusalSubmitting}
-                  style={{
-                    flex: 1.5, minHeight: '48px', padding: '0.75rem', borderRadius: '12px',
-                    border: 'none', background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                    color: '#fff', fontWeight: '800', cursor: refusalSubmitting ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                    boxShadow: '0 4px 14px rgba(239,68,68,0.4)', opacity: refusalSubmitting ? 0.7 : 1
-                  }}
-                >
-                  {refusalSubmitting ? 'Enregistrement...' : 'Confirmer le refus'}
-                </button>
+            {/* Filtres en pilules */}
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '2px' }}>
+              <button
+                onClick={() => setStockFilter('all')}
+                style={{
+                  padding: '7px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: '700',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: stockFilter === 'all' ? '#2563eb' : 'rgba(255,255,255,0.06)',
+                  color: '#fff'
+                }}
+              >
+                Tous ({allStockColis.length})
+              </button>
+              <button
+                onClick={() => setStockFilter('collecte_livreur')}
+                style={{
+                  padding: '7px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: '700',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: stockFilter === 'collecte_livreur' ? '#ea580c' : 'rgba(255,255,255,0.06)',
+                  color: '#fff'
+                }}
+              >
+                À collecter livreur ({vendorDeposits.length})
+              </button>
+              <button
+                onClick={() => setStockFilter('retrait_client')}
+                style={{
+                  padding: '7px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: '700',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: stockFilter === 'retrait_client' ? '#16a34a' : 'rgba(255,255,255,0.06)',
+                  color: '#fff'
+                }}
+              >
+                Retraits clients ({available.length})
+              </button>
+            </div>
+
+            {/* Liste des Colis */}
+            {filteredStock.length === 0 ? (
+              <div style={{
+                padding: '3rem 1rem', textAlign: 'center', borderRadius: '16px',
+                background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)',
+                color: '#64748b', fontSize: '0.85rem'
+              }}>
+                Aucun colis trouvé correspondant à votre recherche.
               </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {filteredStock.map(c => {
+                  const isCollecte = vendorDeposits.some(p => p.id === c.id);
+                  const isDispute = c.status === 'En réclamation' || c.claimStatus === 'OPEN';
+
+                  return (
+                    <div
+                      key={c.id}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: `1px solid ${isDispute ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+                        borderRadius: '16px', padding: '14px',
+                        display: 'flex', flexDirection: 'column', gap: '10px'
+                      }}
+                    >
+                      {/* Ligne En-tête colis */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontFamily: 'monospace', fontWeight: '900', color: '#60a5fa', fontSize: '0.95rem' }}>
+                            {c.trackingCode}
+                          </span>
+                          {c.pickupCode && (
+                            <span style={{ marginLeft: '6px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                              (Code: {c.pickupCode})
+                            </span>
+                          )}
+                        </div>
+
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: '800', padding: '3px 8px', borderRadius: '6px',
+                          background: isDispute ? 'rgba(239, 68, 68, 0.2)' : (isCollecte ? 'rgba(249, 115, 22, 0.15)' : 'rgba(34, 197, 94, 0.15)'),
+                          color: isDispute ? '#f87171' : (isCollecte ? '#fb923c' : '#4ade80')
+                        }}>
+                          {isDispute ? '🚨 Litige Vendeur' : (isCollecte ? 'Collecte Agence' : 'Retrait Client')}
+                        </span>
+                      </div>
+
+                      {/* Infos Client & Vendeur */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.78rem' }}>
+                        <div>
+                          <span style={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>Destinataire :</span>
+                          <strong style={{ color: '#fff' }}>{c.clientName}</strong>
+                          <div style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{c.clientPhone}</div>
+                        </div>
+                        <div>
+                          <span style={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>Expéditeur :</span>
+                          <strong style={{ color: '#fff' }}>{c.vendeurName || 'Vendeur'}</strong>
+                          <div style={{ color: '#94a3b8', fontSize: '0.72rem' }}>{c.vendeurPhone || '—'}</div>
+                        </div>
+                      </div>
+
+                      {/* Bloc Agence Choisie & Livreur Attendu */}
+                      <div style={{
+                        background: 'rgba(0,0,0,0.25)', borderRadius: '10px', padding: '8px 10px',
+                        display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbd5e1' }}>
+                          <Building2 size={13} color="#60a5fa" />
+                          <span>Agence assignée par vendeur : <strong>{c.agence || 'Assignée'}</strong></span>
+                        </div>
+
+                        {isCollecte && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.livreur ? '#4ade80' : '#fb923c' }}>
+                            <Truck size={13} />
+                            {c.livreur ? (
+                              <span>Livreur attendu : <strong>{c.livreur}</strong> {c.livreurPhone ? `(${c.livreurPhone})` : ''}</span>
+                            ) : (
+                              <span>En attente d'affectation d'un livreur par l'agence</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bouton d'action */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                        {isCollecte ? (
+                          <button
+                            onClick={() => {
+                              setHandoverModalColis(c);
+                              setDriverIdentifierInput('');
+                              setHandoverError(null);
+                            }}
+                            style={{
+                              flex: 1, height: '42px', borderRadius: '10px', border: 'none',
+                              background: '#ea580c', color: '#fff', fontWeight: '800', fontSize: '0.82rem',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                            }}
+                          >
+                            <Truck size={15} /> Remettre au livreur
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (isDispute) {
+                                triggerToast('Retrait formellement bloqué : réclamation vendeur en cours.', 'error');
+                                return;
+                              }
+                              setOtpModalColis(c);
+                              setOtpInput('');
+                              setOtpError(null);
+                            }}
+                            style={{
+                              flex: 1, height: '42px', borderRadius: '10px', border: 'none',
+                              background: isDispute ? '#334155' : '#16a34a',
+                              color: isDispute ? '#94a3b8' : '#fff',
+                              fontWeight: '800', fontSize: '0.82rem',
+                              cursor: isDispute ? 'not-allowed' : 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                            }}
+                          >
+                            <CheckCircle2 size={15} /> {isDispute ? 'Retrait bloqué' : 'Remise au client (OTP)'}
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => setSelectedColisDetail(c)}
+                          style={{
+                            height: '42px', padding: '0 12px', borderRadius: '10px',
+                            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer'
+                          }}
+                        >
+                          Détails
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            ONGLET 3 : SCANNER CAMERA & SAISIE
+           ══════════════════════════════════════════ */}
+        {currentTab === 'scanner' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Sélecteur de Mode de Scan */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px',
+              background: 'rgba(255, 255, 255, 0.04)', padding: '4px', borderRadius: '12px'
+            }}>
+              <button
+                onClick={() => setScannerMode('vendor_reception')}
+                style={{
+                  padding: '8px 4px', borderRadius: '8px', border: 'none',
+                  background: scannerMode === 'vendor_reception' ? '#2563eb' : 'transparent',
+                  color: scannerMode === 'vendor_reception' ? '#fff' : '#94a3b8',
+                  fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer', textAlign: 'center'
+                }}
+              >
+                1. Dépôt Vendeur
+              </button>
+              <button
+                onClick={() => setScannerMode('driver_handover')}
+                style={{
+                  padding: '8px 4px', borderRadius: '8px', border: 'none',
+                  background: scannerMode === 'driver_handover' ? '#ea580c' : 'transparent',
+                  color: scannerMode === 'driver_handover' ? '#fff' : '#94a3b8',
+                  fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer', textAlign: 'center'
+                }}
+              >
+                2. Remise Livreur
+              </button>
+              <button
+                onClick={() => setScannerMode('client_otp')}
+                style={{
+                  padding: '8px 4px', borderRadius: '8px', border: 'none',
+                  background: scannerMode === 'client_otp' ? '#16a34a' : 'transparent',
+                  color: scannerMode === 'client_otp' ? '#fff' : '#94a3b8',
+                  fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer', textAlign: 'center'
+                }}
+              >
+                3. Retrait Client
+              </button>
+            </div>
+
+            {/* Consigne selon le mode */}
+            <div style={{
+              padding: '10px 14px', borderRadius: '12px',
+              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+              fontSize: '0.78rem', color: '#cbd5e1'
+            }}>
+              {scannerMode === 'vendor_reception' && (
+                <div>
+                  <strong style={{ color: '#60a5fa', display: 'block' }}>Réception Dépôt Vendeur :</strong>
+                  Scannez le QR du colis ou le code de confirmation du vendeur. Vérifie le devis agence et décompte 1 crédit.
+                </div>
+              )}
+              {scannerMode === 'driver_handover' && (
+                <div>
+                  <strong style={{ color: '#fb923c', display: 'block' }}>Remise au Livreur de l'Agence :</strong>
+                  Scannez le QR dynamique du livreur. Le système vérifie strictement que le livreur appartient à l'agence du colis.
+                </div>
+              )}
+              {scannerMode === 'client_otp' && (
+                <div>
+                  <strong style={{ color: '#4ade80', display: 'block' }}>Retrait Client Destinataire :</strong>
+                  Scannez le colis puis saisissez le code OTP à 6 chiffres. Bloqué si réclamation vendeur en cours.
+                </div>
+              )}
+            </div>
+
+            {/* Zone Caméra HTML5 QR Scanner */}
+            <div style={{
+              background: '#000', borderRadius: '16px', overflow: 'hidden',
+              border: '2px solid rgba(59, 130, 246, 0.3)',
+              minHeight: '260px', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', position: 'relative'
+            }}>
+              {cameraActive ? (
+                <div style={{ width: '100%' }}>
+                  <QRScanner
+                    onScanSuccess={(decodedText) => {
+                      handleProcessScanCode(decodedText);
+                    }}
+                  />
+                  <button
+                    onClick={() => setCameraActive(false)}
+                    style={{
+                      position: 'absolute', top: '10px', right: '10px',
+                      background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#fff', borderRadius: '20px', padding: '4px 10px',
+                      fontSize: '0.72rem', cursor: 'pointer', zIndex: 10
+                    }}
+                  >
+                    Fermer caméra
+                  </button>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                  <QrCode size={56} color="#60a5fa" style={{ margin: '0 auto 12px', opacity: 0.8 }} />
+                  <button
+                    onClick={() => setCameraActive(true)}
+                    style={{
+                      padding: '10px 20px', borderRadius: '12px',
+                      background: '#2563eb', border: 'none', color: '#fff',
+                      fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer'
+                    }}
+                  >
+                    Activer la caméra
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Saisie Manuelle de Secours */}
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                handleProcessScanCode(manualCode);
+              }}
+              style={{ display: 'flex', gap: '8px' }}
+            >
+              <input
+                type="text"
+                placeholder="Ou saisir code manuel (ex: MC-123456)..."
+                value={manualCode}
+                onChange={e => setManualCode(e.target.value)}
+                style={{
+                  flex: 1, height: '46px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#fff', padding: '0 12px', fontSize: '0.88rem'
+                }}
+              />
+              <button
+                type="submit"
+                disabled={scannerLoading || !manualCode.trim()}
+                style={{
+                  height: '46px', padding: '0 18px', borderRadius: '12px',
+                  background: '#2563eb', border: 'none', color: '#fff',
+                  fontWeight: '800', fontSize: '0.85rem',
+                  cursor: scannerLoading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {scannerLoading ? '...' : 'Valider'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            ONGLET 4 : PLUS & GESTION
+           ══════════════════════════════════════════ */}
+        {currentTab === 'plus' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Carte Relais Info */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '42px', height: '42px', borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <MapPin size={22} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#fff' }}>
+                    {agent?.dropPointName}
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+                    {dropPointInfo?.address} ({agent?.dropPointCommune})
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>Solde de crédits disponibles :</span>
+                <strong style={{ fontSize: '1.1rem', color: isCreditsEmpty ? '#ef4444' : '#60a5fa' }}>
+                  {dropPointCredits !== null ? dropPointCredits : '—'} crédits
+                </strong>
+              </div>
+            </div>
+
+            {/* Menu d'actions secondaires */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Inventaire fin de journée */}
+              <button
+                onClick={() => setShowInventoryModal(true)}
+                style={{
+                  width: '100%', minHeight: '52px', borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: '#fff', cursor: 'pointer', padding: '0 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Calendar size={18} color="#60a5fa" />
+                  <span style={{ fontSize: '0.88rem', fontWeight: '700' }}>Clôture & Inventaire fin de journée</span>
+                </div>
+                <ChevronRight size={16} color="#64748b" />
+              </button>
+
+              {/* Afficher QR Code du Point Relais */}
+              <button
+                onClick={() => setShowQrModal(true)}
+                style={{
+                  width: '100%', minHeight: '52px', borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: '#fff', cursor: 'pointer', padding: '0 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <QrCode size={18} color="#4ade80" />
+                  <span style={{ fontSize: '0.88rem', fontWeight: '700' }}>Afficher le QR Code du Relais</span>
+                </div>
+                <ChevronRight size={16} color="#64748b" />
+              </button>
+
+              {/* Rafraîchir les données */}
+              <button
+                onClick={() => agent && loadPackages(agent.dropPointId)}
+                style={{
+                  width: '100%', minHeight: '52px', borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: '#fff', cursor: 'pointer', padding: '0 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <RefreshCw size={18} color="#fb923c" className={loadingData ? 'animate-spin' : ''} />
+                  <span style={{ fontSize: '0.88rem', fontWeight: '700' }}>Actualiser le stock</span>
+                </div>
+                <ChevronRight size={16} color="#64748b" />
+              </button>
+            </div>
+
+            {/* Déconnexion */}
+            <button
+              onClick={async () => {
+                await logout();
+                window.location.href = '/auth/point-relais/login';
+              }}
+              style={{
+                width: '100%', minHeight: '48px', borderRadius: '12px',
+                background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                color: '#ef4444', fontWeight: '800', fontSize: '0.85rem',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                marginTop: '12px'
+              }}
+            >
+              <LogOut size={16} /> Déconnexion
+            </button>
+          </div>
+        )}
+      </main>
+
+      {/* ── MODAL : REMISE AU LIVREUR DE L'AGENCE ── */}
+      {handoverModalColis && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(249, 115, 22, 0.3)',
+            borderRadius: '20px', padding: '20px', width: '100%', maxWidth: '400px',
+            display: 'flex', flexDirection: 'column', gap: '14px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                Remise au Livreur
+              </h3>
+              <button onClick={() => setHandoverModalColis(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{
+              background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '10px',
+              fontSize: '0.8rem', color: '#cbd5e1'
+            }}>
+              <div>Colis : <strong style={{ color: '#60a5fa' }}>{handoverModalColis.trackingCode}</strong></div>
+              <div>Agence assignée : <strong style={{ color: '#fff' }}>{handoverModalColis.agence || 'Agence du vendeur'}</strong></div>
+              {handoverModalColis.livreur && (
+                <div>Livreur attendu : <strong style={{ color: '#4ade80' }}>{handoverModalColis.livreur}</strong></div>
+              )}
+            </div>
+
+            {handoverError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '10px', padding: '10px', color: '#fca5a5', fontSize: '0.78rem', fontWeight: '700'
+              }}>
+                ⛔ {handoverError}
+              </div>
+            )}
+
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                submitHandoverToDriver(handoverModalColis.id, driverIdentifierInput);
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+            >
+              <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8' }}>
+                Identifiant ou QR dynamique du livreur :
+              </label>
+              <input
+                type="text"
+                placeholder="Scannez ou saisissez l'identifiant livreur..."
+                value={driverIdentifierInput}
+                onChange={e => setDriverIdentifierInput(e.target.value)}
+                autoFocus
+                style={{
+                  height: '46px', borderRadius: '10px',
+                  background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', padding: '0 12px', fontSize: '0.9rem'
+                }}
+              />
+
+              <button
+                type="submit"
+                disabled={handoverLoading || !driverIdentifierInput.trim()}
+                style={{
+                  height: '46px', borderRadius: '10px', border: 'none',
+                  background: '#ea580c', color: '#fff', fontWeight: '800', fontSize: '0.88rem',
+                  cursor: handoverLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
+                }}
+              >
+                {handoverLoading ? 'Vérification...' : 'Valider la remise au livreur'}
+              </button>
             </form>
           </div>
         </div>
       )}
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        select option { background: #1e293b; color: #fff; }
-        nav button:active { opacity: 0.7; transform: scale(0.93); }
-      `}</style>
+      {/* ── MODAL : VALIDATION OTP RETRAIT CLIENT ── */}
+      {otpModalColis && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '20px', padding: '20px', width: '100%', maxWidth: '400px',
+            display: 'flex', flexDirection: 'column', gap: '14px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                Remise au Client (OTP)
+              </h3>
+              <button onClick={() => setOtpModalColis(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{
+              background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '10px',
+              fontSize: '0.8rem', color: '#cbd5e1'
+            }}>
+              <div>Colis : <strong style={{ color: '#4ade80' }}>{otpModalColis.trackingCode}</strong></div>
+              <div>Destinataire : <strong style={{ color: '#fff' }}>{otpModalColis.clientName}</strong> ({otpModalColis.clientPhone})</div>
+              <div>Montant marchandise : <strong style={{ color: '#fff' }}>{formatPrice(otpModalColis.prixColis)}</strong></div>
+            </div>
+
+            {otpError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '10px', padding: '10px', color: '#fca5a5', fontSize: '0.78rem', fontWeight: '700'
+              }}>
+                ⛔ {otpError}
+              </div>
+            )}
+
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                submitClientOtp(otpModalColis.id, otpInput);
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}
+            >
+              <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8' }}>
+                Code OTP fourni par le client (6 chiffres) :
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="123456"
+                value={otpInput}
+                onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                autoFocus
+                style={{
+                  height: '52px', borderRadius: '10px',
+                  background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', textAlign: 'center', fontSize: '1.4rem', letterSpacing: '6px', fontWeight: '900'
+                }}
+              />
+
+              <button
+                type="submit"
+                disabled={otpLoading || otpInput.length < 6}
+                style={{
+                  height: '46px', borderRadius: '10px', border: 'none',
+                  background: '#16a34a', color: '#fff', fontWeight: '800', fontSize: '0.88rem',
+                  cursor: otpLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
+                }}
+              >
+                {otpLoading ? 'Validation...' : 'Valider le retrait'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL : INVENTAIRE FIN DE JOURNÉE ── */}
+      {showInventoryModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: '20px', padding: '20px', width: '100%', maxWidth: '420px',
+            maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                Inventaire Fin de Journée
+              </h3>
+              <button onClick={() => setShowInventoryModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
+              Scannez chaque colis présent en rayon pour clôturer la journée et détecter les écarts de stock.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: '900', color: '#60a5fa' }}>{allStockColis.length}</div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Stock théorique</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '10px', textAlign: 'center' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: '900', color: '#4ade80' }}>{inventoryScannedCodes.length}</div>
+                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Scannés en rayon</div>
+              </div>
+            </div>
+
+            {/* Saisie pour inventaire */}
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                if (!inventoryInput.trim()) return;
+                const clean = inventoryInput.trim().toUpperCase();
+                if (!inventoryScannedCodes.includes(clean)) {
+                  setInventoryScannedCodes(prev => [...prev, clean]);
+                  playHapticFeedback('success');
+                }
+                setInventoryInput('');
+              }}
+              style={{ display: 'flex', gap: '8px' }}
+            >
+              <input
+                type="text"
+                placeholder="Code tracking ou scan..."
+                value={inventoryInput}
+                onChange={e => setInventoryInput(e.target.value)}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '10px',
+                  background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', padding: '0 12px', fontSize: '0.85rem'
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  height: '42px', padding: '0 14px', borderRadius: '10px',
+                  background: '#2563eb', border: 'none', color: '#fff', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                Pointer
+              </button>
+            </form>
+
+            <button
+              onClick={() => {
+                const ecart = allStockColis.length - inventoryScannedCodes.length;
+                if (ecart === 0) {
+                  triggerToast('✅ Inventaire parfait : aucun écart détecté !', 'success');
+                } else {
+                  triggerToast(`⚠️ Attention : écart de ${Math.abs(ecart)} colis non scanné(s).`, 'error');
+                }
+                setShowInventoryModal(false);
+              }}
+              style={{
+                height: '44px', borderRadius: '10px', border: 'none',
+                background: '#16a34a', color: '#fff', fontWeight: '800', fontSize: '0.85rem',
+                cursor: 'pointer', marginTop: '6px'
+              }}
+            >
+              Clôturer l'inventaire
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL : QR CODE DU POINT RELAIS (POUR AFFICHAGE COMPTOIR) ── */}
+      {showQrModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 120,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: '24px', padding: '24px', width: '100%', maxWidth: '380px',
+            textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: '800', color: '#60a5fa', textTransform: 'uppercase' }}>
+                QR Code du Point Relais
+              </span>
+              <button onClick={() => setShowQrModal(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{
+              background: '#fff', borderRadius: '16px', padding: '20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto'
+            }}>
+              {/* Image QR Code dynamique générée via API publique ou SVG */}
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(agent?.dropPointId || 'dp-1')}`}
+                alt="QR Code Point Relais"
+                style={{ width: '180px', height: '180px', display: 'block' }}
+              />
+            </div>
+
+            <div>
+              <h4 style={{ margin: '0 0 4px', fontSize: '1.05rem', fontWeight: '800', color: '#fff' }}>
+                {agent?.dropPointName}
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
+                Présentez ce QR Code aux vendeurs déposants pour scanner à leur arrivée au relais.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowQrModal(false)}
+              style={{
+                height: '44px', borderRadius: '12px', border: 'none',
+                background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: '700',
+                cursor: 'pointer', fontSize: '0.85rem'
+              }}
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL : FICHE DÉTAILLÉE DU COLIS ── */}
+      {selectedColisDetail && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: '20px', padding: '20px', width: '100%', maxWidth: '420px',
+            maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>Fiche Colis</span>
+                <div style={{ fontFamily: 'monospace', fontWeight: '900', color: '#60a5fa', fontSize: '1.1rem' }}>
+                  {selectedColisDetail.trackingCode}
+                </div>
+              </div>
+              <button onClick={() => setSelectedColisDetail(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Agence sélectionnée par le vendeur */}
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+              borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px'
+            }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#60a5fa', textTransform: 'uppercase' }}>
+                Attribution Agence (Choix Vendeur)
+              </span>
+              <div style={{ fontWeight: '800', color: '#fff', fontSize: '0.95rem' }}>
+                {selectedColisDetail.agence || 'Agence Assignée'}
+              </div>
+              {selectedColisDetail.livreur && (
+                <div style={{ fontSize: '0.78rem', color: '#4ade80', marginTop: '2px' }}>
+                  Livreur attendu : <strong>{selectedColisDetail.livreur}</strong> ({selectedColisDetail.livreurPhone || ''})
+                </div>
+              )}
+            </div>
+
+            {/* Destinataire */}
+            <div style={{
+              background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '12px',
+              display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem'
+            }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
+                Destinataire Client
+              </span>
+              <strong style={{ color: '#fff', fontSize: '0.95rem' }}>{selectedColisDetail.clientName}</strong>
+              <div style={{ color: '#cbd5e1' }}>{selectedColisDetail.clientCommune} — {selectedColisDetail.clientAddress}</div>
+              {selectedColisDetail.clientPhone && (
+                <a href={`tel:${selectedColisDetail.clientPhone}`} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '700', marginTop: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Phone size={13} /> Appeler {selectedColisDetail.clientPhone}
+                </a>
+              )}
+            </div>
+
+            {/* Expéditeur */}
+            <div style={{
+              background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '12px',
+              display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.82rem'
+            }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
+                Expéditeur Vendeur
+              </span>
+              <strong style={{ color: '#fff', fontSize: '0.95rem' }}>{selectedColisDetail.vendeurName || 'Vendeur'}</strong>
+              {selectedColisDetail.vendeurPhone && (
+                <a href={`tel:${selectedColisDetail.vendeurPhone}`} style={{ color: '#60a5fa', textDecoration: 'none', fontWeight: '700', marginTop: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Phone size={13} /> Appeler {selectedColisDetail.vendeurPhone}
+                </a>
+              )}
+            </div>
+
+            <button
+              onClick={() => setSelectedColisDetail(null)}
+              style={{
+                height: '44px', borderRadius: '10px', border: 'none',
+                background: 'rgba(255,255,255,0.08)', color: '#fff', fontWeight: '700',
+                cursor: 'pointer', fontSize: '0.85rem'
+              }}
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BARRE DE NAVIGATION BASSE (BOTTOM NAV MOBILE) ── */}
+      <nav style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 40,
+        maxWidth: '480px', margin: '0 auto',
+        height: '66px',
+        background: 'rgba(15, 23, 42, 0.96)',
+        backdropFilter: 'blur(16px)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+        alignItems: 'center', padding: '0 8px'
+      }}>
+        {/* Onglet Accueil */}
+        <button
+          onClick={() => setCurrentTab('accueil')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+            color: currentTab === 'accueil' ? '#3b82f6' : '#64748b'
+          }}
+        >
+          <Package size={20} />
+          <span style={{ fontSize: '0.68rem', fontWeight: currentTab === 'accueil' ? '800' : '600' }}>Accueil</span>
+        </button>
+
+        {/* Onglet Stock */}
+        <button
+          onClick={() => setCurrentTab('stock')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+            color: currentTab === 'stock' ? '#3b82f6' : '#64748b',
+            position: 'relative'
+          }}
+        >
+          <Truck size={20} />
+          <span style={{ fontSize: '0.68rem', fontWeight: currentTab === 'stock' ? '800' : '600' }}>Stock</span>
+          {allStockColis.length > 0 && (
+            <span style={{
+              position: 'absolute', top: '-4px', right: '22%',
+              background: '#ef4444', color: '#fff', borderRadius: '10px',
+              fontSize: '0.6rem', fontWeight: '900', padding: '1px 5px'
+            }}>
+              {allStockColis.length}
+            </span>
+          )}
+        </button>
+
+        {/* Onglet Scanner (Central) */}
+        <button
+          onClick={() => {
+            setCurrentTab('scanner');
+            setCameraActive(true);
+          }}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+            color: currentTab === 'scanner' ? '#3b82f6' : '#64748b'
+          }}
+        >
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '50%',
+            background: currentTab === 'scanner' ? '#2563eb' : 'rgba(59, 130, 246, 0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', marginTop: '-12px', boxShadow: '0 4px 12px rgba(37,99,235,0.4)'
+          }}>
+            <Camera size={18} />
+          </div>
+          <span style={{ fontSize: '0.68rem', fontWeight: currentTab === 'scanner' ? '800' : '600' }}>Scanner</span>
+        </button>
+
+        {/* Onglet Plus */}
+        <button
+          onClick={() => setCurrentTab('plus')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+            color: currentTab === 'plus' ? '#3b82f6' : '#64748b'
+          }}
+        >
+          <Calendar size={20} />
+          <span style={{ fontSize: '0.68rem', fontWeight: currentTab === 'plus' ? '800' : '600' }}>Plus</span>
+        </button>
+      </nav>
+
     </div>
   );
 }
-
-// Shared inline styles
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: '0.78rem', fontWeight: '600', color: '#94a3b8', marginBottom: '0.35rem',
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '0.7rem 0.9rem',
-  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: '10px', color: '#fff', fontSize: '0.88rem', fontFamily: 'inherit',
-  outline: 'none', boxSizing: 'border-box',
-};

@@ -26,10 +26,20 @@ interface ColisRow {
   prixLivraison: number | null;
   driverId?: string | null;
   driverName: string | null;
+  driverPhone?: string | null;
   date: string;
   paidByClient: boolean;
   isPrepaid: boolean;
   validationCode?: string;
+  originDropPoint?: {
+    id: string;
+    name: string;
+    commune: string;
+    address: string;
+    phone: string;
+    openingHours: string;
+  } | null;
+  isToPickupAtRelay?: boolean;
 }
 
 interface DriverOption {
@@ -42,6 +52,7 @@ interface DriverOption {
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   'PENDING_AGENCY':        { label: 'En attente',    color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   'ACCEPTED_BY_AGENCY':    { label: 'Accepté',       color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+  'WAITING_FOR_AGENCY_PICKUP': { label: 'À récupérer au relais', color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
   'REJECTED_BY_AGENCY':    { label: 'Refusé',        color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
   'ASSIGNED_TO_DRIVER':    { label: 'Assigné',       color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
   'IN_TRANSIT':            { label: 'En cours',      color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
@@ -122,7 +133,11 @@ export default function AgencyColisPage() {
   // Filtrage
   const filtered = useMemo(() => {
     return colis.filter(c => {
-      const matchStatus = statusFilter === 'all' || c.status === statusFilter;
+      const matchStatus = statusFilter === 'all'
+        ? true
+        : statusFilter === 'TO_PICKUP_AT_RELAY'
+          ? !!c.isToPickupAtRelay
+          : c.status === statusFilter;
       const matchCommune = communeFilter === 'all' || c.clientCommune === communeFilter;
       const matchDriver = driverFilter === 'all' || (driverFilter === 'unassigned' ? !c.driverName : c.driverName === driverFilter);
       const q = search.toLowerCase().trim();
@@ -130,7 +145,8 @@ export default function AgencyColisPage() {
         c.trackingCode.toLowerCase().includes(q) ||
         c.clientName.toLowerCase().includes(q) ||
         c.vendeurName.toLowerCase().includes(q) ||
-        (c.clientCommune && c.clientCommune.toLowerCase().includes(q));
+        (c.clientCommune && c.clientCommune.toLowerCase().includes(q)) ||
+        (c.originDropPoint?.name && c.originDropPoint.name.toLowerCase().includes(q));
 
       return matchStatus && matchCommune && matchDriver && matchSearch;
     });
@@ -266,6 +282,7 @@ export default function AgencyColisPage() {
             }}
           >
             <option value="all">Tous les statuts ({colis.length})</option>
+            <option value="TO_PICKUP_AT_RELAY">📍 À récupérer au relais ({colis.filter(c => c.isToPickupAtRelay).length})</option>
             <option value="PENDING_AGENCY">En attente de validation</option>
             <option value="ACCEPTED_BY_AGENCY">Accepté par l'agence</option>
             <option value="ASSIGNED_TO_DRIVER">Assigné à un livreur</option>
@@ -363,6 +380,11 @@ export default function AgencyColisPage() {
                         <span style={{ fontFamily: 'monospace', fontWeight: '800', color: 'var(--ag-brand)', fontSize: '0.85rem' }}>
                           {c.trackingCode}
                         </span>
+                        {c.isToPickupAtRelay && c.originDropPoint && (
+                          <div style={{ fontSize: '0.7rem', color: '#ea580c', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                            <span>📍 Relais: {c.originDropPoint.name}</span>
+                          </div>
+                        )}
                       </td>
 
                       <td>
@@ -518,6 +540,64 @@ export default function AgencyColisPage() {
                 </span>
               </div>
 
+              {/* Point Relais de départ si applicable */}
+              {selectedColis.originDropPoint && (
+                <div style={{
+                  backgroundColor: 'rgba(249, 115, 22, 0.08)',
+                  border: '1px solid rgba(249, 115, 22, 0.3)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', color: '#ea580c', letterSpacing: '0.04em' }}>
+                      📍 À récupérer au Point Relais
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--ag-text-muted)' }}>
+                      {selectedColis.originDropPoint.openingHours}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: '800', fontSize: '1rem', color: 'var(--ag-text-primary)' }}>
+                      {selectedColis.originDropPoint.name}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--ag-text-secondary)', marginTop: '2px' }}>
+                      <MapPin size={13} color="#ea580c" />
+                      <span>{selectedColis.originDropPoint.address} ({selectedColis.originDropPoint.commune})</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                    {selectedColis.originDropPoint.phone && (
+                      <a
+                        href={`tel:${selectedColis.originDropPoint.phone}`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '6px',
+                          padding: '7px 12px', borderRadius: '8px', backgroundColor: '#ea580c',
+                          color: '#fff', fontSize: '0.78rem', fontWeight: '700', textDecoration: 'none'
+                        }}
+                      >
+                        <Phone size={13} /> Appeler ({selectedColis.originDropPoint.phone})
+                      </a>
+                    )}
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selectedColis.originDropPoint.name + ' ' + selectedColis.originDropPoint.address + ' ' + selectedColis.originDropPoint.commune)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        padding: '7px 12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface)',
+                        border: '1px solid var(--ag-border)', color: 'var(--ag-text-primary)',
+                        fontSize: '0.78rem', fontWeight: '600', textDecoration: 'none'
+                      }}
+                    >
+                      <MapPin size={13} /> Itinéraire
+                    </a>
+                  </div>
+                </div>
+              )}
+
               {/* Destinataire */}
               <div style={{
                 backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
@@ -578,17 +658,39 @@ export default function AgencyColisPage() {
                   <span style={{ color: 'var(--ag-text-secondary)' }}>Frais livraison :</span>
                   <strong style={{ color: 'var(--ag-brand)' }}>{selectedColis.prixLivraison ? formatPrice(selectedColis.prixLivraison) : 'Inclus / Fixe'}</strong>
                 </div>
+                {/* Qui paie les frais de livraison */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--ag-text-secondary)' }}>Frais à la charge de :</span>
+                  <span style={{
+                    padding: '2px 10px', borderRadius: '20px', fontSize: '0.74rem', fontWeight: '800',
+                    backgroundColor: selectedColis.paidByClient ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.15)',
+                    color: selectedColis.paidByClient ? '#60a5fa' : '#f59e0b',
+                    border: `1px solid ${selectedColis.paidByClient ? 'rgba(96,165,250,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                  }}>
+                    {selectedColis.paidByClient ? '🛒 Client (COD)' : '🏪 Vendeur (déduit)'}
+                  </span>
+                </div>
                 <div style={{ height: '1px', backgroundColor: 'var(--ag-border)' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
-                  <span style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>Total à encaisser :</span>
+                  <span style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>Montant à encaisser (COD) :</span>
                   <strong style={{ fontWeight: '900', color: selectedColis.isPrepaid ? 'var(--ag-success)' : 'var(--ag-brand)' }}>
-                    {selectedColis.isPrepaid ? '0 (Prépayé)' : formatPrice(selectedColis.prixColis + (selectedColis.prixLivraison || 0))}
+                    {selectedColis.isPrepaid
+                      ? '0 (Prépayé)'
+                      : selectedColis.paidByClient
+                        ? formatPrice(selectedColis.prixColis + (selectedColis.prixLivraison || 0))
+                        : formatPrice(selectedColis.prixColis)
+                    }
                   </strong>
                 </div>
+                {!selectedColis.paidByClient && selectedColis.prixLivraison && (
+                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
+                    ⚠️ Les frais ({formatPrice(selectedColis.prixLivraison)}) seront déduits du reversement vendeur.
+                  </div>
+                )}
               </div>
 
-              {/* Assignation Livreur */}
-              {canAssign && (
+              {/* Assignation Livreur — visible uniquement après acceptation */}
+              {canAssign && ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP'].includes(selectedColis.status) && (
                 <div style={{
                   backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
                   borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px'
@@ -633,6 +735,18 @@ export default function AgencyColisPage() {
                   )}
                 </div>
               )}
+
+              {/* Message d'info si pas encore accepté */}
+              {canAssign && !['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'].includes(selectedColis.status) && (
+                <div style={{
+                  padding: '12px 14px', borderRadius: '10px',
+                  backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+                  fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px'
+                }}>
+                  <span style={{ fontSize: '1rem' }}>⚠️</span>
+                  <span>Acceptez d&apos;abord ce colis pour pouvoir assigner un livreur.</span>
+                </div>
+              )}
             </div>
 
             {/* Pied du drawer avec actions */}
@@ -640,7 +754,7 @@ export default function AgencyColisPage() {
               padding: '16px 24px', borderTop: '1px solid var(--ag-border)',
               display: 'flex', gap: '10px'
             }}>
-              {selectedColis.status === 'PENDING_AGENCY' && canEdit && (
+              {['PENDING_AGENCY', 'QUOTE_PENDING', 'CREATED'].includes(selectedColis.status) && canEdit && (
                 <>
                   <button
                     onClick={() => handleAction(selectedColis.id, 'accept')}
@@ -648,10 +762,11 @@ export default function AgencyColisPage() {
                     style={{
                       flex: 1, height: '42px', borderRadius: '8px', border: 'none',
                       backgroundColor: 'var(--ag-success)', color: '#000',
-                      fontWeight: '800', cursor: 'pointer', fontSize: '0.85rem'
+                      fontWeight: '800', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: '0.85rem',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                     }}
                   >
-                    Accepter la prise en charge
+                    {actionLoading ? 'Traitement...' : '✅ Accepter & calculer tarif'}
                   </button>
                   <button
                     onClick={() => { setRefusalModalColis(selectedColis); setRefusalReason(''); }}

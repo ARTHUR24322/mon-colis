@@ -13,6 +13,39 @@ import { getSession } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
 import { z } from 'zod';
 
+/**
+ * GET /api/agency/settings
+ * Retourne les tarifs de l'agence (commune_prices, price_per_km, price_per_kg, taux_fc).
+ */
+export async function GET(_request: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session || session.role !== 'agence' || !session.agencyId) {
+      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
+    }
+
+    const { data, error } = await supabase
+      .from('agencies')
+      .select('commune_prices, price_per_km, price_per_kg, taux_fc')
+      .eq('id', session.agencyId)
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json({ error: 'Agence introuvable.' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      communePrices: data.commune_prices || [],
+      pricePerKm: data.price_per_km || 0,
+      pricePerKg: data.price_per_kg || 0,
+      tauxConversionFC: data.taux_fc || null,
+    });
+  } catch (e) {
+    console.error('Unexpected error in GET /api/agency/settings:', e);
+    return NextResponse.json({ error: 'Erreur serveur inattendue.' }, { status: 500 });
+  }
+}
+
 const settingsSchema = z.object({
   communePrices: z.array(
     z.object({

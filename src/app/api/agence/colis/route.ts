@@ -35,15 +35,23 @@ export async function GET(request: NextRequest) {
         is_prepaid,
         vendor_paid,
         created_at,
+        driver_id,
+        origin_drop_point_id,
         vendeur:profiles!vendeur_id(name, phone),
-        driver:drivers(phone, profile:profiles(name))
+        driver:drivers!driver_id(id, phone, profile:profiles(name)),
+        origin_drop_point:drop_points!origin_drop_point_id(id, name, commune, address, phone, opening_hours)
       `, { count: 'exact' })
       .eq('agency_id', session.agencyId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (status && status !== 'all') {
-      query = query.eq('status', status);
+      if (status === 'TO_PICKUP_AT_RELAY') {
+        // Filtre spécifique : colis déposés en point relais à récupérer par l'agence
+        query = query.in('status', ['WAITING_FOR_AGENCY_PICKUP', 'ACCEPTED_BY_AGENCY']).not('origin_drop_point_id', 'is', null);
+      } else {
+        query = query.eq('status', status);
+      }
     }
 
     if (search) {
@@ -61,6 +69,8 @@ export async function GET(request: NextRequest) {
       const vendeur = Array.isArray(p.vendeur) ? p.vendeur[0] : p.vendeur;
       const driver = Array.isArray(p.driver) ? p.driver[0] : p.driver;
       const driverProfile = Array.isArray(driver?.profile) ? driver?.profile[0] : driver?.profile;
+      const relay = Array.isArray(p.origin_drop_point) ? p.origin_drop_point[0] : p.origin_drop_point;
+
       return {
         id: p.id,
         trackingCode: p.tracking_code || ('MC-' + p.id.slice(0, 8).toUpperCase()),
@@ -72,7 +82,18 @@ export async function GET(request: NextRequest) {
         status: p.status,
         prixColis: p.package_price || 0,
         prixLivraison: p.delivery_price || null,
+        driverId: p.driver_id || driver?.id || null,
         driverName: driverProfile?.name || null,
+        driverPhone: driver?.phone || null,
+        originDropPoint: relay ? {
+          id: relay.id,
+          name: relay.name,
+          commune: relay.commune || '—',
+          address: relay.address || '—',
+          phone: relay.phone || '—',
+          openingHours: relay.opening_hours || '8h - 18h',
+        } : null,
+        isToPickupAtRelay: !!p.origin_drop_point_id && (p.status === 'WAITING_FOR_AGENCY_PICKUP' || p.status === 'ACCEPTED_BY_AGENCY'),
         date: p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : '—',
         paidByClient: p.paid_by_client !== false,
         isPrepaid: p.is_prepaid || false,

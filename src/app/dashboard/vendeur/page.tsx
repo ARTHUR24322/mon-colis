@@ -1099,6 +1099,53 @@ export default function VendeurDashboard() {
                 )}
               </div>
 
+              {/* ── Qui paie les frais de livraison ? ── */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                  Frais de livraison à la charge de :
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setPaidByClient(true); setIsPrepaid(false); }}
+                    style={{
+                      minHeight: '52px', borderRadius: '10px', padding: '0.5rem',
+                      border: paidByClient ? '2px solid #60a5fa' : '1px solid rgba(255,255,255,0.1)',
+                      background: paidByClient ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: paidByClient ? '#93c5fd' : '#94a3b8',
+                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.1rem' }}>🛒</span>
+                    <span>Le client paie</span>
+                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>COD à la livraison</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setPaidByClient(false); setIsPrepaid(true); }}
+                    style={{
+                      minHeight: '52px', borderRadius: '10px', padding: '0.5rem',
+                      border: !paidByClient ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                      background: !paidByClient ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: !paidByClient ? '#fcd34d' : '#94a3b8',
+                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.1rem' }}>🏪</span>
+                    <span>Le vendeur paie</span>
+                    <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Frais déduits du reversement</span>
+                  </button>
+                </div>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#64748b', lineHeight: 1.4 }}>
+                  {paidByClient
+                    ? '✅ Le livreur encaisse les frais + la marchandise auprès du client.'
+                    : '✅ L\'agence déduit les frais de livraison de votre reversement (dette agence → vendeur).'
+                  }
+                </p>
+              </div>
+
               <button
                 type="submit"
                 disabled={isSubmitting}
