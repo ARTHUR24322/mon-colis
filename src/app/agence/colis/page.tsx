@@ -89,6 +89,27 @@ export default function AgencyColisPage() {
   const [refusalModalColis, setRefusalModalColis] = useState<ColisRow | null>(null);
   const [refusalReason, setRefusalReason] = useState('');
 
+  // Calcul OpenStreetMap
+  const [osmDistance, setOsmDistance] = useState<{ km: number; loading: boolean; error: string | null } | null>(null);
+
+  const handleCalcAgencyDistance = async (c: ColisRow) => {
+    setOsmDistance({ km: 0, loading: true, error: null });
+    try {
+      const from = encodeURIComponent(c.originDropPoint?.address || 'Kinshasa');
+      const to = encodeURIComponent(c.clientAddress || c.clientCommune || '');
+      const communeTo = encodeURIComponent(c.clientCommune || '');
+      const res = await fetch(`/api/distance?from=${from}&to=${to}&communeTo=${communeTo}`);
+      const data = await res.json();
+      if (res.ok && data.distanceKm) {
+        setOsmDistance({ km: data.distanceKm, loading: false, error: null });
+      } else {
+        setOsmDistance({ km: 0, loading: false, error: data.error || 'Erreur lors du calcul OpenStreetMap.' });
+      }
+    } catch {
+      setOsmDistance({ km: 0, loading: false, error: 'Erreur réseau.' });
+    }
+  };
+
   const fetchColis = async () => {
     setLoading(true);
     try {
@@ -640,6 +661,46 @@ export default function AgencyColisPage() {
                     <span>{selectedColis.vendeurPhone}</span>
                   </div>
                 )}
+              </div>
+
+              {/* Trajet & Calcul OpenStreetMap */}
+              <div style={{
+                backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <MapPin size={13} color="#60a5fa" /> Trajet & Distance (OpenStreetMap)
+                  </span>
+                  {osmDistance && osmDistance.km > 0 && (
+                    <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#4ade80' }}>
+                      📍 {osmDistance.km} km
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-secondary)' }}>
+                  Destination : <strong>{selectedColis.clientCommune} {selectedColis.clientAddress ? `(${selectedColis.clientAddress})` : ''}</strong>
+                </div>
+
+                {osmDistance?.error && (
+                  <div style={{ fontSize: '0.72rem', color: '#f87171' }}>{osmDistance.error}</div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleCalcAgencyDistance(selectedColis)}
+                  disabled={osmDistance?.loading}
+                  style={{
+                    padding: '7px 12px', borderRadius: '8px', border: 'none',
+                    backgroundColor: 'var(--ag-brand)', color: '#fff',
+                    fontWeight: '700', fontSize: '0.78rem', cursor: osmDistance?.loading ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                  }}
+                >
+                  <MapPin size={13} />
+                  {osmDistance?.loading ? 'Calcul OpenStreetMap en cours...' : osmDistance?.km ? `Recalculer le trajet (${osmDistance.km} km)` : 'Calculer le trajet OpenStreetMap'}
+                </button>
               </div>
 
               {/* Détail Financier */}

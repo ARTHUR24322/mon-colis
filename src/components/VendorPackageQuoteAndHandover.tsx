@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, ShieldCheck, Clock, DollarSign, CheckCircle2,
-  AlertTriangle, RefreshCw, Lock, QrCode, ArrowRight, X, Star
+  AlertTriangle, RefreshCw, Lock, QrCode, ArrowRight, X, Star, MapPin
 } from 'lucide-react';
 import { ColisItem } from '@/lib/data-service';
 
@@ -29,6 +29,9 @@ interface QuoteData {
   taux_change: number;
   valid_until: string;
   accepted_at?: string;
+  distance_km?: number;
+  tarif_commune?: number;
+  tarif_poids?: number;
 }
 
 interface VendorPackageQuoteAndHandoverProps {
@@ -47,6 +50,11 @@ export default function VendorPackageQuoteAndHandover({
   const [loadingQuote, setLoadingQuote] = useState(false);
   const [quoteActionLoading, setQuoteActionLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+
+  // Distance state (OpenStreetMap)
+  const [calculatedDistance, setCalculatedDistance] = useState<number | null>(colis.distance || null);
+  const [distanceLoading, setDistanceLoading] = useState(false);
+  const [distanceError, setDistanceError] = useState<string | null>(null);
 
   // Agency selection modal
   const [showAgencyModal, setShowAgencyModal] = useState(false);
@@ -69,6 +77,9 @@ export default function VendorPackageQuoteAndHandover({
       const data = await res.json();
       if (res.ok && data.quote) {
         setQuote(data.quote);
+        if (data.quote.distance_km && data.quote.distance_km > 0) {
+          setCalculatedDistance(data.quote.distance_km);
+        }
       } else {
         setQuote(null);
       }
@@ -101,14 +112,38 @@ export default function VendorPackageQuoteAndHandover({
     loadQuote();
   }, [colis.id]);
 
-  const handleGenerateQuote = async () => {
+  // Calcul OpenStreetMap du trajet et de la distance
+  const handleCalculateDistance = async () => {
+    setDistanceLoading(true);
+    setDistanceError(null);
+    try {
+      const from = encodeURIComponent(colis.vendeurAddress || 'Gombe, Kinshasa');
+      const to = encodeURIComponent(colis.clientAddress || colis.clientCommune || '');
+      const communeTo = encodeURIComponent(colis.clientCommune || '');
+      const res = await fetch(`/api/distance?from=${from}&to=${to}&communeTo=${communeTo}`);
+      const data = await res.json();
+      if (res.ok && data.distanceKm) {
+        setCalculatedDistance(data.distanceKm);
+        await handleGenerateQuote(data.distanceKm);
+      } else {
+        setDistanceError(data.error || 'Erreur lors du calcul OpenStreetMap.');
+      }
+    } catch {
+      setDistanceError('Erreur réseau lors du calcul.');
+    } finally {
+      setDistanceLoading(false);
+    }
+  };
+
+  const handleGenerateQuote = async (distOverride?: number) => {
     setQuoteActionLoading(true);
     setQuoteError(null);
     try {
+      const distanceKm = typeof distOverride === 'number' ? distOverride : (calculatedDistance || 0);
       const res = await fetch(`/api/vendor/packages/${colis.id}/quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'generate' }),
+        body: JSON.stringify({ action: 'generate', distanceKm }),
       });
       const data = await res.json();
       if (res.ok && data.quote) {
@@ -283,6 +318,71 @@ export default function VendorPackageQuoteAndHandover({
           <div style={{ color: '#f87171', fontSize: '0.78rem', marginBottom: '0.5rem' }}>{quoteError}</div>
         )}
 
+        {/* ── Calcul d'itinéraire OpenStreetMap ── */}
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
+          borderRadius: '12px',
+          padding: '0.75rem',
+          marginBottom: '0.85rem'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <MapPin size={13} color="#60a5fa" /> Itinéraire OpenStreetMap (Kinshasa)
+            </span>
+            {calculatedDistance && (
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#4ade80' }}>
+                📍 {calculatedDistance} km
+              </span>
+            )}
+          </div>
+
+          <div style={{ fontSize: '0.74rem', color: '#cbd5e1', marginBottom: '0.5rem' }}>
+            Trajet : <strong>{colis.vendeurAddress || 'Départ Agence / Vendeur'}</strong> → <strong>{colis.clientCommune || colis.clientAddress || 'Client'}</strong>
+          </div>
+
+          {distanceError && (
+            <div style={{ color: '#f87171', fontSize: '0.72rem', marginBottom: '0.4rem' }}>
+              {distanceError}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleCalculateDistance}
+            disabled={distanceLoading || quoteActionLoading}
+            style={{
+              width: '100%',
+              minHeight: '36px',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+              color: '#fff',
+              fontWeight: '700',
+              fontSize: '0.78rem',
+              cursor: distanceLoading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            {distanceLoading ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" /> Calcul du trajet via OpenStreetMap...
+              </>
+            ) : calculatedDistance ? (
+              <>
+                <RefreshCw size={13} /> Recalculer l'itinéraire OpenStreetMap ({calculatedDistance} km)
+              </>
+            ) : (
+              <>
+                <MapPin size={14} /> Cliquer pour calculer le trajet & tarif kilométrique (OpenStreetMap)
+              </>
+            )}
+          </button>
+        </div>
+
         {loadingQuote ? (
           <div style={{ fontSize: '0.8rem', color: '#94a3b8', padding: '0.5rem 0' }}>Chargement du devis...</div>
         ) : quote ? (
@@ -313,6 +413,7 @@ export default function VendorPackageQuoteAndHandover({
 
             <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.75rem', lineHeight: 1.4 }}>
               Taux appliqué : <strong>1 USD = {quote.taux_change} FC</strong> &bull; Validité du devis : 24 heures
+              {quote.distance_km ? ` • Distance : ${quote.distance_km} km` : ''}
             </div>
 
             {!isQuoteAccepted && (
@@ -335,11 +436,11 @@ export default function VendorPackageQuoteAndHandover({
         ) : (
           <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
             <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-              Aucun devis actif pour ce colis. Générez le devis avant remise physique.
+              Devis en attente. Calculez l&apos;itinéraire ci-dessus ou générez le devis directement.
             </p>
             <button
               type="button"
-              onClick={handleGenerateQuote}
+              onClick={() => handleGenerateQuote()}
               disabled={quoteActionLoading}
               style={{
                 minHeight: '38px', padding: '0 1rem', borderRadius: '8px', border: 'none',

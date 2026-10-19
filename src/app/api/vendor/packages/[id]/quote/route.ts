@@ -22,19 +22,43 @@ function calculateDeliveryPrice(params: {
   distance: number;
   pricePerKg: number;
   pricePerKm: number;
-}): { total: number; tarif_commune: number; tarif_poids: number } {
-  const { communePrices, commune, poids, distance, pricePerKg, pricePerKm } = params;
+  tauxChange: number;
+  deviseGrille?: string;
+}): { totalUsd: number; totalFc: number; tarif_commune_usd: number; tarif_poids_usd: number; tarif_distance_usd: number } {
+  const { communePrices, commune, poids, distance, pricePerKg, pricePerKm, tauxChange, deviseGrille } = params;
 
   const communeEntry = communePrices.find(cp =>
     cp.commune?.toLowerCase() === commune?.toLowerCase()
   );
 
-  const tarif_commune = communeEntry?.price || 0;
-  const tarif_poids = Math.round(poids * pricePerKg);
-  const tarif_distance = Math.round(distance * pricePerKm);
-  const total = tarif_commune + tarif_poids + tarif_distance;
+  const rawCommune = communeEntry?.price || 0;
+  const rawPoids = Math.round(poids * pricePerKg);
+  const rawDistance = Math.round(distance * pricePerKm);
+  const rawTotal = rawCommune + rawPoids + rawDistance;
 
-  return { total, tarif_commune, tarif_poids };
+  // Si la grille est configurée en FC ou que les montants sont de l'ordre des FC (> 50)
+  const isFC = deviseGrille === 'FC' || rawTotal > 50 || rawCommune > 50;
+
+  if (isFC) {
+    const rate = tauxChange > 0 ? tauxChange : 2800;
+    const totalFc = rawTotal;
+    const totalUsd = parseFloat((totalFc / rate).toFixed(2));
+    const tarif_commune_usd = parseFloat((rawCommune / rate).toFixed(2));
+    const tarif_poids_usd = parseFloat((rawPoids / rate).toFixed(2));
+    const tarif_distance_usd = parseFloat((rawDistance / rate).toFixed(2));
+    return { totalUsd, totalFc, tarif_commune_usd, tarif_poids_usd, tarif_distance_usd };
+  } else {
+    // Les tarifs étaient déjà saisis en USD
+    const totalUsd = parseFloat(rawTotal.toFixed(2));
+    const totalFc = Math.round(totalUsd * tauxChange);
+    return {
+      totalUsd,
+      totalFc,
+      tarif_commune_usd: rawCommune,
+      tarif_poids_usd: rawPoids,
+      tarif_distance_usd: rawDistance,
+    };
+  }
 }
 
 export async function GET(
@@ -88,16 +112,16 @@ export async function POST(
 
     const { id: packageId } = await params;
     const body = await request.json();
-    const { action } = body; // 'generate' ou 'accept'
+    const { action, distanceKm: passedDistance } = body; // 'generate' ou 'accept'
 
     // Récupérer le colis avec ses infos
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
       .select(`
-        id, status, vendeur_id, agency_id, client_commune,
+        id, status, vendeur_id, agency_id, client_commune, client_address,
         package_price, weight, delivery_mode, paid_by_client, is_prepaid,
         agency:agencies!agency_id(
-          id, commune_prices, price_per_kg, price_per_km, taux_fc,
+          id, commune_prices, price_per_kg, price_per_km, taux_fc, max_weight_kg, devise_grille,
           profile:profiles!id(name)
         )
       `)
@@ -134,18 +158,26 @@ export async function POST(
       const communePrices: { commune: string; price: number }[] = agencyRaw?.commune_prices || [];
       const pricePerKg = agencyRaw?.price_per_kg || 0;
       const pricePerKm = agencyRaw?.price_per_km || 0;
+      const deviseGrille = agencyRaw?.devise_grille || 'FC';
 
-      const { total, tarif_commune, tarif_poids } = calculateDeliveryPrice({
+      // Distance en km : reçue dans le body (calculée via OpenStreetMap) ou stockée
+      const distance = typeof passedDistance === 'number' && passedDistance > 0
+        ? passedDistance
+        : 0;
+
+      const { totalUsd, tarif_commune_usd, tarif_poids_usd, tarif_distance_usd } = calculateDeliveryPrice({
         communePrices,
         commune: pkg.client_commune || '',
         poids: pkg.weight || 1,
-        distance: 0, // distance réelle à calculer si disponible
+        distance,
         pricePerKg,
         pricePerKm,
+        tauxChange,
+        deviseGrille,
       });
 
       const prixMarchandise = pkg.package_price || 0;
-      const montantEncaisser = pkg.paid_by_client ? (prixMarchandise + (pkg.is_prepaid ? 0 : total)) : total;
+      const montantEncaisser = pkg.paid_by_client ? (prixMarchandise + (pkg.is_prepaid ? 0 : totalUsd)) : totalUsd;
 
       const validUntil = new Date(Date.now() + QUOTE_VALIDITY_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -155,16 +187,16 @@ export async function POST(
           package_id: packageId,
           agency_id: pkg.agency_id || null,
           prix_marchandise: prixMarchandise,
-          frais_livraison: total,
+          frais_livraison: totalUsd,
           montant_encaisser: montantEncaisser,
           paid_by_client: pkg.paid_by_client !== false,
           devise: 'USD',
           taux_change: tauxChange,
           poids_kg: pkg.weight || 1,
-          distance_km: 0,
+          distance_km: distance,
           commune_destination: pkg.client_commune || '',
-          tarif_commune,
-          tarif_poids,
+          tarif_commune: tarif_commune_usd,
+          tarif_poids: tarif_poids_usd,
           status: 'PENDING',
           valid_until: validUntil,
         })
@@ -179,7 +211,11 @@ export async function POST(
       // Mettre le colis en statut QUOTE_PENDING
       await supabaseAdmin
         .from('packages')
-        .update({ status: 'QUOTE_PENDING', updated_at: new Date().toISOString() })
+        .update({
+          status: 'QUOTE_PENDING',
+          delivery_price: totalUsd,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', packageId);
 
       return NextResponse.json({ quote, action: 'generated' });

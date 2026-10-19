@@ -52,6 +52,7 @@ export default function GlobalRegisterPage() {
   const [address, setAddress] = useState('');
   const [password, setPassword] = useState('');
   const [fleetSize, setFleetSize] = useState('3');
+  const [maxWeightKg, setMaxWeightKg] = useState('30');
   const [selectedZones, setSelectedZones] = useState<string[]>(['Gombe', 'Limete']);
   
   const [loading, setLoading] = useState(false);
@@ -87,6 +88,7 @@ export default function GlobalRegisterPage() {
           password,
           coverageZones: role === 'agence' ? selectedZones : undefined,
           fleetSize: role === 'agence' ? parseInt(fleetSize, 10) || 1 : undefined,
+          maxWeightKg: role === 'agence' ? parseFloat(maxWeightKg) || 30 : undefined,
         }),
       });
 
@@ -514,6 +516,25 @@ export default function GlobalRegisterPage() {
                     onChange={(e) => setFleetSize(e.target.value)}
                     required
                   />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
+                    Poids maximum pris en charge par colis (en kg) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.5"
+                    className="input-field"
+                    placeholder="Ex: 30"
+                    value={maxWeightKg}
+                    onChange={(e) => setMaxWeightKg(e.target.value)}
+                    required
+                  />
+                  <p style={{ margin: '0.3rem 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                    Jusqu'à combien de kilos votre agence traite. Si un vendeur a un colis qui dépasse cette limite, votre agence ne lui sera pas affichée.
+                  </p>
                 </div>
 
                 <div>

@@ -49,13 +49,15 @@ export default function AgencyParametresPage() {
   const [enforceHours, setEnforceHours] = useState(false);
   const [requireApproval, setRequireApproval] = useState(true);
 
-  // ── Tarification par commune ───────────────────────────────────────────
+  // ── Tarification par commune & Capacité ─────────────────────────────────
   const [communePrices, setCommunePrices] = useState<CommunePrice[]>([]);
   const [newCommune, setNewCommune] = useState('');
   const [newCommunePrice, setNewCommunePrice] = useState('');
-  const [pricePerKm, setPricePerKm] = useState('0');
-  const [pricePerKg, setPricePerKg] = useState('0');
-  const [tauxFC, setTauxFC] = useState('');
+  const [pricePerKm, setPricePerKm] = useState('500');
+  const [pricePerKg, setPricePerKg] = useState('200');
+  const [tauxFC, setTauxFC] = useState('2800');
+  const [maxWeightKg, setMaxWeightKg] = useState('30');
+  const [deviseGrille, setDeviseGrille] = useState<'FC' | 'USD'>('FC');
   const [pricingLoading, setPricingLoading] = useState(false);
   const [loadingPricing, setLoadingPricing] = useState(true);
 
@@ -81,9 +83,11 @@ export default function AgencyParametresPage() {
       if (res.ok) {
         const data = await res.json();
         setCommunePrices(Array.isArray(data.communePrices) ? data.communePrices : []);
-        setPricePerKm(String(data.pricePerKm ?? 0));
-        setPricePerKg(String(data.pricePerKg ?? 0));
+        setPricePerKm(String(data.pricePerKm ?? 500));
+        setPricePerKg(String(data.pricePerKg ?? 200));
         if (data.tauxConversionFC) setTauxFC(String(data.tauxConversionFC));
+        if (data.maxWeightKg) setMaxWeightKg(String(data.maxWeightKg));
+        if (data.deviseGrille) setDeviseGrille(data.deviseGrille);
       }
     } catch {
       // silencieux
@@ -138,6 +142,8 @@ export default function AgencyParametresPage() {
         communePrices,
         pricePerKm: parseFloat(pricePerKm) || 0,
         pricePerKg: parseFloat(pricePerKg) || 0,
+        maxWeightKg: parseFloat(maxWeightKg) || 30,
+        deviseGrille,
       };
       if (tauxFC && parseFloat(tauxFC) > 0) {
         body.tauxConversionFC = parseFloat(tauxFC);
@@ -257,40 +263,87 @@ export default function AgencyParametresPage() {
 
         {/* ── Section 1 : Tarification par commune ── */}
         <form onSubmit={handleSavePricing} style={cardStyle}>
-          {sectionTitle(<DollarSign size={18} color="var(--ag-brand)" />, 'Grille Tarifaire de Livraison')}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            {sectionTitle(<DollarSign size={18} color="var(--ag-brand)" />, 'Grille Tarifaire de Livraison')}
+            {/* Choix de la devise pour la grille */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--ag-surface-hover)', padding: '4px', borderRadius: '10px', border: '1px solid var(--ag-border)' }}>
+              <span style={{ fontSize: '0.74rem', color: 'var(--ag-text-muted)', paddingLeft: '6px', fontWeight: '600' }}>Devise des tarifs :</span>
+              <button
+                type="button"
+                onClick={() => setDeviseGrille('FC')}
+                style={{
+                  padding: '4px 10px', borderRadius: '6px', border: 'none',
+                  backgroundColor: deviseGrille === 'FC' ? 'var(--ag-brand)' : 'transparent',
+                  color: deviseGrille === 'FC' ? '#fff' : 'var(--ag-text-muted)',
+                  fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                FC (Franc Congolais)
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeviseGrille('USD')}
+                style={{
+                  padding: '4px 10px', borderRadius: '6px', border: 'none',
+                  backgroundColor: deviseGrille === 'USD' ? 'var(--ag-brand)' : 'transparent',
+                  color: deviseGrille === 'USD' ? '#fff' : 'var(--ag-text-muted)',
+                  fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                USD ($)
+              </button>
+            </div>
+          </div>
 
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--ag-text-muted)', lineHeight: 1.5 }}>
             Ces tarifs sont utilisés pour calculer automatiquement le devis présenté aux vendeurs lors de la création d&apos;un colis.
             Le prix final = <strong>tarif commune</strong> + (poids × tarif/kg) + (distance × tarif/km).
+            {deviseGrille === 'FC' && <span style={{ color: '#4ade80', display: 'block', marginTop: '4px', fontWeight: '600' }}>✓ Vos tarifs sont saisis en Francs Congolais (FC) et automatiquement convertis en dollars sans gonflement de prix.</span>}
           </p>
 
-          {/* Tarifs globaux */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+          {/* Tarifs globaux et capacité */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
             <div>
-              <label style={labelStyle}>Prix par km (USD)</label>
+              <label style={labelStyle}>Prix par km ({deviseGrille})</label>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 value={pricePerKm}
                 onChange={e => setPricePerKm(e.target.value)}
                 disabled={!canManageSettings}
                 style={inputStyle}
-                placeholder="Ex : 0.15"
+                placeholder={deviseGrille === 'FC' ? 'Ex : 500 FC' : 'Ex : 0.20 $'}
               />
             </div>
             <div>
-              <label style={labelStyle}>Prix par kg (USD)</label>
+              <label style={labelStyle}>Prix par kg ({deviseGrille})</label>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 value={pricePerKg}
                 onChange={e => setPricePerKg(e.target.value)}
                 disabled={!canManageSettings}
                 style={inputStyle}
-                placeholder="Ex : 0.50"
+                placeholder={deviseGrille === 'FC' ? 'Ex : 200 FC' : 'Ex : 0.10 $'}
               />
+            </div>
+            <div>
+              <label style={labelStyle}>Poids max accepté par colis (kg)</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                value={maxWeightKg}
+                onChange={e => setMaxWeightKg(e.target.value)}
+                disabled={!canManageSettings}
+                style={inputStyle}
+                placeholder="Ex : 30 kg"
+              />
+              <span style={{ fontSize: '0.68rem', color: 'var(--ag-text-muted)', display: 'block', marginTop: '2px' }}>
+                Au-delà, votre agence n&apos;apparaît pas au vendeur.
+              </span>
             </div>
             <div>
               <label style={labelStyle}>Taux de conversion FC (optionnel)</label>
@@ -338,60 +391,71 @@ export default function AgencyParametresPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto' }}>
-                {communePrices.map((cp, idx) => (
-                  <div key={idx} style={{
-                    display: 'grid', gridTemplateColumns: '1fr 120px 36px',
-                    gap: '8px', alignItems: 'center',
-                    padding: '8px 10px', borderRadius: '8px',
-                    backgroundColor: 'var(--ag-surface-hover)',
-                    border: '1px solid var(--ag-border)',
-                  }}>
-                    <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--ag-text-primary)' }}>
-                      📍 {cp.commune}
-                    </span>
-                    <div style={{ position: 'relative' }}>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={cp.price}
-                        onChange={e => handleUpdateCommunePrice(idx, parseFloat(e.target.value) || 0)}
-                        disabled={!canManageSettings}
-                        style={{
-                          ...inputStyle,
-                          height: '32px',
-                          paddingRight: '36px',
-                          fontWeight: '700',
-                          fontSize: '0.85rem',
-                          color: 'var(--ag-brand)',
-                        }}
-                      />
-                      <span style={{
-                        position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-                        fontSize: '0.7rem', color: 'var(--ag-text-muted)', pointerEvents: 'none'
-                      }}>USD</span>
+                {communePrices.map((cp, idx) => {
+                  const rate = parseFloat(tauxFC) || 2800;
+                  const usdEquiv = deviseGrille === 'FC' ? (cp.price / rate).toFixed(2) : null;
+                  return (
+                    <div key={idx} style={{
+                      display: 'grid', gridTemplateColumns: '1fr 140px 36px',
+                      gap: '8px', alignItems: 'center',
+                      padding: '8px 10px', borderRadius: '8px',
+                      backgroundColor: 'var(--ag-surface-hover)',
+                      border: '1px solid var(--ag-border)',
+                    }}>
+                      <div>
+                        <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--ag-text-primary)' }}>
+                          📍 {cp.commune}
+                        </span>
+                        {usdEquiv && (
+                          <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--ag-text-muted)' }}>
+                            ≈ ${usdEquiv} USD
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={cp.price}
+                          onChange={e => handleUpdateCommunePrice(idx, parseFloat(e.target.value) || 0)}
+                          disabled={!canManageSettings}
+                          style={{
+                            ...inputStyle,
+                            height: '32px',
+                            paddingRight: '36px',
+                            fontWeight: '700',
+                            fontSize: '0.85rem',
+                            color: 'var(--ag-brand)',
+                          }}
+                        />
+                        <span style={{
+                          position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                          fontSize: '0.7rem', color: 'var(--ag-text-muted)', pointerEvents: 'none', fontWeight: '700'
+                        }}>{deviseGrille}</span>
+                      </div>
+                      {canManageSettings && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCommune(idx)}
+                          style={{
+                            height: '32px', width: '32px', borderRadius: '8px', border: 'none',
+                            backgroundColor: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
-                    {canManageSettings && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCommune(idx)}
-                        style={{
-                          height: '32px', width: '32px', borderRadius: '8px', border: 'none',
-                          backgroundColor: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
             {/* Ajouter une commune */}
             {canManageSettings && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: '8px', marginTop: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: '8px', marginTop: '10px' }}>
                 <input
                   type="text"
                   placeholder="Nom de la commune (ex : Gombe)"
@@ -403,9 +467,9 @@ export default function AgencyParametresPage() {
                 <div style={{ position: 'relative' }}>
                   <input
                     type="number"
-                    step="0.01"
+                    step="any"
                     min="0"
-                    placeholder="Prix USD"
+                    placeholder={`Prix ${deviseGrille}`}
                     value={newCommunePrice}
                     onChange={e => setNewCommunePrice(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCommune())}
@@ -413,8 +477,8 @@ export default function AgencyParametresPage() {
                   />
                   <span style={{
                     position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-                    fontSize: '0.7rem', color: 'var(--ag-text-muted)', pointerEvents: 'none'
-                  }}>USD</span>
+                    fontSize: '0.7rem', color: 'var(--ag-text-muted)', pointerEvents: 'none', fontWeight: '700'
+                  }}>{deviseGrille}</span>
                 </div>
                 <button
                   type="button"

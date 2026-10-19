@@ -963,6 +963,55 @@ export default function VendeurDashboard() {
                 />
               </div>
 
+              {/* ── Section Poids du colis (en kg) ── */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1' }}>
+                    Poids du colis (en kg) * :
+                  </label>
+                  <span style={{ fontSize: '0.72rem', color: '#60a5fa', fontWeight: '800' }}>
+                    {poids || 1} kg
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="500"
+                  required
+                  placeholder="Ex: 1.5"
+                  value={poids}
+                  onChange={e => setPoids(e.target.value)}
+                  style={{
+                    width: '100%', minHeight: '44px', borderRadius: '10px',
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
+                    padding: '0 0.85rem', color: '#fff', fontSize: '1rem', fontWeight: '700'
+                  }}
+                />
+                {/* Raccourcis de poids rapides */}
+                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                  {['0.5', '1', '2', '5', '10', '20'].map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setPoids(w)}
+                      style={{
+                        padding: '0.2rem 0.6rem', borderRadius: '6px',
+                        border: poids === w ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                        background: poids === w ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
+                        color: poids === w ? '#93c5fd' : '#94a3b8',
+                        fontSize: '0.72rem', fontWeight: '600', cursor: 'pointer'
+                      }}
+                    >
+                      {w} kg
+                    </button>
+                  ))}
+                </div>
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                  Les agences dont la capacité maximale est inférieure à ce poids seront automatiquement masquées.
+                </p>
+              </div>
+
               {/* Mode d'expédition : Direct ou Premier Kilomètre au relais */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>

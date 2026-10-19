@@ -13,7 +13,7 @@ import { dataService } from '@/lib/data-service';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, password, phone, address, role, coverageZones, fleetSize } = body as {
+    const { name, email, password, phone, address, role, coverageZones, fleetSize, maxWeightKg } = body as {
       name: string;
       email: string;
       password: string;
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
       role: string;
       coverageZones?: string[] | string;
       fleetSize?: number | string;
+      maxWeightKg?: number | string;
     };
 
     if (!name || !email || !password || !phone || !role) {
@@ -79,21 +80,40 @@ export async function POST(request: NextRequest) {
         ? fleetSize
         : parseInt(String(fleetSize || '2'), 10) || 2;
 
-      const { data: agence, error: agenceError } = await supabase
+      const parsedMaxWeight = typeof maxWeightKg === 'number'
+        ? maxWeightKg
+        : parseFloat(String(maxWeightKg || '30')) || 30;
+
+      let agenceData = {
+        id: profile.id,         // 1-to-1 with profiles via shared primary key
+        phone: phone.trim(),
+        address: address?.trim() || '',
+        status: 'PENDING',
+        coverage_zones: parsedZones,
+        fleet_size: parsedFleet,
+        manager_name: profile.name,
+        billing_type: 'Commission',
+        billing_value: 15,
+        max_weight_kg: parsedMaxWeight,
+      };
+
+      let { data: agence, error: agenceError } = await supabase
         .from('agencies')
-        .insert({
-          id: profile.id,         // 1-to-1 with profiles via shared primary key
-          phone: phone.trim(),
-          address: address?.trim() || '',
-          status: 'PENDING',
-          coverage_zones: parsedZones,
-          fleet_size: parsedFleet,
-          manager_name: profile.name,
-          billing_type: 'Commission',
-          billing_value: 15,
-        })
+        .insert(agenceData)
         .select('id')
         .single();
+
+      // Fallback si la colonne max_weight_kg n'a pas encore été créée
+      if (agenceError && agenceError.message?.includes('max_weight_kg')) {
+        const { max_weight_kg, ...fallbackData } = agenceData;
+        const retry = await supabase
+          .from('agencies')
+          .insert(fallbackData)
+          .select('id')
+          .single();
+        agence = retry.data;
+        agenceError = retry.error;
+      }
 
       if (agenceError) {
         console.error('[register] agency insert error:', agenceError);

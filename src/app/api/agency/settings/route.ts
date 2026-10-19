@@ -15,7 +15,7 @@ import { z } from 'zod';
 
 /**
  * GET /api/agency/settings
- * Retourne les tarifs de l'agence (commune_prices, price_per_km, price_per_kg, taux_fc).
+ * Retourne les tarifs de l'agence (commune_prices, price_per_km, price_per_kg, taux_fc, max_weight_kg, devise_grille).
  */
 export async function GET(_request: NextRequest) {
   try {
@@ -26,12 +26,30 @@ export async function GET(_request: NextRequest) {
 
     const { data, error } = await supabase
       .from('agencies')
-      .select('commune_prices, price_per_km, price_per_kg, taux_fc')
+      .select('commune_prices, price_per_km, price_per_kg, taux_fc, max_weight_kg, devise_grille')
       .eq('id', session.agencyId)
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: 'Agence introuvable.' }, { status: 404 });
+      // Si colonnes manquantes, on tente select minimal
+      const fallback = await supabase
+        .from('agencies')
+        .select('commune_prices, price_per_km, price_per_kg, taux_fc')
+        .eq('id', session.agencyId)
+        .single();
+
+      if (fallback.error || !fallback.data) {
+        return NextResponse.json({ error: 'Agence introuvable.' }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        communePrices: fallback.data.commune_prices || [],
+        pricePerKm: fallback.data.price_per_km || 0,
+        pricePerKg: fallback.data.price_per_kg || 0,
+        tauxConversionFC: fallback.data.taux_fc || null,
+        maxWeightKg: 30,
+        deviseGrille: 'FC',
+      });
     }
 
     return NextResponse.json({
@@ -39,6 +57,8 @@ export async function GET(_request: NextRequest) {
       pricePerKm: data.price_per_km || 0,
       pricePerKg: data.price_per_kg || 0,
       tauxConversionFC: data.taux_fc || null,
+      maxWeightKg: data.max_weight_kg ?? 30,
+      deviseGrille: data.devise_grille || 'FC',
     });
   } catch (e) {
     console.error('Unexpected error in GET /api/agency/settings:', e);
@@ -56,6 +76,8 @@ const settingsSchema = z.object({
   pricePerKm: z.number().min(0),
   pricePerKg: z.number().min(0),
   tauxConversionFC: z.number().min(1).optional(),
+  maxWeightKg: z.number().min(0.5).optional(),
+  deviseGrille: z.enum(['FC', 'USD']).optional(),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -75,7 +97,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const { communePrices, pricePerKm, pricePerKg, tauxConversionFC } = result.data;
+    const { communePrices, pricePerKm, pricePerKg, tauxConversionFC, maxWeightKg, deviseGrille } = result.data;
 
     // Vérifier le plafond du super admin si un taux est fourni
     if (tauxConversionFC !== undefined) {
@@ -104,11 +126,28 @@ export async function PATCH(request: NextRequest) {
     if (tauxConversionFC !== undefined) {
       updatePayload.taux_fc = tauxConversionFC;
     }
+    if (maxWeightKg !== undefined) {
+      updatePayload.max_weight_kg = maxWeightKg;
+    }
+    if (deviseGrille !== undefined) {
+      updatePayload.devise_grille = deviseGrille;
+    }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('agencies')
       .update(updatePayload)
       .eq('id', session.agencyId);
+
+    // Fallback si colonnes pas encore créées
+    if (error && (error.message?.includes('max_weight_kg') || error.message?.includes('devise_grille'))) {
+      delete updatePayload.max_weight_kg;
+      delete updatePayload.devise_grille;
+      const retry = await supabase
+        .from('agencies')
+        .update(updatePayload)
+        .eq('id', session.agencyId);
+      error = retry.error;
+    }
 
     if (error) {
       console.error('Error updating agency settings:', error);

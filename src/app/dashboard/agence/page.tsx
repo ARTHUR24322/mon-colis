@@ -461,20 +461,13 @@ export default function AgenceDashboard() {
   const [selectedColis, setSelectedColis] = useState<Colis | null>(null);
 
   const calcDistance = async (colisId: string, vendeurAddress: string | null | undefined, clientAddress: string, clientCommune: string = '') => {
-    const fromAddress = vendeurAddress || agencyAddress;
-    if (!fromAddress) {
-      setDistanceCalc(prev => ({
-        ...prev,
-        [colisId]: { status: 'error', error: "L'adresse du vendeur n'est pas renseignée. Contactez le vendeur ou l'administrateur." },
-      }));
-      return;
-    }
+    const fromAddress = vendeurAddress || agencyAddress || 'Gombe, Kinshasa';
     setDistanceCalc(prev => ({ ...prev, [colisId]: { status: 'loading' } }));
     try {
-      const fullDestAddress = `${clientCommune ? clientCommune + ', ' : ''}${clientAddress}, kinshasa republique democratique du congo`;
-      const fullFromAddress = fromAddress.toLowerCase().includes('kinshasa') ? fromAddress : `${fromAddress}, kinshasa republique democratique du congo`;
+      const fullDestAddress = `${clientCommune ? clientCommune + ', ' : ''}${clientAddress || clientCommune}, Kinshasa`;
+      const fullFromAddress = fromAddress.toLowerCase().includes('kinshasa') ? fromAddress : `${fromAddress}, Kinshasa`;
       const res = await fetch(
-        `/api/distance?from=${encodeURIComponent(fullFromAddress)}&to=${encodeURIComponent(fullDestAddress)}`
+        `/api/distance?from=${encodeURIComponent(fullFromAddress)}&to=${encodeURIComponent(fullDestAddress)}&communeTo=${encodeURIComponent(clientCommune || '')}`
       );
       const data = await res.json();
       if (!res.ok) {
@@ -1178,38 +1171,27 @@ export default function AgenceDashboard() {
                         <AlertCircle size={15} /> Établir le Devis
                       </p>
 
-                      {c.paidByClient === false ? (
-                        <div style={{ textAlign: 'center' }}>
-                          <p style={{ fontWeight: '600', fontSize: '0.9rem', marginBottom: '1rem', color: '#10b981', opacity: 0.85 }}>Frais à la charge du vendeur — aucun devis requis.</p>
-                          <div style={{ display: 'flex', gap: '0.75rem' }}>
-                            <button
-                              className="btn btn-primary"
-                              disabled={processingIds.has(c.id)}
-                              style={{ flex: 1, padding: '0.7rem', opacity: processingIds.has(c.id) ? 0.6 : 1, cursor: processingIds.has(c.id) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-                              onClick={() => handleAction(c, 'accept')}
-                            >
-                              {processingIds.has(c.id)
-                                ? <><div style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite', flexShrink: 0 }} /> En cours...</>
-                                : 'Accepter'
-                              }
-                            </button>
-                            <button className="btn btn-outline" style={{ flex: 1, padding: '0.7rem', borderColor: '#ef4444', color: '#ef4444' }} onClick={() => handleAction(c, 'reject')}>Refuser</button>
-                          </div>
+                      {c.paidByClient === false && (
+                        <div style={{ padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', marginBottom: '1rem' }}>
+                          <p style={{ fontWeight: '600', fontSize: '0.82rem', margin: 0, color: '#10b981' }}>
+                            Frais à la charge du vendeur — Le montant sera automatiquement déduit du reversement boutique.
+                          </p>
                         </div>
-                      ) : (
-                        <>
-                          {/* Distance step */}
-                          {(() => {
-                            if (!dc || dc.status === 'idle' || !dc.status) {
-                              return (
-                                <div style={{ marginBottom: '1rem' }}>
-                                  <p style={{ fontSize: '0.8rem', opacity: 0.65, marginBottom: '0.75rem' }}>Étape 1 : Calculez la distance vendeur → client</p>
-                                  <button className="btn btn-primary" style={{ width: '100%', padding: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => calcDistance(c.id, c.vendeurAddress, c.clientAddress, c.clientCommune)}>
-                                    <MapPin size={15} /> Calculer la Distance
-                                  </button>
-                                </div>
-                              );
-                            }
+                      )}
+
+                      <>
+                        {/* Distance step */}
+                        {(() => {
+                          if (!dc || dc.status === 'idle' || !dc.status) {
+                            return (
+                              <div style={{ marginBottom: '1rem' }}>
+                                <p style={{ fontSize: '0.8rem', opacity: 0.65, marginBottom: '0.75rem' }}>Étape 1 : Calculez la distance via OpenStreetMap</p>
+                                <button className="btn btn-primary" style={{ width: '100%', padding: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => calcDistance(c.id, c.vendeurAddress, c.clientAddress, c.clientCommune)}>
+                                  <MapPin size={15} /> Calculer le trajet &amp; distance (OpenStreetMap)
+                                </button>
+                              </div>
+                            );
+                          }
                             if (dc.status === 'loading') {
                               return (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem', background: 'rgba(59,130,246,0.08)', borderRadius: '10px', marginBottom: '1rem' }}>
@@ -1312,7 +1294,6 @@ export default function AgenceDashboard() {
                             </div>
                           )}
                         </>
-                      )}
                     </div>
                   )}
 
