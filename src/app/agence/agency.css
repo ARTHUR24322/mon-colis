@@ -1,0 +1,182 @@
+/* ==========================================================================
+   MONCOLIS — ESPACE AGENCE DESIGN SYSTEM (DESKTOP FIRST)
+   ========================================================================== */
+
+:root,
+.agency-theme-light {
+  --ag-bg: #f8fafc;
+  --ag-surface: #ffffff;
+  --ag-surface-elevated: #ffffff;
+  --ag-surface-hover: #f1f5f9;
+  --ag-border: #e2e8f0;
+  --ag-border-subtle: #f1f5f9;
+  --ag-border-focus: #f59e0b;
+
+  --ag-text-primary: #0f172a;
+  --ag-text-secondary: #475569;
+  --ag-text-muted: #94a3b8;
+  --ag-text-inverse: #ffffff;
+
+  --ag-brand: #d97706;
+  --ag-brand-hover: #b45309;
+  --ag-brand-subtle: rgba(217, 119, 6, 0.1);
+  --ag-brand-glow: rgba(245, 158, 11, 0.2);
+
+  --ag-sidebar-bg: #ffffff;
+  --ag-sidebar-border: #e2e8f0;
+  --ag-sidebar-text: #334155;
+  --ag-sidebar-active: #d97706;
+  --ag-sidebar-active-bg: rgba(217, 119, 6, 0.08);
+
+  --ag-topbar-bg: rgba(255, 255, 255, 0.85);
+  --ag-topbar-border: #e2e8f0;
+
+  --ag-card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --ag-card-shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --ag-modal-overlay: rgba(15, 23, 42, 0.4);
+
+  --ag-success: #10b981;
+  --ag-success-bg: rgba(16, 185, 129, 0.1);
+  --ag-warning: #f59e0b;
+  --ag-warning-bg: rgba(245, 158, 11, 0.1);
+  --ag-danger: #ef4444;
+  --ag-danger-bg: rgba(239, 68, 68, 0.1);
+  --ag-info: #06b6d4;
+  --ag-info-bg: rgba(6, 182, 212, 0.1);
+}
+
+.agency-theme-dark {
+  --ag-bg: #090d16;
+  --ag-surface: #111827;
+  --ag-surface-elevated: #162032;
+  --ag-surface-hover: #1e293b;
+  --ag-border: #1f293d;
+  --ag-border-subtle: #172033;
+  --ag-border-focus: #f59e0b;
+
+  --ag-text-primary: #f8fafc;
+  --ag-text-secondary: #94a3b8;
+  --ag-text-muted: #64748b;
+  --ag-text-inverse: #0f172a;
+
+  --ag-brand: #f59e0b;
+  --ag-brand-hover: #fbbf24;
+  --ag-brand-subtle: rgba(245, 158, 11, 0.15);
+  --ag-brand-glow: rgba(245, 158, 11, 0.3);
+
+  --ag-sidebar-bg: #0c121e;
+  --ag-sidebar-border: #1a2336;
+  --ag-sidebar-text: #94a3b8;
+  --ag-sidebar-active: #f59e0b;
+  --ag-sidebar-active-bg: rgba(245, 158, 11, 0.12);
+
+  --ag-topbar-bg: rgba(12, 18, 30, 0.85);
+  --ag-topbar-border: #1a2336;
+
+  --ag-card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --ag-card-shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+  --ag-modal-overlay: rgba(0, 0, 0, 0.7);
+
+  --ag-success: #34d399;
+  --ag-success-bg: rgba(52, 211, 153, 0.15);
+  --ag-warning: #fbbf24;
+  --ag-warning-bg: rgba(251, 191, 36, 0.15);
+  --ag-danger: #f87171;
+  --ag-danger-bg: rgba(248, 113, 113, 0.15);
+  --ag-info: #38bdf8;
+  --ag-info-bg: rgba(56, 189, 248, 0.15);
+}
+
+/* Base resets & layout container */
+.agency-layout {
+  min-height: 100vh;
+  background-color: var(--ag-bg);
+  color: var(--ag-text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Scrollbars */
+.agency-layout ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.agency-layout ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.agency-layout ::-webkit-scrollbar-thumb {
+  background: var(--ag-border);
+  border-radius: 4px;
+}
+.agency-layout ::-webkit-scrollbar-thumb:hover {
+  background: var(--ag-text-muted);
+}
+
+/* Dense table utility */
+.agency-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.agency-table th {
+  background: var(--ag-surface-hover);
+  color: var(--ag-text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--ag-border);
+  white-space: nowrap;
+}
+.agency-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--ag-border-subtle);
+  color: var(--ag-text-primary);
+  vertical-align: middle;
+}
+.agency-table tr:hover td {
+  background-color: var(--ag-surface-hover);
+}
+
+/* Badge utility */
+.agency-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Animation utilities */
+@keyframes agPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.92); }
+}
+
+@keyframes agSlideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes agFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-ag-pulse {
+  animation: agPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-ag-slide {
+  animation: agSlideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-ag-fade {
+  animation: agFadeIn 0.2s ease-out;
+}

@@ -17,13 +17,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    const { qrToken } = await request.json();
-    if (!qrToken || typeof qrToken !== 'string') {
-      return NextResponse.json({ error: 'Token QR manquant.' }, { status: 400 });
+    const body = await request.json();
+    const tokenOrOtp = (body.qrToken || body.otpCode || '').trim();
+    if (!tokenOrOtp) {
+      return NextResponse.json({ error: 'Token QR ou code OTP manquant.' }, { status: 400 });
     }
 
-    // Trouver la demande correspondant au token
-    const { data: req, error: fetchErr } = await supabase
+    // Trouver la demande correspondant au token ou code OTP
+    let query = supabase
       .from('driver_cash_requests')
       .select(`
         id,
@@ -34,18 +35,25 @@ export async function POST(request: NextRequest) {
         type,
         qr_token,
         qr_expires_at,
+        note,
         driver:drivers(
           id,
           phone,
           profile:profiles(name)
         )
       `)
-      .eq('qr_token', qrToken)
-      .eq('type', 'QR_DEPOSIT')
-      .maybeSingle();
+      .eq('type', 'QR_DEPOSIT');
+
+    if (/^\d{6}$/.test(tokenOrOtp)) {
+      query = query.or(`note.eq.OTP:${tokenOrOtp},qr_token.eq.${tokenOrOtp}`);
+    } else {
+      query = query.eq('qr_token', tokenOrOtp);
+    }
+
+    const { data: req, error: fetchErr } = await query.maybeSingle();
 
     if (fetchErr || !req) {
-      return NextResponse.json({ error: 'QR invalide ou introuvable.' }, { status: 404 });
+      return NextResponse.json({ error: 'Code OTP ou QR invalide ou introuvable.' }, { status: 404 });
     }
 
     // Vérifier que ce QR appartient à l'agence connectée
@@ -115,12 +123,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const qrToken = searchParams.get('token');
-    if (!qrToken) {
-      return NextResponse.json({ error: 'Token manquant.' }, { status: 400 });
+    const tokenOrOtp = (searchParams.get('token') || searchParams.get('otp') || '').trim();
+    if (!tokenOrOtp) {
+      return NextResponse.json({ error: 'Token ou code OTP manquant.' }, { status: 400 });
     }
 
-    const { data: req, error: fetchErr } = await supabase
+    let query = supabase
       .from('driver_cash_requests')
       .select(`
         id,
@@ -129,17 +137,24 @@ export async function GET(request: NextRequest) {
         amount,
         status,
         qr_expires_at,
+        note,
         driver:drivers(
           phone,
           profile:profiles(name)
         )
       `)
-      .eq('qr_token', qrToken)
-      .eq('type', 'QR_DEPOSIT')
-      .maybeSingle();
+      .eq('type', 'QR_DEPOSIT');
+
+    if (/^\d{6}$/.test(tokenOrOtp)) {
+      query = query.or(`note.eq.OTP:${tokenOrOtp},qr_token.eq.${tokenOrOtp}`);
+    } else {
+      query = query.eq('qr_token', tokenOrOtp);
+    }
+
+    const { data: req, error: fetchErr } = await query.maybeSingle();
 
     if (fetchErr || !req) {
-      return NextResponse.json({ error: 'QR invalide.' }, { status: 404 });
+      return NextResponse.json({ error: 'QR ou OTP introuvable.' }, { status: 404 });
     }
 
     if (req.agency_id !== session.agencyId) {

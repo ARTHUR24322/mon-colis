@@ -1,0 +1,847 @@
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import AgencyShell from '@/components/agency/AgencyShell';
+import { useAuth } from '@/lib/use-auth';
+import { useCurrency } from '@/components/CurrencyContext';
+import {
+  Wallet, DollarSign, ArrowUpRight, ArrowDownLeft, CheckCircle2,
+  AlertTriangle, RefreshCw, Printer, ShieldCheck, Clock,
+  FileText, Lock, Unlock, HelpCircle, Check, X
+} from 'lucide-react';
+import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermissions';
+
+interface CashSession {
+  isOpen: boolean;
+  openedAt: string;
+  openingFundUSD: number;
+  openingFundCDF: number;
+  expectedUSD: number;
+  expectedCDF: number;
+}
+
+interface VendorBalance {
+  vendor_id: string;
+  amount_owed_to_vendor: number;
+  amount_owed_by_vendor: number;
+  total_delivered: number;
+  vendor?: {
+    name: string;
+    phone: string;
+  };
+}
+
+interface CashRequest {
+  id: string;
+  driver_id: string;
+  amount: number;
+  status: string;
+  note?: string;
+  created_at: string;
+  driver?: {
+    phone: string;
+    profile?: {
+      name: string;
+    };
+  };
+}
+
+export default function AgencyVersementsPage() {
+  const { user } = useAuth('agence');
+  const { currency, formatPrice } = useCurrency();
+  const userRole = normalizeAgencyRole(user?.agencyRole);
+  const canManageCash = hasAgencyPermission(userRole, 'canManageCashSessions');
+
+  const [loading, setLoading] = useState(true);
+  const [vendorBalances, setVendorBalances] = useState<VendorBalance[]>([]);
+  const [cashRequests, setCashRequests] = useState<CashRequest[]>([]);
+
+  // Onglet sélectionné
+  const [activeTab, setActiveTab] = useState<'session' | 'vendors' | 'drivers'>('session');
+
+  // Session de caisse (persistance locale / état d'agence)
+  const [cashSession, setCashSession] = useState<CashSession>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mc_agency_cash_session');
+      if (saved) {
+        try { return JSON.parse(saved); } catch {}
+      }
+    }
+    return {
+      isOpen: true,
+      openedAt: new Date().toISOString(),
+      openingFundUSD: 100,
+      openingFundCDF: 150000,
+      expectedUSD: 240,
+      expectedCDF: 380000,
+    };
+  });
+
+  // Modal Clôture de Caisse
+  const [closeModalOpen, setCloseModalOpen] = useState(false);
+  const [countedUSD, setCountedUSD] = useState<string>('');
+  const [countedCDF, setCountedCDF] = useState<string>('');
+  const [discrepancyReason, setDiscrepancyReason] = useState<string>('');
+  const [closedReceipt, setClosedReceipt] = useState<any | null>(null);
+
+  // Modal Paiement Vendeur
+  const [payVendorModal, setPayVendorModal] = useState<VendorBalance | null>(null);
+  const [payAmount, setPayAmount] = useState<string>('');
+  const [payMethod, setPayMethod] = useState<'CASH' | 'AIRTEL_MONEY' | 'ORANGE_MONEY' | 'MPESA'>('CASH');
+  const [paying, setPaying] = useState(false);
+  const [paymentSuccessReceipt, setPaymentSuccessReceipt] = useState<any | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [resBalances, resRequests] = await Promise.all([
+        fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [] }),
+        fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] })
+      ]);
+      setVendorBalances(resBalances.balances || []);
+      setCashRequests(resRequests.requests || []);
+    } catch {
+      // Silencieux
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Calculs écarts de clôture
+  const parsedCountedUSD = parseFloat(countedUSD) || 0;
+  const parsedCountedCDF = parseFloat(countedCDF) || 0;
+  const diffUSD = parsedCountedUSD - cashSession.expectedUSD;
+  const diffCDF = parsedCountedCDF - cashSession.expectedCDF;
+  const hasDiscrepancy = Math.abs(diffUSD) > 0.01 || Math.abs(diffCDF) > 500;
+
+  const handleCloseSession = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (hasDiscrepancy && !discrepancyReason.trim()) return;
+
+    const receipt = {
+      closedAt: new Date().toISOString(),
+      openedAt: cashSession.openedAt,
+      closedBy: user?.name || 'Agent Caisse',
+      openingUSD: cashSession.openingFundUSD,
+      openingCDF: cashSession.openingFundCDF,
+      expectedUSD: cashSession.expectedUSD,
+      expectedCDF: cashSession.expectedCDF,
+      countedUSD: parsedCountedUSD,
+      countedCDF: parsedCountedCDF,
+      diffUSD,
+      diffCDF,
+      reason: discrepancyReason.trim() || 'Aucun écart constaté.',
+    };
+
+    setClosedReceipt(receipt);
+    setCloseModalOpen(false);
+
+    // Mettre à jour la session
+    const updated = {
+      ...cashSession,
+      isOpen: false,
+    };
+    setCashSession(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mc_agency_cash_session', JSON.stringify(updated));
+    }
+  };
+
+  const handleOpenNewSession = () => {
+    const fresh = {
+      isOpen: true,
+      openedAt: new Date().toISOString(),
+      openingFundUSD: 100,
+      openingFundCDF: 150000,
+      expectedUSD: 100,
+      expectedCDF: 150000,
+    };
+    setCashSession(fresh);
+    setClosedReceipt(null);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mc_agency_cash_session', JSON.stringify(fresh));
+    }
+  };
+
+  const handleExecuteVendorPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payVendorModal || !payAmount) return;
+    setPaying(true);
+
+    try {
+      const res = await fetch('/api/agency/payments/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: payVendorModal.vendor_id,
+          amount: parseFloat(payAmount),
+          channel: payMethod,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPaymentSuccessReceipt({
+          vendorName: payVendorModal.vendor?.name || 'Vendeur',
+          amount: parseFloat(payAmount),
+          method: payMethod,
+          date: new Date().toISOString(),
+          reference: data.entryId || Math.random().toString(36).slice(-8).toUpperCase(),
+        });
+        setPayVendorModal(null);
+        setPayAmount('');
+        fetchData();
+      } else {
+        alert(data.error || 'Erreur lors du versement.');
+      }
+    } catch {
+      alert('Erreur réseau.');
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  return (
+    <AgencyShell>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* En-tête */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: '800', margin: '0 0 4px', color: 'var(--ag-text-primary)' }}>
+              Caisse & Versements Partenaires
+            </h1>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ag-text-secondary)' }}>
+              Gestion des sessions de caisse en double devise (USD & CDF), réconciliation des écarts et paiements aux vendeurs.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              onClick={fetchData}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 14px', borderRadius: '8px',
+                border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface)',
+                color: 'var(--ag-text-secondary)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600'
+              }}
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Actualiser
+            </button>
+          </div>
+        </div>
+
+        {/* ─── CADRE STATUT CAISSE ET DEVISES (USD & CDF) ─────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+          {/* Caisse USD */}
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Caisse Espèces USD ($)
+              </span>
+              <span className="agency-badge" style={{ backgroundColor: 'rgba(16,185,129,0.1)', color: '#10b981' }}>
+                Devise 1
+              </span>
+            </div>
+            <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+              ${cashSession.expectedUSD.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
+              Fond initial : ${cashSession.openingFundUSD.toFixed(2)} | Encaissements en cours
+            </div>
+          </div>
+
+          {/* Caisse CDF */}
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Caisse Espèces CDF (FC)
+              </span>
+              <span className="agency-badge" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                Devise 2
+              </span>
+            </div>
+            <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+              {cashSession.expectedCDF.toLocaleString('fr-FR')} FC
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
+              Fond initial : {cashSession.openingFundCDF.toLocaleString('fr-FR')} FC | Espèces franc congolais
+            </div>
+          </div>
+
+          {/* Statut Session & Clôture */}
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '14px', padding: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            boxShadow: 'var(--ag-card-shadow)'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>
+                  Session Quotidienne
+                </span>
+                <span className="agency-badge" style={{
+                  backgroundColor: cashSession.isOpen ? 'var(--ag-success-bg)' : 'var(--ag-danger-bg)',
+                  color: cashSession.isOpen ? 'var(--ag-success)' : 'var(--ag-danger)'
+                }}>
+                  {cashSession.isOpen ? <Unlock size={12} /> : <Lock size={12} />}
+                  {cashSession.isOpen ? 'Session Active' : 'Session Clôturée'}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                Ouverte le {new Date(cashSession.openedAt).toLocaleDateString('fr-FR')} à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+
+            {canManageCash && (
+              <div style={{ marginTop: '14px' }}>
+                {cashSession.isOpen ? (
+                  <button
+                    onClick={() => {
+                      setCountedUSD(String(cashSession.expectedUSD));
+                      setCountedCDF(String(cashSession.expectedCDF));
+                      setDiscrepancyReason('');
+                      setCloseModalOpen(true);
+                    }}
+                    style={{
+                      width: '100%', height: '36px', borderRadius: '8px', border: 'none',
+                      backgroundColor: 'var(--ag-brand)', color: '#fff',
+                      fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer'
+                    }}
+                  >
+                    Clôturer la caisse & Billetage
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleOpenNewSession}
+                    style={{
+                      width: '100%', height: '36px', borderRadius: '8px', border: 'none',
+                      backgroundColor: 'var(--ag-success)', color: '#000',
+                      fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer'
+                    }}
+                  >
+                    Démarrer une nouvelle session
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ─── ONGLETS NAVIGATION ─────────────────────────────────────────── */}
+        <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--ag-border)', paddingBottom: '10px' }}>
+          <button
+            onClick={() => setActiveTab('session')}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none',
+              backgroundColor: activeTab === 'session' ? 'var(--ag-brand-subtle)' : 'transparent',
+              color: activeTab === 'session' ? 'var(--ag-brand)' : 'var(--ag-text-secondary)',
+              fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+            }}
+          >
+            Rapprochement de Caisse
+          </button>
+          <button
+            onClick={() => setActiveTab('vendors')}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none',
+              backgroundColor: activeTab === 'vendors' ? 'var(--ag-brand-subtle)' : 'transparent',
+              color: activeTab === 'vendors' ? 'var(--ag-brand)' : 'var(--ag-text-secondary)',
+              fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+            }}
+          >
+            Soldes Vendeurs ({vendorBalances.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('drivers')}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none',
+              backgroundColor: activeTab === 'drivers' ? 'var(--ag-brand-subtle)' : 'transparent',
+              color: activeTab === 'drivers' ? 'var(--ag-brand)' : 'var(--ag-text-secondary)',
+              fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+            }}
+          >
+            Dépôts Livreurs ({cashRequests.length})
+          </button>
+        </div>
+
+        {/* CONTENU ONGLET 1 : RAPPROCHEMENT & REÇU DE SESSION */}
+        {activeTab === 'session' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {closedReceipt ? (
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '16px', padding: '24px', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                    Procès-Verbal de Clôture de Caisse
+                  </h3>
+                  <button
+                    onClick={() => window.print()}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                      backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                      cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600'
+                    }}
+                  >
+                    <Printer size={15} /> Imprimer PV Clôture
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                  <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Clôturé par :</div>
+                    <strong style={{ fontSize: '0.95rem' }}>{closedReceipt.closedBy}</strong>
+                  </div>
+                  <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Date & Heure :</div>
+                    <strong style={{ fontSize: '0.95rem' }}>{new Date(closedReceipt.closedAt).toLocaleString('fr-FR')}</strong>
+                  </div>
+                  <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Écart USD :</div>
+                    <strong style={{ fontSize: '0.95rem', color: closedReceipt.diffUSD === 0 ? 'var(--ag-success)' : 'var(--ag-danger)' }}>
+                      ${closedReceipt.diffUSD.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Écart CDF :</div>
+                    <strong style={{ fontSize: '0.95rem', color: closedReceipt.diffCDF === 0 ? 'var(--ag-success)' : 'var(--ag-danger)' }}>
+                      {closedReceipt.diffCDF} FC
+                    </strong>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.82rem', color: 'var(--ag-text-secondary)', padding: '12px', borderRadius: '8px', border: '1px solid var(--ag-border)' }}>
+                  <strong>Justification des écarts / Observations :</strong>
+                  <p style={{ margin: '4px 0 0' }}>{closedReceipt.reason}</p>
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '16px', padding: '32px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <ShieldCheck size={40} style={{ color: 'var(--ag-brand)', margin: '0 auto 12px' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
+                  Session de Caisse en Cours
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '520px', margin: '0 auto 20px' }}>
+                  Tous les encaissements guichet et dépôts livreurs sont comptabilisés en direct.
+                  À la fin de journée, effectuez le billetage pour vérifier les espèces physiques.
+                </p>
+                {canManageCash && (
+                  <button
+                    onClick={() => {
+                      setCountedUSD(String(cashSession.expectedUSD));
+                      setCountedCDF(String(cashSession.expectedCDF));
+                      setDiscrepancyReason('');
+                      setCloseModalOpen(true);
+                    }}
+                    style={{
+                      padding: '10px 24px', borderRadius: '8px', border: 'none',
+                      backgroundColor: 'var(--ag-brand)', color: '#fff',
+                      fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer'
+                    }}
+                  >
+                    Effectuer le comptage de caisse
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONTENU ONGLET 2 : SOLDES VENDEURS */}
+        {activeTab === 'vendors' && (
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+          }}>
+            <table className="agency-table">
+              <thead>
+                <tr>
+                  <th>Vendeur</th>
+                  <th>Téléphone</th>
+                  <th>Colis Livrés</th>
+                  <th>Solde Dû au Vendeur</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendorBalances.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                      Aucun solde vendeur enregistré.
+                    </td>
+                  </tr>
+                ) : (
+                  vendorBalances.map(vb => (
+                    <tr key={vb.vendor_id}>
+                      <td style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                        {vb.vendor?.name || 'Vendeur Inconnu'}
+                      </td>
+                      <td style={{ color: 'var(--ag-text-secondary)', fontSize: '0.8rem' }}>
+                        {vb.vendor?.phone || '—'}
+                      </td>
+                      <td style={{ fontWeight: '600' }}>
+                        {vb.total_delivered}
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: '900', color: vb.amount_owed_to_vendor > 0 ? 'var(--ag-brand)' : 'var(--ag-text-muted)', fontSize: '0.95rem' }}>
+                          {formatPrice(vb.amount_owed_to_vendor)}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {canManageCash && vb.amount_owed_to_vendor > 0 && (
+                          <button
+                            onClick={() => {
+                              setPayVendorModal(vb);
+                              setPayAmount(String(vb.amount_owed_to_vendor));
+                            }}
+                            style={{
+                              padding: '6px 12px', borderRadius: '6px', border: 'none',
+                              backgroundColor: 'var(--ag-success)', color: '#000',
+                              fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer'
+                            }}
+                          >
+                            Payer le vendeur
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* CONTENU ONGLET 3 : DÉPÔTS LIVREURS */}
+        {activeTab === 'drivers' && (
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+          }}>
+            <table className="agency-table">
+              <thead>
+                <tr>
+                  <th>Livreur</th>
+                  <th>Téléphone</th>
+                  <th>Montant Déposé</th>
+                  <th>Statut</th>
+                  <th>Date & Heure</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                      Aucun historique de dépôt livreur.
+                    </td>
+                  </tr>
+                ) : (
+                  cashRequests.map(cr => (
+                    <tr key={cr.id}>
+                      <td style={{ fontWeight: '700' }}>
+                        {cr.driver?.profile?.name || 'Livreur'}
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                        {cr.driver?.phone || '—'}
+                      </td>
+                      <td style={{ fontWeight: '800', color: 'var(--ag-brand)' }}>
+                        {formatPrice(cr.amount)}
+                      </td>
+                      <td>
+                        <span className="agency-badge" style={{
+                          backgroundColor: cr.status === 'PAID' ? 'var(--ag-success-bg)' : 'var(--ag-warning-bg)',
+                          color: cr.status === 'PAID' ? 'var(--ag-success)' : 'var(--ag-warning)'
+                        }}>
+                          {cr.status === 'PAID' ? 'Encaissé' : 'En attente'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
+                        {new Date(cr.created_at).toLocaleString('fr-FR')}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ─── MODAL CLÔTURE DE CAISSE (BILLETAGE) ─────────────────────────── */}
+      {closeModalOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110, backgroundColor: 'var(--ag-modal-overlay)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '480px',
+            boxShadow: 'var(--ag-card-shadow-hover)', animation: 'agFadeIn 0.15s ease'
+          }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 4px', color: 'var(--ag-text-primary)' }}>
+              Comptage Physique de Caisse (Billetage)
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', margin: '0 0 16px' }}>
+              Comptez le cash réel en tiroir-caisse dans chacune des deux devises :
+            </p>
+
+            <form onSubmit={handleCloseSession} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px' }}>
+                  <span>Espèces réelles en USD ($)</span>
+                  <span style={{ color: 'var(--ag-text-muted)' }}>Attendu : ${cashSession.expectedUSD}</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={countedUSD}
+                  onChange={e => setCountedUSD(e.target.value)}
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '1rem', fontWeight: '800', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px' }}>
+                  <span>Espèces réelles en CDF (FC)</span>
+                  <span style={{ color: 'var(--ag-text-muted)' }}>Attendu : {cashSession.expectedCDF} FC</span>
+                </label>
+                <input
+                  type="number"
+                  step="500"
+                  required
+                  value={countedCDF}
+                  onChange={e => setCountedCDF(e.target.value)}
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '1rem', fontWeight: '800', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              {hasDiscrepancy && (
+                <div style={{
+                  backgroundColor: 'var(--ag-warning-bg)', border: '1px solid var(--ag-warning)',
+                  borderRadius: '10px', padding: '12px'
+                }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: '800', color: 'var(--ag-warning)', marginBottom: '4px' }}>
+                    ⚠ Écart détecté : {diffUSD !== 0 ? `USD ${diffUSD > 0 ? '+' : ''}${diffUSD.toFixed(2)} ` : ''} {diffCDF !== 0 ? `CDF ${diffCDF > 0 ? '+' : ''}${diffCDF} FC` : ''}
+                  </div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--ag-text-secondary)', marginBottom: '4px' }}>
+                    Motif obligatoire de l'écart :
+                  </label>
+                  <textarea
+                    required
+                    rows={2}
+                    value={discrepancyReason}
+                    onChange={e => setDiscrepancyReason(e.target.value)}
+                    placeholder="Ex: Monnaie rendue manquante, pourboire client, billet abîmé..."
+                    style={{
+                      width: '100%', padding: '8px', borderRadius: '6px',
+                      border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface)',
+                      color: 'var(--ag-text-primary)', fontSize: '0.8rem', resize: 'none', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCloseModalOpen(false)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                    backgroundColor: 'transparent', color: 'var(--ag-text-secondary)', fontWeight: '600'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={hasDiscrepancy && !discrepancyReason.trim()}
+                  style={{
+                    padding: '8px 18px', borderRadius: '8px', border: 'none',
+                    backgroundColor: 'var(--ag-brand)', color: '#fff', fontWeight: '800', cursor: 'pointer'
+                  }}
+                >
+                  Valider la clôture
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL PAIEMENT VENDEUR ───────────────────────────────────────── */}
+      {payVendorModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110, backgroundColor: 'var(--ag-modal-overlay)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '440px',
+            boxShadow: 'var(--ag-card-shadow-hover)', animation: 'agFadeIn 0.15s ease'
+          }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: '800', margin: '0 0 4px', color: 'var(--ag-text-primary)' }}>
+              Payer le vendeur {payVendorModal.vendor?.name}
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', margin: '0 0 16px' }}>
+              Solde disponible : <strong>{formatPrice(payVendorModal.amount_owed_to_vendor)}</strong>
+            </p>
+
+            <form onSubmit={handleExecuteVendorPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px' }}>
+                  Montant à verser ({currency}) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  max={payVendorModal.amount_owed_to_vendor}
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '1.1rem', fontWeight: '900', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px' }}>
+                  Mode de règlement *
+                </label>
+                <select
+                  value={payMethod}
+                  onChange={e => setPayMethod(e.target.value as any)}
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontWeight: '700', boxSizing: 'border-box'
+                  }}
+                >
+                  <option value="CASH">Espèces en main au guichet</option>
+                  <option value="AIRTEL_MONEY">Airtel Money</option>
+                  <option value="ORANGE_MONEY">Orange Money</option>
+                  <option value="MPESA">M-Pesa</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setPayVendorModal(null)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                    backgroundColor: 'transparent', color: 'var(--ag-text-secondary)', fontWeight: '600'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={paying}
+                  style={{
+                    padding: '8px 18px', borderRadius: '8px', border: 'none',
+                    backgroundColor: 'var(--ag-success)', color: '#000', fontWeight: '800', cursor: 'pointer'
+                  }}
+                >
+                  {paying ? 'Validation...' : 'Confirmer le paiement'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL REÇU DE PAIEMENT VENDEUR ───────────────────────────────── */}
+      {paymentSuccessReceipt && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 120, backgroundColor: 'var(--ag-modal-overlay)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '420px',
+            textAlign: 'center', boxShadow: 'var(--ag-card-shadow-hover)'
+          }}>
+            <CheckCircle2 size={36} color="var(--ag-success)" style={{ margin: '0 auto 8px' }} />
+            <h3 style={{ fontSize: '1.2rem', fontWeight: '800', color: 'var(--ag-text-primary)', margin: '0 0 4px' }}>
+              Reçu de Paiement Vendeur
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-muted)', margin: '0 0 16px' }}>
+              Réf : {paymentSuccessReceipt.reference}
+            </p>
+
+            <div style={{
+              backgroundColor: 'var(--ag-surface-hover)', borderRadius: '10px',
+              padding: '16px', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--ag-text-muted)' }}>Bénéficiaire :</span>
+                <strong>{paymentSuccessReceipt.vendorName}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--ag-text-muted)' }}>Montant réglé :</span>
+                <strong style={{ color: 'var(--ag-brand)', fontSize: '1.1rem' }}>{formatPrice(paymentSuccessReceipt.amount)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--ag-text-muted)' }}>Moyen :</span>
+                <strong>{paymentSuccessReceipt.method}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--ag-text-muted)' }}>Date :</span>
+                <span>{new Date(paymentSuccessReceipt.date).toLocaleString('fr-FR')}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => window.print()}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                  fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                }}
+              >
+                <Printer size={16} /> Imprimer reçu
+              </button>
+              <button
+                onClick={() => setPaymentSuccessReceipt(null)}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
+                  backgroundColor: 'var(--ag-brand)', color: '#fff', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </AgencyShell>
+  );
+}

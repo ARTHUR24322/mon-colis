@@ -27,8 +27,10 @@ export async function POST(
     const { id: packageId } = await params;
     const { action, reason } = await request.json();
 
-    if (!['accept', 'reject'].includes(action)) {
-      return NextResponse.json({ error: 'Action invalide ("accept" ou "reject").' }, { status: 400 });
+    const targetAgencyId = session.agencyId || session.userId;
+
+    if (!['accept', 'reject', 'assign_driver'].includes(action)) {
+      return NextResponse.json({ error: 'Action invalide ("accept", "reject" ou "assign_driver").' }, { status: 400 });
     }
 
     if (action === 'reject' && (!reason || !reason.trim())) {
@@ -38,7 +40,7 @@ export async function POST(
     // 1. Récupération du colis
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
-      .select('id, tracking_code, status, vendeur_id, agency_id, client_commune')
+      .select('id, tracking_code, status, vendeur_id, agency_id, driver_id, client_commune')
       .eq('id', packageId)
       .maybeSingle();
 
@@ -50,9 +52,9 @@ export async function POST(
     const { data: agencyProfile } = await supabaseAdmin
       .from('profiles')
       .select('name')
-      .eq('id', session.userId)
+      .eq('id', targetAgencyId)
       .maybeSingle();
-    const agencyName = agencyProfile?.name || 'L\'agence';
+    const agencyName = agencyProfile?.name || session.name || 'L\'agence';
 
     // 2. Traitement ACCEPTATION
     if (action === 'accept') {
@@ -64,7 +66,7 @@ export async function POST(
       }
 
       // Si le colis était déjà assigné à une autre agence
-      if (pkg.agency_id && pkg.agency_id !== session.userId) {
+      if (pkg.agency_id && pkg.agency_id !== targetAgencyId) {
         return NextResponse.json({
           error: 'Ce colis a été attribué à une autre agence.'
         }, { status: 403 });
@@ -73,7 +75,7 @@ export async function POST(
       const { error: updErr } = await supabaseAdmin
         .from('packages')
         .update({
-          agency_id: session.userId,
+          agency_id: targetAgencyId,
           status: 'ACCEPTED_BY_AGENCY',
           updated_at: new Date().toISOString(),
         })
@@ -158,6 +160,69 @@ export async function POST(
       return NextResponse.json({
         success: true,
         message: 'Colis décliné. Le vendeur a été notifié pour réattribuer le colis.',
+      });
+    }
+
+    // 4. Traitement ASSIGNATION LIVREUR
+    if (action === 'assign_driver') {
+      const { driverId } = await request.json().catch(() => ({}));
+      if (!driverId) {
+        return NextResponse.json({ error: 'Identifiant du livreur requis.' }, { status: 400 });
+      }
+
+      // Vérifier que le livreur appartient bien à cette agence
+      const { data: driver } = await supabaseAdmin
+        .from('drivers')
+        .select('id, agency_id, profiles(name)')
+        .eq('id', driverId)
+        .eq('agency_id', targetAgencyId)
+        .maybeSingle();
+
+      if (!driver) {
+        return NextResponse.json({ error: 'Livreur introuvable ou non affilié à votre agence.' }, { status: 400 });
+      }
+
+      const driverProfile = Array.isArray(driver.profiles) ? driver.profiles[0] : driver.profiles;
+      const driverName = (driverProfile as { name?: string })?.name || 'Livreur';
+
+      const { error: updErr } = await supabaseAdmin
+        .from('packages')
+        .update({
+          driver_id: driverId,
+          agency_id: targetAgencyId,
+          status: 'ASSIGNED_TO_DRIVER',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', packageId);
+
+      if (updErr) {
+        console.error('[Agency Assign Driver] Error:', updErr);
+        return NextResponse.json({ error: 'Erreur lors de l’assignation du livreur.' }, { status: 500 });
+      }
+
+      // Audit log
+      await supabaseAdmin.from('package_audit_logs').insert({
+        package_id: packageId,
+        action: 'DRIVER_ASSIGNED',
+        actor_id: session.userId,
+        actor_role: 'agence',
+        actor_name: agencyName,
+        details: `Colis assigné au livreur ${driverName} par l'agence ${agencyName}.`,
+      });
+
+      // Notification livreur
+      await supabaseAdmin.from('notifications').insert({
+        user_id: driverId,
+        title: 'Nouvelle course assignée',
+        message: `Vous avez été assigné au colis ${pkg.tracking_code || packageId.slice(0, 8)} vers ${pkg.client_commune || 'Kinshasa'}.`,
+        type: 'PACKAGE_STATUS',
+        data: { package_id: packageId, status: 'ASSIGNED_TO_DRIVER' },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Colis assigné à ${driverName} avec succès.`,
+        driverName,
       });
     }
   } catch (err) {

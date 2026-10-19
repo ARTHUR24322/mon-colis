@@ -25,6 +25,7 @@ export async function GET() {
       email: session.email,
       phone: session.phone,
       agencyId: session.agencyId,
+      agencyRole: session.agencyRole || (session.role === 'agence' ? 'directeur' : undefined),
       driverId: session.driverId,
     },
   });

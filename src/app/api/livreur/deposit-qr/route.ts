@@ -51,8 +51,9 @@ export async function POST(request: NextRequest) {
       .eq('status', 'PENDING')
       .eq('type', 'QR_DEPOSIT');
 
-    // Créer une nouvelle demande avec token QR
+    // Créer une nouvelle demande avec token QR et code OTP à 6 chiffres
     const qrToken = generateQrToken();
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // expire dans 30 min
 
     const { data: cashRequest, error: insertErr } = await supabase
@@ -61,13 +62,13 @@ export async function POST(request: NextRequest) {
         driver_id: driver.id,
         agency_id: driver.agency_id,
         amount,
-        note: null,
+        note: `OTP:${otpCode}`,
         status: 'PENDING',
         type: 'QR_DEPOSIT',
         qr_token: qrToken,
         qr_expires_at: expiresAt,
       })
-      .select('id, qr_token, qr_expires_at, amount, created_at')
+      .select('id, qr_token, qr_expires_at, amount, note, created_at')
       .single();
 
     if (insertErr || !cashRequest) {
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
       success: true,
       requestId: cashRequest.id,
       qrToken: cashRequest.qr_token,
+      otpCode,
       amount: cashRequest.amount,
       expiresAt: cashRequest.qr_expires_at,
     });

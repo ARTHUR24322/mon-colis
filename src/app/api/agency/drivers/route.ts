@@ -86,3 +86,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
   }
 }
+
+/**
+ * GET /api/agency/drivers
+ * Returns all drivers belonging to the current agency
+ */
+export async function GET() {
+  try {
+    const session = await getSession();
+    if (!session || session.role !== 'agence' || !session.agencyId) {
+      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
+    }
+
+    const { data: drivers, error } = await supabase
+      .from('drivers')
+      .select('id, agency_id, phone, available, created_at, profiles(id, name, phone)')
+      .eq('agency_id', session.agencyId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[GET /api/agency/drivers] Error:', error);
+      return NextResponse.json({ error: 'Erreur récupération livreurs.' }, { status: 500 });
+    }
+
+    const formatted = (drivers || []).map((d: any) => ({
+      id: d.id,
+      name: d.profiles?.name || 'Livreur',
+      phone: d.phone || d.profiles?.phone || '',
+      available: d.available !== false,
+      created_at: d.created_at,
+    }));
+
+    return NextResponse.json({ drivers: formatted });
+  } catch (err) {
+    console.error('[GET /api/agency/drivers]', err);
+    return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
+  }
+}

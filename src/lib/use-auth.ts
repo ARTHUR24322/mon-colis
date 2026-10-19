@@ -19,6 +19,7 @@ export interface AuthUser {
   email?: string;
   phone?: string;
   agencyId?: string;
+  agencyRole?: string; // directeur, gestionnaire, agent_comptoir, comptable, lecture_seule
   driverId?: string;
   // Point Relais
   agentNumber?: string;
@@ -30,7 +31,7 @@ export interface AuthUser {
 // Mapping rôle → URL de login
 const ROLE_LOGIN_URLS: Record<string, string> = {
   vendeur:      '/login',
-  agence:       '/login',
+  agence:       '/agence/login',
   livreur:      '/livreur',
   point_relais: '/point-relais',
   superadmin:   '/admin-x9k2',

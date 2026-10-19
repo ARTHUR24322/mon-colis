@@ -3,10 +3,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
+import AgencyShell from '@/components/agency/AgencyShell';
+import Link from 'next/link';
 import {
   Package, Clock, AlertTriangle, CheckCircle2, TrendingUp,
   RefreshCw, ChevronRight, ArrowUpRight, Truck, MapPin,
-  Building2, Filter, Download, Check, X, ShieldAlert
+  Building2, Filter, Download, Check, X, ShieldAlert,
+  Search, Eye, ArrowRight, UserCheck
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -45,7 +48,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
-      padding: '2px 8px', borderRadius: '6px',
+      padding: '3px 8px', borderRadius: '6px',
       background: meta.bg, color: meta.color,
       fontSize: '0.72rem', fontWeight: '700', whiteSpace: 'nowrap',
     }}>
@@ -62,20 +65,21 @@ function KpiCard({ label, value, sub, color, icon }: {
 }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.07)',
+      backgroundColor: 'var(--ag-surface)',
+      border: '1px solid var(--ag-border)',
       borderRadius: '14px',
       padding: '1.25rem',
       display: 'flex', flexDirection: 'column', gap: '0.5rem',
       position: 'relative', overflow: 'hidden',
+      boxShadow: 'var(--ag-card-shadow)',
     }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, width: '70px', height: '70px', background: color, opacity: 0.07, borderRadius: '0 0 0 70px' }} />
+      <div style={{ position: 'absolute', top: 0, right: 0, width: '70px', height: '70px', background: color, opacity: 0.1, borderRadius: '0 0 0 70px' }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
-        <div style={{ color, opacity: 0.8 }}>{icon}</div>
+        <span style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+        <div style={{ color, opacity: 0.9 }}>{icon}</div>
       </div>
-      <div style={{ fontSize: '2rem', fontWeight: '900', color, lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: '0.75rem', color: '#475569' }}>{sub}</div>}
+      <div style={{ fontSize: '2.1rem', fontWeight: '900', color: 'var(--ag-text-primary)', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-secondary)' }}>{sub}</div>}
     </div>
   );
 }
@@ -181,70 +185,72 @@ export default function AgenceDashboardHome() {
   };
 
   return (
-    <div style={{ padding: '2rem', minHeight: '100vh', maxWidth: '1400px' }}>
+    <AgencyShell>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-      {/* ─── En-tête ─── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem' }}>
-        <div>
-          <div style={{ fontSize: '0.75rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.3rem' }}>
-            Tableau de bord
+        {/* ─── En-tête Dashboard ─── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: '800', margin: '0 0 4px', color: 'var(--ag-text-primary)' }}>
+              Tableau de bord des opérations
+            </h1>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ag-text-secondary)' }}>
+              Supervision des flux de colis, prises en charge immédiates et assignations de livreurs
+            </p>
           </div>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: '900', color: '#fff', margin: 0 }}>
-            {user?.name || 'Agence'}
-          </h1>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button
+              onClick={refresh}
+              disabled={loading}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 14px', borderRadius: '8px',
+                background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                color: 'var(--ag-text-secondary)', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer',
+              }}
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              Actualiser
+            </button>
+            <button
+              onClick={exportCSV}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 14px', borderRadius: '8px',
+                background: 'var(--ag-success-bg)', border: '1px solid var(--ag-success)',
+                color: 'var(--ag-success)', fontSize: '0.82rem', fontWeight: '700', cursor: 'pointer',
+              }}
+            >
+              <Download size={14} />
+              Exporter CSV
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button
-            onClick={refresh}
-            disabled={loading}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.5rem 0.85rem', borderRadius: '8px',
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-              color: '#94a3b8', fontSize: '0.82rem', cursor: 'pointer',
-            }}
-          >
-            <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-            Actualiser
-          </button>
-          <button
-            onClick={exportCSV}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.5rem 0.85rem', borderRadius: '8px',
-              background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
-              color: '#4ade80', fontSize: '0.82rem', cursor: 'pointer',
-            }}
-          >
-            <Download size={14} />
-            Exporter CSV
-          </button>
+
+        {/* ─── KPIs ─── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          <KpiCard label="À accepter" value={kpis.pending} sub="colis en attente de validation agence" color="#f59e0b" icon={<Clock size={22} />} />
+          <KpiCard label="En transit" value={kpis.inTransit} sub="colis pris en charge par vos livreurs" color="#06b6d4" icon={<Truck size={22} />} />
+          <KpiCard label="Livrés" value={kpis.delivered} sub="livraisons confirmées avec succès" color="#10b981" icon={<CheckCircle2 size={22} />} />
+          <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? '⚠ Attention requise' : 'Aucun incident en cours'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={22} />} />
         </div>
-      </div>
 
-      {/* ─── KPIs ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
-        <KpiCard label="À accepter" value={kpis.pending} sub="colis en attente de votre décision" color="#f59e0b" icon={<Clock size={20} />} />
-        <KpiCard label="En transit" value={kpis.inTransit} sub="colis chez vos livreurs" color="#06b6d4" icon={<Truck size={20} />} />
-        <KpiCard label="Livrés" value={kpis.delivered} sub="livraisons réussies" color="#10b981" icon={<CheckCircle2 size={20} />} />
-        <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? '⚠ Attention requise' : 'Aucun incident'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={20} />} />
-      </div>
-
-      {/* ─── Tableau des colis ─── */}
-      <div style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '16px', overflow: 'hidden',
-      }}>
-        {/* Barre de filtre */}
+        {/* ─── Tableau des colis ─── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.06)',
-          flexWrap: 'wrap',
+          backgroundColor: 'var(--ag-surface)',
+          border: '1px solid var(--ag-border)',
+          borderRadius: '16px', overflow: 'hidden',
+          boxShadow: 'var(--ag-card-shadow)',
         }}>
-          <h2 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: '#fff', marginRight: '0.5rem' }}>
-            Colis ({filtered.length})
-          </h2>
+          {/* Barre de filtre */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            padding: '16px 20px', borderBottom: '1px solid var(--ag-border)',
+            flexWrap: 'wrap',
+          }}>
+            <h2 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '800', color: 'var(--ag-text-primary)', marginRight: '8px' }}>
+              Flux de Colis ({filtered.length})
+            </h2>
 
           {/* Recherche */}
           <div style={{ position: 'relative', flex: '1', minWidth: '180px', maxWidth: '300px' }}>
@@ -521,6 +527,7 @@ export default function AgenceDashboardHome() {
         input { outline: none; }
         input:focus { border-color: rgba(245,158,11,0.4) !important; }
       `}</style>
-    </div>
+      </div>
+    </AgencyShell>
   );
 }

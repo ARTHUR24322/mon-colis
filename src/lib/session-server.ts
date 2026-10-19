@@ -15,6 +15,7 @@ export interface SessionPayload {
   email?: string;
   phone?: string;
   agencyId?: string;
+  agencyRole?: string; // Sous-rôle interne agence (directeur, gestionnaire, agent_comptoir, etc.)
   driverId?: string;
   dropPointId?: string;
   agentNumber?: string;
