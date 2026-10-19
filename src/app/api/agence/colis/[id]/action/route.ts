@@ -21,15 +21,30 @@ function calcDeliveryPrice(params: {
   distanceKm: number;
   pricePerKg: number;
   pricePerKm: number;
-}): number {
-  const { communePrices, commune, poids, distanceKm, pricePerKg, pricePerKm } = params;
+  tauxChange: number;
+  deviseGrille?: string;
+}): { totalUsd: number; totalFc: number } {
+  const { communePrices, commune, poids, distanceKm, pricePerKg, pricePerKm, tauxChange, deviseGrille } = params;
   const entry = communePrices.find(
     (cp) => cp.commune?.toLowerCase() === commune?.toLowerCase()
   );
   const tarifCommune = entry?.price ?? 0;
   const tarifPoids = Math.round(poids * pricePerKg * 100) / 100;
   const tarifKm = Math.round(distanceKm * pricePerKm * 100) / 100;
-  return Math.round((tarifCommune + tarifPoids + tarifKm) * 100) / 100;
+  const rawTotal = Math.round((tarifCommune + tarifPoids + tarifKm) * 100) / 100;
+
+  // Si la grille est en FC ou si le montant dépasse 50 (tarifs de Kinshasa en Francs Congolais)
+  const isFC = deviseGrille === 'FC' || rawTotal > 50 || tarifCommune > 50;
+  const rate = tauxChange > 0 ? tauxChange : 2400;
+
+  if (isFC) {
+    const totalUsd = parseFloat((rawTotal / rate).toFixed(2));
+    return { totalUsd, totalFc: Math.round(rawTotal) };
+  } else {
+    const totalUsd = parseFloat(rawTotal.toFixed(2));
+    const totalFc = Math.round(totalUsd * rate);
+    return { totalUsd, totalFc };
+  }
 }
 
 export async function POST(
@@ -78,7 +93,7 @@ export async function POST(
     // ── Récupération du colis ─────────────────────────────────────────────────
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
-      .select('id, tracking_code, status, vendeur_id, agency_id, driver_id, client_commune, client_address, origin_drop_point_id, weight, delivery_price')
+      .select('id, tracking_code, status, vendeur_id, agency_id, driver_id, client_commune, client_address, origin_drop_point_id, weight, delivery_price, package_price, paid_by_client')
       .eq('id', packageId)
       .maybeSingle();
 
@@ -117,13 +132,29 @@ export async function POST(
       }
 
       // ── Recalcul du prix de livraison avec les tarifs de l'agence + distance OSM ──
-      const { data: agencyData } = await supabaseAdmin
-        .from('agencies')
-        .select('commune_prices, price_per_km, price_per_kg, address')
-        .eq('id', targetAgencyId)
-        .maybeSingle();
+      const [agencyRes, sysRes] = await Promise.all([
+        supabaseAdmin
+          .from('agencies')
+          .select('commune_prices, price_per_km, price_per_kg, address, devise_grille, taux_fc')
+          .eq('id', targetAgencyId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from('system_settings')
+          .select('exchange_rate')
+          .eq('id', 'global')
+          .maybeSingle(),
+      ]);
+
+      const agencyData = agencyRes.data;
+      const systemRate = sysRes.data?.exchange_rate || 2400;
+      const tauxChange = agencyData?.taux_fc || systemRate;
 
       let newDeliveryPrice: number | null = pkg.delivery_price ?? null;
+      // Normalisation de sécurité : si delivery_price était corrompu en FC (> 50), convertir en USD
+      if (newDeliveryPrice !== null && newDeliveryPrice > 50) {
+        newDeliveryPrice = parseFloat((newDeliveryPrice / tauxChange).toFixed(2));
+      }
+
       let realDistanceKm = 0;
 
       if (agencyData) {
@@ -163,10 +194,13 @@ export async function POST(
           distanceKm: realDistanceKm,
           pricePerKg,
           pricePerKm,
+          tauxChange,
+          deviseGrille: agencyData.devise_grille || 'FC',
         });
 
-        if (calculated > 0) {
-          newDeliveryPrice = calculated;
+        // N'appliquer le tarif recalculé que s'il est supérieur à 0 et que le colis n'avait pas déjà un prix validé non corrompu
+        if (calculated.totalUsd > 0) {
+          newDeliveryPrice = calculated.totalUsd;
         }
       }
 
@@ -191,17 +225,27 @@ export async function POST(
         return NextResponse.json({ error: 'Erreur lors de l\'acceptation du colis.' }, { status: 500 });
       }
 
-      // Valider le devis associé s'il est encore PENDING
+      // Valider le devis associé s'il est encore PENDING ou ACCEPTED
+      const itemPrice = pkg.package_price || 0;
+      const quoteMontantEncaisser = pkg.paid_by_client
+        ? parseFloat((itemPrice + (newDeliveryPrice || 0)).toFixed(2))
+        : itemPrice;
+
       await supabaseAdmin
         .from('package_quotes')
         .update({
           status: 'ACCEPTED',
           accepted_at: now,
           agency_id: targetAgencyId,
-          ...(newDeliveryPrice !== null ? { frais_livraison: newDeliveryPrice } : {}),
+          ...(newDeliveryPrice !== null ? {
+            frais_livraison: newDeliveryPrice,
+            montant_encaisser: quoteMontantEncaisser,
+            devise: 'USD',
+            taux_change: tauxChange,
+          } : {}),
         })
         .eq('package_id', packageId)
-        .eq('status', 'PENDING');
+        .in('status', ['PENDING', 'ACCEPTED']);
 
       // Audit
       await supabaseAdmin.from('package_audit_logs').insert({

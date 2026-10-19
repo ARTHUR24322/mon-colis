@@ -64,7 +64,7 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 
 export default function AgencyColisPage() {
   const { user } = useAuth('agence');
-  const { formatPrice } = useCurrency();
+  const { formatPrice, exchangeRate } = useCurrency();
   const userRole = normalizeAgencyRole(user?.agencyRole);
   const canEdit = hasAgencyPermission(userRole, 'canEditPackages');
   const canAssign = hasAgencyPermission(userRole, 'canAssignDrivers');
@@ -704,51 +704,81 @@ export default function AgencyColisPage() {
               </div>
 
               {/* Détail Financier */}
-              <div style={{
-                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-                borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
-              }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
-                  Détail financier
-                </span>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--ag-text-secondary)' }}>Prix marchandise :</span>
-                  <strong style={{ color: 'var(--ag-text-primary)' }}>{formatPrice(selectedColis.prixColis)}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--ag-text-secondary)' }}>Frais livraison :</span>
-                  <strong style={{ color: 'var(--ag-brand)' }}>{selectedColis.prixLivraison ? formatPrice(selectedColis.prixLivraison) : 'Inclus / Fixe'}</strong>
-                </div>
-                {/* Qui paie les frais de livraison */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                  <span style={{ color: 'var(--ag-text-secondary)' }}>Frais à la charge de :</span>
-                  <span style={{
-                    padding: '2px 10px', borderRadius: '20px', fontSize: '0.74rem', fontWeight: '800',
-                    backgroundColor: selectedColis.paidByClient ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.15)',
-                    color: selectedColis.paidByClient ? '#60a5fa' : '#f59e0b',
-                    border: `1px solid ${selectedColis.paidByClient ? 'rgba(96,165,250,0.3)' : 'rgba(245,158,11,0.3)'}`,
+              {(() => {
+                const currentRate = exchangeRate || 2400;
+                const rawLivraison = selectedColis.prixLivraison ?? 0;
+                // Si l'ancien prix était en FC brut (> 50), on le normalise
+                const safeLivraisonUsd = rawLivraison > 50 ? parseFloat((rawLivraison / currentRate).toFixed(2)) : rawLivraison;
+                const safeLivraisonFc = Math.round(safeLivraisonUsd * currentRate);
+
+                const rawMarchandise = selectedColis.prixColis || 0;
+                const safeMarchandiseUsd = rawMarchandise;
+                const safeMarchandiseFc = Math.round(safeMarchandiseUsd * currentRate);
+
+                const totalCodUsd = selectedColis.isPrepaid
+                  ? 0
+                  : selectedColis.paidByClient
+                    ? parseFloat((safeMarchandiseUsd + safeLivraisonUsd).toFixed(2))
+                    : safeMarchandiseUsd;
+                const totalCodFc = Math.round(totalCodUsd * currentRate);
+
+                return (
+                  <div style={{
+                    backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                    borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
                   }}>
-                    {selectedColis.paidByClient ? '🛒 Client (COD)' : '🏪 Vendeur (déduit)'}
-                  </span>
-                </div>
-                <div style={{ height: '1px', backgroundColor: 'var(--ag-border)' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
-                  <span style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>Montant à encaisser (COD) :</span>
-                  <strong style={{ fontWeight: '900', color: selectedColis.isPrepaid ? 'var(--ag-success)' : 'var(--ag-brand)' }}>
-                    {selectedColis.isPrepaid
-                      ? '0 (Prépayé)'
-                      : selectedColis.paidByClient
-                        ? formatPrice(selectedColis.prixColis + (selectedColis.prixLivraison || 0))
-                        : formatPrice(selectedColis.prixColis)
-                    }
-                  </strong>
-                </div>
-                {!selectedColis.paidByClient && selectedColis.prixLivraison && (
-                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
-                    ⚠️ Les frais ({formatPrice(selectedColis.prixLivraison)}) seront déduits du reversement vendeur.
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
+                      Détail financier
+                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                      <span style={{ color: 'var(--ag-text-secondary)' }}>Prix marchandise :</span>
+                      <strong style={{ color: 'var(--ag-text-primary)' }}>
+                        ${safeMarchandiseUsd.toFixed(2)} <span style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', fontWeight: '600' }}>({safeMarchandiseFc.toLocaleString('fr-FR')} Fc)</span>
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                      <span style={{ color: 'var(--ag-text-secondary)' }}>Frais livraison :</span>
+                      <strong style={{ color: 'var(--ag-brand)' }}>
+                        {safeLivraisonUsd > 0 ? (
+                          <>
+                            ${safeLivraisonUsd.toFixed(2)} <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: '700' }}>({safeLivraisonFc.toLocaleString('fr-FR')} Fc)</span>
+                          </>
+                        ) : 'Inclus / Fixe'}
+                      </strong>
+                    </div>
+                    {/* Qui paie les frais de livraison */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+                      <span style={{ color: 'var(--ag-text-secondary)' }}>Frais à la charge de :</span>
+                      <span style={{
+                        padding: '2px 10px', borderRadius: '20px', fontSize: '0.74rem', fontWeight: '800',
+                        backgroundColor: selectedColis.paidByClient ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: selectedColis.paidByClient ? '#60a5fa' : '#f59e0b',
+                        border: `1px solid ${selectedColis.paidByClient ? 'rgba(96,165,250,0.3)' : 'rgba(245,158,11,0.3)'}`,
+                      }}>
+                        {selectedColis.paidByClient ? '🛒 Client (COD)' : '🏪 Vendeur (déduit)'}
+                      </span>
+                    </div>
+                    <div style={{ height: '1px', backgroundColor: 'var(--ag-border)' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
+                      <span style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>Montant à encaisser (COD) :</span>
+                      <strong style={{ fontWeight: '900', color: selectedColis.isPrepaid ? 'var(--ag-success)' : 'var(--ag-brand)' }}>
+                        {selectedColis.isPrepaid ? (
+                          '0 (Prépayé)'
+                        ) : (
+                          <>
+                            ${totalCodUsd.toFixed(2)} <span style={{ fontSize: '0.82rem', fontWeight: '700', opacity: 0.9 }}>({totalCodFc.toLocaleString('fr-FR')} Fc)</span>
+                          </>
+                        )}
+                      </strong>
+                    </div>
+                    {!selectedColis.paidByClient && safeLivraisonUsd > 0 && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
+                        ⚠️ Les frais de ${safeLivraisonUsd.toFixed(2)} ({safeLivraisonFc.toLocaleString('fr-FR')} Fc) seront déduits du reversement vendeur.
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Assignation Livreur — visible uniquement après acceptation */}
               {canAssign && ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP'].includes(selectedColis.status) && (

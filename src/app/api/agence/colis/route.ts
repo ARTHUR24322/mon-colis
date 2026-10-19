@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
         vendeurPhone: vendeur?.phone || '',
         status: p.status,
         prixColis: p.package_price || 0,
-        prixLivraison: p.delivery_price || null,
+        prixLivraison: p.delivery_price ? (p.delivery_price > 50 ? parseFloat((p.delivery_price / 2400).toFixed(2)) : p.delivery_price) : null,
         driverId: p.driver_id || driver?.id || null,
         driverName: driverProfile?.name || null,
         driverPhone: driver?.phone || null,
