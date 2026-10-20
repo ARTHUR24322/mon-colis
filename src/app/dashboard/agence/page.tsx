@@ -373,6 +373,7 @@ export default function AgenceDashboard() {
   };
 
   // QR Deposit confirmation state
+  const [qrDepositPhone, setQrDepositPhone] = useState('');
   const [qrDepositToken, setQrDepositToken] = useState('');
   const [showQRCamera, setShowQRCamera] = useState(false);
   const [qrDepositLoading, setQrDepositLoading] = useState(false);
@@ -390,19 +391,27 @@ export default function AgenceDashboard() {
     amount: number;
   } | null>(null);
 
-  const handlePreviewQrDeposit = async (token: string) => {
+  const handlePreviewQrDeposit = async (token: string, phone: string) => {
     if (token.length < 6) return;
     setQrDepositPreviewError('');
     setQrDepositPreview(null);
     setQrDepositConfirmResult(null);
     setQrDepositLoading(true);
     try {
-      const res = await fetch(`/api/agency/confirm-deposit-qr?token=${encodeURIComponent(token)}`);
+      const isOtp = /^\d{6}$/.test(token.trim());
+      const params = new URLSearchParams();
+      if (isOtp) {
+        params.set('otp', token.trim());
+      } else {
+        params.set('token', token.trim());
+      }
+      if (phone.trim()) params.set('phone', phone.trim());
+      const res = await fetch(`/api/agency/confirm-deposit-qr?${params.toString()}`);
       const json = await res.json();
       if (res.ok) {
         setQrDepositPreview(json);
       } else {
-        setQrDepositPreviewError(json.error || 'QR invalide.');
+        setQrDepositPreviewError(json.error || 'Code invalide ou livreur introuvable.');
       }
     } catch {
       setQrDepositPreviewError('Erreur réseau.');
@@ -416,16 +425,21 @@ export default function AgenceDashboard() {
     setQrDepositLoading(true);
     const isOtp = /^\d{6}$/.test(qrDepositToken.trim());
     try {
+      const body: Record<string, string> = isOtp
+        ? { otpCode: qrDepositToken.trim() }
+        : { qrToken: qrDepositToken.trim() };
+      if (qrDepositPhone.trim()) body.phone = qrDepositPhone.trim();
       const res = await fetch('/api/agency/confirm-deposit-qr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isOtp ? { otpCode: qrDepositToken.trim() } : { qrToken: qrDepositToken.trim() }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (res.ok) {
         setQrDepositConfirmResult({ driverName: json.driverName, amount: json.amount });
         setQrDepositPreview(null);
         setQrDepositToken('');
+        setQrDepositPhone('');
         loadDriverCashRequests();
       } else {
         setQrDepositPreviewError(json.error || 'Erreur lors de la confirmation.');
@@ -1786,47 +1800,79 @@ export default function AgenceDashboard() {
             </div>
           )}
 
-          {/* Token input */}
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: qrDepositPreview || qrDepositPreviewError ? '1rem' : '0' }}>
-            <button
-              onClick={() => setShowQRCamera(!showQRCamera)}
-              style={{ padding: '0.75rem', borderRadius: '10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600' }}
-            >
-              <Camera size={18} /> {showQRCamera ? 'Fermer Caméra' : 'Scanner Caméra'}
-            </button>
-            <input
-              type="text"
-              placeholder="Coller le token QR du livreur..."
-              value={qrDepositToken}
-              onChange={e => {
-                setQrDepositToken(e.target.value);
-                setQrDepositPreviewError('');
-                setQrDepositPreview(null);
-              }}
-              style={{
-                flex: 1, minWidth: '200px',
-                padding: '0.75rem 1rem', borderRadius: '10px',
-                background: 'rgba(255,255,255,0.05)',
-                border: `1px solid ${qrDepositPreviewError ? 'rgba(239,68,68,0.5)' : 'rgba(245,158,11,0.35)'}`,
-                color: '#fff', fontSize: '0.85rem',
-                fontFamily: 'monospace',
-                outline: 'none',
-              }}
-            />
-            <button
-              onClick={() => handlePreviewQrDeposit(qrDepositToken)}
-              id="btn-verify-qr"
-              disabled={qrDepositToken.length < 6 || qrDepositLoading}
-              style={{
-                padding: '0.75rem 1.25rem', borderRadius: '10px', border: 'none',
-                background: qrDepositToken.length >= 6 ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
-                color: qrDepositToken.length >= 6 ? '#fbbf24' : '#475569',
-                fontWeight: '700', fontSize: '0.85rem', cursor: qrDepositToken.length >= 6 ? 'pointer' : 'not-allowed',
-                fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.4rem',
-              }}
-            >
-              <ScanLine size={16} /> {qrDepositLoading ? 'Vérification...' : 'Vérifier'}
-            </button>
+          {/* Formulaire : Téléphone + Code OTP/QR */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: qrDepositPreview || qrDepositPreviewError ? '1rem' : '0' }}>
+            {/* Ligne 1 : téléphone du livreur */}
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.9rem', borderRadius: '10px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', color: '#818cf8', fontWeight: '600', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                📱 Tél. livreur
+              </div>
+              <input
+                type="tel"
+                placeholder="Ex: 0813456789"
+                value={qrDepositPhone}
+                onChange={e => {
+                  setQrDepositPhone(e.target.value);
+                  setQrDepositPreviewError('');
+                  setQrDepositPreview(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 1rem', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(99,102,241,0.35)',
+                  color: '#fff', fontSize: '0.9rem',
+                  fontFamily: 'inherit',
+                  outline: 'none',
+                  letterSpacing: '0.05em',
+                }}
+              />
+            </div>
+
+            {/* Ligne 2 : code OTP ou token QR + bouton scanner */}
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={() => setShowQRCamera(!showQRCamera)}
+                style={{ padding: '0.75rem', borderRadius: '10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600', whiteSpace: 'nowrap' }}
+              >
+                <Camera size={18} /> {showQRCamera ? 'Fermer' : 'Scanner QR'}
+              </button>
+              <input
+                type="text"
+                placeholder="Code OTP à 6 chiffres ou token QR..."
+                value={qrDepositToken}
+                onChange={e => {
+                  setQrDepositToken(e.target.value);
+                  setQrDepositPreviewError('');
+                  setQrDepositPreview(null);
+                }}
+                maxLength={200}
+                style={{
+                  flex: 1, minWidth: '180px',
+                  padding: '0.75rem 1rem', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${qrDepositPreviewError ? 'rgba(239,68,68,0.5)' : 'rgba(245,158,11,0.35)'}`,
+                  color: '#fff', fontSize: '1.05rem',
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.12em',
+                  outline: 'none',
+                }}
+              />
+              <button
+                onClick={() => handlePreviewQrDeposit(qrDepositToken, qrDepositPhone)}
+                id="btn-verify-qr"
+                disabled={qrDepositToken.length < 6 || qrDepositLoading}
+                style={{
+                  padding: '0.75rem 1.25rem', borderRadius: '10px', border: 'none',
+                  background: qrDepositToken.length >= 6 ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
+                  color: qrDepositToken.length >= 6 ? '#fbbf24' : '#475569',
+                  fontWeight: '700', fontSize: '0.85rem', cursor: qrDepositToken.length >= 6 ? 'pointer' : 'not-allowed',
+                  fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap',
+                }}
+              >
+                <ScanLine size={16} /> {qrDepositLoading ? 'Vérification...' : 'Vérifier'}
+              </button>
+            </div>
           </div>
 
           {showQRCamera && (

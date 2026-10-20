@@ -1,55 +1,100 @@
 /**
  * POST /api/agency/confirm-deposit-qr
  * L'agence confirme la réception du cash via le token QR ou le code OTP à 6 chiffres du livreur.
- * Body: { qrToken: string } ou { otpCode: string }
+ * Body: { qrToken?: string, otpCode?: string, phone?: string }
+ *
+ * GET /api/agency/confirm-deposit-qr
+ * Prévisualise la demande avant confirmation.
+ * Params: token ou otp, + phone (optionnel mais recommandé)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 
-async function findCashRequest(tokenOrOtp: string) {
-  const clean = tokenOrOtp.trim();
+/**
+ * Résout l'ID du driver à partir de son numéro de téléphone.
+ * Cherche d'abord dans la table drivers, puis profiles.
+ */
+async function resolveDriverIdByPhone(phone: string): Promise<string | null> {
+  const cleanPhone = phone.replace(/\s/g, '');
 
-  // 1. Si 6 chiffres -> recherche par code OTP dans note ou qr_token
-  if (/^\d{6}$/.test(clean)) {
-    // Essai 1 : note contient le code OTP
-    const { data: byNote, error: errNote } = await supabase
-      .from('driver_cash_requests')
-      .select('id, driver_id, agency_id, amount, status, type, qr_token, qr_expires_at, note, created_at')
-      .eq('type', 'QR_DEPOSIT')
-      .ilike('note', `%OTP:${clean}%`)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!errNote && byNote) return byNote;
-
-    // Essai 2 : qr_token égal au code
-    const { data: byToken, error: errToken } = await supabase
-      .from('driver_cash_requests')
-      .select('id, driver_id, agency_id, amount, status, type, qr_token, qr_expires_at, note, created_at')
-      .eq('type', 'QR_DEPOSIT')
-      .eq('qr_token', clean)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!errToken && byToken) return byToken;
-  }
-
-  // 2. Recherche par token QR standard
-  const { data: byQr, error: errQr } = await supabase
-    .from('driver_cash_requests')
-    .select('id, driver_id, agency_id, amount, status, type, qr_token, qr_expires_at, note, created_at')
-    .eq('type', 'QR_DEPOSIT')
-    .eq('qr_token', clean)
-    .order('created_at', { ascending: false })
+  // Essai 1 : table drivers
+  const { data: drv } = await supabase
+    .from('drivers')
+    .select('id')
+    .or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`)
     .limit(1)
     .maybeSingle();
 
-  if (!errQr && byQr) return byQr;
+  if (drv?.id) return drv.id;
 
-  return null;
+  // Essai 2 : table profiles (par numéro)
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('id')
+    .or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`)
+    .limit(1)
+    .maybeSingle();
+
+  return prof?.id ?? null;
+}
+
+/**
+ * Trouve la demande de dépôt QR/OTP correspondante.
+ * Si driverIdFilter est fourni (résolu depuis le téléphone), on filtre dessus.
+ */
+async function findCashRequest(tokenOrOtp: string, driverIdFilter?: string | null) {
+  const clean = tokenOrOtp.trim();
+
+  const baseSelect = 'id, driver_id, agency_id, amount, status, type, qr_token, qr_expires_at, note, created_at';
+
+  // ─── Cas 1 : code OTP 6 chiffres ────────────────────────────────────────────
+  if (/^\d{6}$/.test(clean)) {
+    // Chercher par OTP:XXXXXX dans la colonne note
+    let qNote = supabase
+      .from('driver_cash_requests')
+      .select(baseSelect)
+      .eq('type', 'QR_DEPOSIT')
+      .eq('status', 'PENDING')
+      .ilike('note', `%OTP:${clean}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (driverIdFilter) qNote = qNote.eq('driver_id', driverIdFilter);
+
+    const { data: byNote } = await qNote.maybeSingle();
+    if (byNote) return byNote;
+
+    // Chercher par qr_token égal au code (cas dégénéré)
+    let qTok = supabase
+      .from('driver_cash_requests')
+      .select(baseSelect)
+      .eq('type', 'QR_DEPOSIT')
+      .eq('status', 'PENDING')
+      .eq('qr_token', clean)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (driverIdFilter) qTok = qTok.eq('driver_id', driverIdFilter);
+
+    const { data: byTok } = await qTok.maybeSingle();
+    if (byTok) return byTok;
+  }
+
+  // ─── Cas 2 : token QR long ───────────────────────────────────────────────────
+  let qQr = supabase
+    .from('driver_cash_requests')
+    .select(baseSelect)
+    .eq('type', 'QR_DEPOSIT')
+    .eq('status', 'PENDING')
+    .eq('qr_token', clean)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (driverIdFilter) qQr = qQr.eq('driver_id', driverIdFilter);
+
+  const { data: byQr } = await qQr.maybeSingle();
+  return byQr ?? null;
 }
 
 async function getDriverInfo(driverId: string) {
@@ -68,6 +113,76 @@ async function getDriverInfo(driverId: string) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET  — Prévisualisation avant confirmation
+// ─────────────────────────────────────────────────────────────────────────────
+export async function GET(request: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session || session.role !== 'agence' || !session.agencyId) {
+      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const tokenOrOtp = (
+      searchParams.get('otp') ||
+      searchParams.get('token') ||
+      ''
+    ).trim();
+    const phone = (searchParams.get('phone') || '').trim();
+
+    if (!tokenOrOtp) {
+      return NextResponse.json({ error: 'Token ou code OTP manquant.' }, { status: 400 });
+    }
+
+    // Résoudre le driverId depuis le téléphone si fourni
+    let driverIdFilter: string | null = null;
+    if (phone) {
+      driverIdFilter = await resolveDriverIdByPhone(phone);
+      if (!driverIdFilter) {
+        return NextResponse.json(
+          { error: 'Aucun livreur trouvé avec ce numéro de téléphone.' },
+          { status: 404 }
+        );
+      }
+    }
+
+    const req = await findCashRequest(tokenOrOtp, driverIdFilter);
+
+    if (!req) {
+      return NextResponse.json(
+        { error: phone
+            ? 'Code OTP incorrect pour ce livreur, ou demande introuvable.'
+            : 'Code OTP ou QR introuvable.' },
+        { status: 404 }
+      );
+    }
+
+    if (req.agency_id && req.agency_id !== session.agencyId) {
+      return NextResponse.json({ error: 'Ce code appartient à une autre agence.' }, { status: 403 });
+    }
+
+    const driverInfo = await getDriverInfo(req.driver_id);
+    const isExpired = req.qr_expires_at ? new Date(req.qr_expires_at) < new Date() : false;
+
+    return NextResponse.json({
+      requestId: req.id,
+      amount: req.amount,
+      status: req.status,
+      isExpired,
+      expiresAt: req.qr_expires_at,
+      driverName: driverInfo.name,
+      driverPhone: driverInfo.phone,
+    });
+  } catch (err) {
+    console.error('[GET /api/agency/confirm-deposit-qr]', err);
+    return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST — Confirmation définitive du versement
+// ─────────────────────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
@@ -77,19 +192,38 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const tokenOrOtp = (body.qrToken || body.otpCode || '').trim();
+    const phone = (body.phone || '').trim();
+
     if (!tokenOrOtp) {
       return NextResponse.json({ error: 'Token QR ou code OTP manquant.' }, { status: 400 });
     }
 
-    const req = await findCashRequest(tokenOrOtp);
+    // Résoudre le driverId depuis le téléphone si fourni
+    let driverIdFilter: string | null = null;
+    if (phone) {
+      driverIdFilter = await resolveDriverIdByPhone(phone);
+      if (!driverIdFilter) {
+        return NextResponse.json(
+          { error: 'Aucun livreur trouvé avec ce numéro de téléphone.' },
+          { status: 404 }
+        );
+      }
+    }
+
+    const req = await findCashRequest(tokenOrOtp, driverIdFilter);
 
     if (!req) {
-      return NextResponse.json({ error: 'Code OTP ou QR invalide ou introuvable.' }, { status: 404 });
+      return NextResponse.json(
+        { error: phone
+            ? 'Code OTP incorrect pour ce livreur. Vérifiez le numéro et le code.'
+            : 'Code OTP ou QR invalide ou introuvable.' },
+        { status: 404 }
+      );
     }
 
     // Vérifier que ce QR appartient à l'agence connectée
     if (req.agency_id && req.agency_id !== session.agencyId) {
-      return NextResponse.json({ error: "Ce code appartient à une autre agence." }, { status: 403 });
+      return NextResponse.json({ error: 'Ce code appartient à une autre agence.' }, { status: 403 });
     }
 
     // Vérifier le statut
@@ -103,9 +237,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Demande déjà traitée.' }, { status: 409 });
     }
 
-    // Vérifier l'expiration du token QR
+    // Vérifier l'expiration
     if (req.qr_expires_at && new Date(req.qr_expires_at) < new Date()) {
-      return NextResponse.json({ error: 'Code OTP ou QR expiré. Le livreur doit en générer un nouveau.' }, { status: 410 });
+      return NextResponse.json(
+        { error: 'Code OTP ou QR expiré. Le livreur doit en générer un nouveau.' },
+        { status: 410 }
+      );
     }
 
     // Confirmer le dépôt → marquer PAID
@@ -123,7 +260,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la confirmation.' }, { status: 500 });
     }
 
-    // Marquer les courses livrées du livreur comme déchargées pour cette agence
+    // Marquer les courses du livreur comme déchargées (non-bloquant)
     try {
       await supabase
         .from('packages')
@@ -147,47 +284,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('[POST /api/agency/confirm-deposit-qr]', err);
-    return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const session = await getSession();
-    if (!session || session.role !== 'agence' || !session.agencyId) {
-      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const tokenOrOtp = (searchParams.get('token') || searchParams.get('otp') || '').trim();
-    if (!tokenOrOtp) {
-      return NextResponse.json({ error: 'Token ou code OTP manquant.' }, { status: 400 });
-    }
-
-    const req = await findCashRequest(tokenOrOtp);
-
-    if (!req) {
-      return NextResponse.json({ error: 'Code OTP ou QR introuvable.' }, { status: 404 });
-    }
-
-    if (req.agency_id && req.agency_id !== session.agencyId) {
-      return NextResponse.json({ error: "Ce code appartient à une autre agence." }, { status: 403 });
-    }
-
-    const driverInfo = await getDriverInfo(req.driver_id);
-    const isExpired = req.qr_expires_at ? new Date(req.qr_expires_at) < new Date() : false;
-
-    return NextResponse.json({
-      requestId: req.id,
-      amount: req.amount,
-      status: req.status,
-      isExpired,
-      expiresAt: req.qr_expires_at,
-      driverName: driverInfo.name,
-      driverPhone: driverInfo.phone,
-    });
-  } catch (err) {
-    console.error('[GET /api/agency/confirm-deposit-qr]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
   }
 }
