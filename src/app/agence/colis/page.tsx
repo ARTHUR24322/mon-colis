@@ -192,7 +192,17 @@ export default function AgencyColisPage() {
         setRefusalModalColis(null);
         setRefusalReason('');
         if (action === 'assign_driver' && selectedColis?.id === packageId) {
-          setSelectedColis(prev => prev ? { ...prev, status: 'ASSIGNED_TO_DRIVER', driverName: data.driverName } : null);
+          const assignedDriver = drivers.find(d => d.id === extra?.driverId);
+          const newDriverName = data.driverName || assignedDriver?.name || selectedColis.driverName;
+          setSelectedColis(prev => prev ? {
+            ...prev,
+            status: 'ASSIGNED_TO_DRIVER',
+            driverId: extra?.driverId || prev.driverId,
+            driverName: newDriverName,
+          } : null);
+          if (extra?.driverId) {
+            setAssigningDriverId(extra.driverId);
+          }
         }
         fetchColis();
       } else {
@@ -204,6 +214,22 @@ export default function AgencyColisPage() {
       setActionLoading(false);
     }
   };
+
+  // Synchroniser assigningDriverId lors de l'ouverture d'un colis
+  useEffect(() => {
+    if (selectedColis) {
+      if (selectedColis.driverId) {
+        setAssigningDriverId(selectedColis.driverId);
+      } else if (selectedColis.driverName) {
+        const found = drivers.find(d => d.name.trim().toLowerCase() === selectedColis.driverName?.trim().toLowerCase());
+        setAssigningDriverId(found ? found.id : '');
+      } else {
+        setAssigningDriverId('');
+      }
+    } else {
+      setAssigningDriverId('');
+    }
+  }, [selectedColis?.id, selectedColis?.driverId, selectedColis?.driverName, drivers]);
 
   const handleExportCSV = () => {
     const headers = ['Code', 'Client', 'Commune', 'Vendeur', 'Statut', 'Prix Marchandise', 'Frais Livraison', 'Livreur', 'Date'];
@@ -781,51 +807,77 @@ export default function AgencyColisPage() {
               })()}
 
               {/* Assignation Livreur — visible uniquement après acceptation */}
-              {canAssign && ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP'].includes(selectedColis.status) && (
-                <div style={{
-                  backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-                  borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px'
-                }}>
-                  <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
-                    Assigner un livreur de votre agence
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <select
-                      value={assigningDriverId}
-                      onChange={e => setAssigningDriverId(e.target.value)}
-                      style={{
-                        flex: 1, height: '40px', borderRadius: '8px', border: '1px solid var(--ag-border)',
-                        backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
-                        padding: '0 10px', fontSize: '0.82rem', fontWeight: '600'
-                      }}
-                    >
-                      <option value="">Sélectionner un livreur...</option>
-                      {drivers.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.name} {d.phone ? `(${d.phone})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      disabled={!assigningDriverId || actionLoading}
-                      onClick={() => handleAction(selectedColis.id, 'assign_driver', { driverId: assigningDriverId })}
-                      style={{
-                        padding: '0 16px', borderRadius: '8px', border: 'none',
-                        backgroundColor: 'var(--ag-brand)', color: '#fff',
-                        fontWeight: '700', fontSize: '0.82rem', cursor: assigningDriverId ? 'pointer' : 'not-allowed',
-                        opacity: assigningDriverId ? 1 : 0.6
-                      }}
-                    >
-                      Assigner
-                    </button>
-                  </div>
-                  {selectedColis.driverName && (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
-                      Livreur actuellement en charge : <strong style={{ color: 'var(--ag-text-primary)' }}>{selectedColis.driverName}</strong>
+              {canAssign && ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP'].includes(selectedColis.status) && (() => {
+                const selectedDriver = drivers.find(d => d.id === assigningDriverId);
+                const isAlreadyAssigned = Boolean(
+                  (selectedColis.driverId && assigningDriverId && selectedColis.driverId === assigningDriverId) ||
+                  (selectedColis.driverName && selectedDriver && selectedDriver.name.trim().toLowerCase() === selectedColis.driverName.trim().toLowerCase())
+                );
+                const isBtnDisabled = !assigningDriverId || actionLoading || isAlreadyAssigned;
+
+                return (
+                  <div style={{
+                    backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                    borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px'
+                  }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
+                      Assigner un livreur de votre agence
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <select
+                        value={assigningDriverId}
+                        onChange={e => setAssigningDriverId(e.target.value)}
+                        disabled={actionLoading}
+                        style={{
+                          flex: 1, height: '40px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                          backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                          padding: '0 10px', fontSize: '0.82rem', fontWeight: '600'
+                        }}
+                      >
+                        <option value="">Sélectionner un livreur...</option>
+                        {drivers.map(d => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} {d.phone ? `(${d.phone})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={isBtnDisabled}
+                        onClick={() => {
+                          if (isBtnDisabled) return;
+                          handleAction(selectedColis.id, 'assign_driver', { driverId: assigningDriverId });
+                        }}
+                        style={{
+                          padding: '0 16px', borderRadius: '8px',
+                          border: isAlreadyAssigned ? '1px solid var(--ag-border)' : 'none',
+                          backgroundColor: isAlreadyAssigned ? 'var(--ag-surface-hover)' : 'var(--ag-brand)',
+                          color: isAlreadyAssigned ? 'var(--ag-text-muted)' : '#fff',
+                          fontWeight: '700', fontSize: '0.82rem',
+                          cursor: isBtnDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isBtnDisabled ? 0.6 : 1,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {actionLoading
+                          ? 'Assignation...'
+                          : isAlreadyAssigned
+                            ? 'Déjà assigné ✓'
+                            : selectedColis.driverName
+                              ? 'Réassigner'
+                              : 'Assigner'
+                        }
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
+                    {selectedColis.driverName && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
+                        Livreur actuellement en charge : <strong style={{ color: 'var(--ag-text-primary)' }}>{selectedColis.driverName}</strong>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Message d'info si pas encore accepté */}
               {canAssign && !['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'].includes(selectedColis.status) && (
