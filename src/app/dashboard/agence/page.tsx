@@ -391,7 +391,7 @@ export default function AgenceDashboard() {
   } | null>(null);
 
   const handlePreviewQrDeposit = async (token: string) => {
-    if (token.length < 10) return;
+    if (token.length < 6) return;
     setQrDepositPreviewError('');
     setQrDepositPreview(null);
     setQrDepositConfirmResult(null);
@@ -414,11 +414,12 @@ export default function AgenceDashboard() {
   const handleConfirmQrDeposit = async () => {
     if (!qrDepositToken || !qrDepositPreview) return;
     setQrDepositLoading(true);
+    const isOtp = /^\d{6}$/.test(qrDepositToken.trim());
     try {
       const res = await fetch('/api/agency/confirm-deposit-qr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qrToken: qrDepositToken }),
+        body: JSON.stringify(isOtp ? { otpCode: qrDepositToken.trim() } : { qrToken: qrDepositToken.trim() }),
       });
       const json = await res.json();
       if (res.ok) {
@@ -1815,12 +1816,12 @@ export default function AgenceDashboard() {
             <button
               onClick={() => handlePreviewQrDeposit(qrDepositToken)}
               id="btn-verify-qr"
-              disabled={qrDepositToken.length < 10 || qrDepositLoading}
+              disabled={qrDepositToken.length < 6 || qrDepositLoading}
               style={{
                 padding: '0.75rem 1.25rem', borderRadius: '10px', border: 'none',
-                background: qrDepositToken.length >= 10 ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
-                color: qrDepositToken.length >= 10 ? '#fbbf24' : '#475569',
-                fontWeight: '700', fontSize: '0.85rem', cursor: qrDepositToken.length >= 10 ? 'pointer' : 'not-allowed',
+                background: qrDepositToken.length >= 6 ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
+                color: qrDepositToken.length >= 6 ? '#fbbf24' : '#475569',
+                fontWeight: '700', fontSize: '0.85rem', cursor: qrDepositToken.length >= 6 ? 'pointer' : 'not-allowed',
                 fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.4rem',
               }}
             >
