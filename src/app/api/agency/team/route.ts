@@ -12,7 +12,7 @@ import bcrypt from 'bcryptjs';
 async function generateStaffId(agencyId: string): Promise<string> {
   // Récupérer le nom de l'agence pour les 3 lettres
   const { data: agency } = await supabaseAdmin
-    .from('agencies')
+    .from('profiles')
     .select('name')
     .eq('id', agencyId)
     .maybeSingle();

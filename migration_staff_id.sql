@@ -19,7 +19,7 @@ CREATE SEQUENCE IF NOT EXISTS agency_staff_seq START 1 INCREMENT 1;
 UPDATE agency_members am
 SET staff_id = 'MC-' ||
     UPPER(LEFT(COALESCE(
-        (SELECT REGEXP_REPLACE(a.name, '[^A-Za-z]', '', 'g') FROM agencies a WHERE a.id = am.agency_id LIMIT 1),
+        (SELECT REGEXP_REPLACE(p.name, '[^A-Za-z]', '', 'g') FROM profiles p WHERE p.id = am.agency_id LIMIT 1),
         'AGC'
     ), 3)) ||
     '-' ||
