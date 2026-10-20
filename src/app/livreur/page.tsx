@@ -45,7 +45,7 @@ export default function LivreurPage() {
   // Remise de cash par QR
   const [showQrModal, setShowQrModal] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
-  const [qrData, setQrData] = useState<{ requestId: string; qrToken: string; amount: number; expiresAt: string } | null>(null);
+  const [qrData, setQrData] = useState<{ requestId: string; qrToken: string; amount: number; expiresAt: string; otpCode?: string } | null>(null);
   const [qrConfirmed, setQrConfirmed] = useState(false);
 
   // Toast alert
@@ -127,11 +127,26 @@ export default function LivreurPage() {
 
   const coursesLivrees = useMemo(() => courses.filter(c => c.status === 'Livré'), [courses]);
 
-  // Cash à déposer
+  // Cash à déposer auprès de l'agence
   const cashCollected = useMemo(() => {
     return coursesLivrees
-      .filter(c => c.paidByClient && !c.vendorPaid)
-      .reduce((sum, c) => sum + (c.prixColis || 0) + (c.isPrepaid ? 0 : (c.deliveryPrice || c.prixLivraison || 0)), 0);
+      .filter(c => !c.vendorPaid)
+      .reduce((sum, c) => {
+        const itemCash = c.isPrepaid ? 0 : (c.prixColis || 0); // isPrepaid=true = marchandise déjà réglée
+        const deliveryCash = c.paidByClient ? (c.deliveryPrice || c.prixLivraison || 0) : 0;
+        return sum + itemCash + deliveryCash;
+      }, 0);
+  }, [coursesLivrees]);
+
+  // Détail de la caisse (marchandise seule + frais seuls)
+  const cashDetail = useMemo(() => {
+    const delivCash = coursesLivrees
+      .filter(c => !c.vendorPaid && c.paidByClient)
+      .reduce((sum, c) => sum + (c.deliveryPrice || c.prixLivraison || 0), 0);
+    const mercCash = coursesLivrees
+      .filter(c => !c.vendorPaid && !c.isPrepaid)
+      .reduce((sum, c) => sum + (c.prixColis || 0), 0);
+    return { delivCash, mercCash };
   }, [coursesLivrees]);
 
   // Validation OTP
@@ -528,9 +543,36 @@ export default function LivreurPage() {
             <div style={{ fontSize: '2.1rem', fontWeight: '900', color: '#ffffff', margin: '0.2rem 0' }}>
               {formatPrice(cashCollected)}
             </div>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: '#94a3b8' }}>
               Montant perçu auprès des clients lors des livraisons complétées.
             </p>
+            {/* Détail marchandise vs frais */}
+            {cashCollected > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <div style={{
+                  background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '0.5rem',
+                  border: '1px solid rgba(245,158,11,0.2)'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase' }}>
+                    📦 Marchandises
+                  </div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: '900', color: '#fbbf24' }}>
+                    {formatPrice(cashDetail.mercCash)}
+                  </div>
+                </div>
+                <div style={{
+                  background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '0.5rem',
+                  border: '1px solid rgba(245,158,11,0.2)'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase' }}>
+                    🚚 Frais livraison
+                  </div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: '900', color: '#fbbf24' }}>
+                    {formatPrice(cashDetail.delivCash)}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {cashCollected > 0 ? (
@@ -557,30 +599,52 @@ export default function LivreurPage() {
           {/* Modal Affichage du QR de dépôt */}
           {showQrModal && qrData && (
             <div style={{
-              position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.85)',
-              backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+              position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.9)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '1rem',
             }}>
               <div style={{
-                background: '#0f172a', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '24px',
-                padding: '1.75rem', width: '100%', maxWidth: '380px', textAlign: 'center', color: '#fff'
+                background: 'linear-gradient(135deg, #0f172a, #1e293b)',
+                border: '1px solid rgba(245,158,11,0.3)',
+                borderRadius: '24px', padding: '1.5rem', width: '100%', maxWidth: '360px',
+                textAlign: 'center', color: '#fff',
               }}>
-                <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.2rem', fontWeight: '900' }}>
-                  Faire scanner à l'Agence
+                <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.1rem', fontWeight: '900' }}>
+                  Remise Caisse à l'Agence
                 </h3>
-                <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-                  Montant à remettre : <strong style={{ color: '#fbbf24' }}>{formatPrice(qrData.amount)}</strong>
+                <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: '#94a3b8' }}>
+                  Montant à remettre : <strong style={{ color: '#fbbf24', fontSize: '1.1rem' }}>{formatPrice(qrData.amount)}</strong>
                 </p>
 
-                <div style={{ background: '#fff', padding: '1rem', borderRadius: '16px', display: 'inline-block', marginBottom: '1rem' }}>
+                {/* QR Code */}
+                <div style={{ background: '#fff', padding: '1rem', borderRadius: '16px', display: 'inline-block', marginBottom: '0.85rem' }}>
                   <img
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrData.qrToken)}&margin=10`}
                     alt="QR Remise Caisse"
-                    style={{ width: '200px', height: '200px', display: 'block' }}
+                    style={{ width: '190px', height: '190px', display: 'block' }}
                   />
                 </div>
 
-                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '1rem' }}>
-                  L'agence scanne ce QR code pour valider immédiatement la décharge de votre caisse.
+                {/* Code OTP alternatif */}
+                {qrData.otpCode && (
+                  <div style={{
+                    background: 'rgba(245, 158, 11, 0.12)', border: '1px dashed rgba(245, 158, 11, 0.5)',
+                    borderRadius: '14px', padding: '10px 14px', marginBottom: '1rem', textAlign: 'center'
+                  }}>
+                    <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#fcd34d', fontWeight: '800', letterSpacing: '0.05em', display: 'block', marginBottom: '4px' }}>
+                      🔑 Code OTP de versement
+                    </span>
+                    <span style={{ fontSize: '1.8rem', fontWeight: '900', letterSpacing: '6px', color: '#fbbf24', fontFamily: 'monospace' }}>
+                      {qrData.otpCode}
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginTop: '3px' }}>
+                      Donnez ce code à l'agence si elle ne peut pas scanner le QR
+                    </span>
+                  </div>
+                )}
+
+                <div style={{ fontSize: '0.74rem', color: '#64748b', marginBottom: '1rem', lineHeight: 1.4 }}>
+                  Présentez ce QR Code ou communiquez le code OTP à l'agent de l'agence pour décharger votre caisse.
                 </div>
 
                 <button

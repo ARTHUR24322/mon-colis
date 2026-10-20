@@ -106,7 +106,7 @@ export async function GET() {
     // Chercher la demande QR PENDING non expirée
     const { data: existing } = await supabase
       .from('driver_cash_requests')
-      .select('id, qr_token, qr_expires_at, amount, status, created_at')
+      .select('id, qr_token, qr_expires_at, amount, status, created_at, note')
       .eq('driver_id', driverId)
       .eq('type', 'QR_DEPOSIT')
       .eq('status', 'PENDING')
@@ -115,7 +115,15 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
 
-    return NextResponse.json({ pending: existing || null });
+    let otpCode = null;
+    if (existing?.note && existing.note.includes('OTP:')) {
+      const match = existing.note.match(/OTP:(\d{6})/);
+      if (match) otpCode = match[1];
+    }
+
+    return NextResponse.json({
+      pending: existing ? { ...existing, otpCode } : null
+    });
   } catch (err) {
     console.error('[GET /api/livreur/deposit-qr]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });

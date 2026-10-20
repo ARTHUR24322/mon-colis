@@ -276,11 +276,20 @@ function TrackingPage() {
             <InfoRow label={isAvailableAtRelais ? "Adresse initiale" : "Adresse de livraison"} value={colis.clientAddress} />
             <InfoRow label="Agence responsable" value={colis.agence || 'Non assignée'} />
             <InfoRow label="Livreur assigné" value={colis.livreur ? `${colis.livreur} (${colis.livreurPhone || 'En route'})` : 'En attente d\'un livreur'} />
-            <InfoRow
-              label="Montant à payer"
-              value={`$${(colis.prixColis + (colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0)).toFixed(2)} USD (Colis: $${colis.prixColis} + Livraison: ${colis.paidByClient ? `$${colis.deliveryPrice || colis.prixLivraison || 0}` : '0$ (Payée par le vendeur)'})`}
-              highlight
-            />
+            {(() => {
+              const itemToPay = colis.isPrepaid ? 0 : colis.prixColis;
+              const deliveryToPay = colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0;
+              const totalToPay = itemToPay + deliveryToPay;
+              const itemLabel = colis.isPrepaid ? 'Marchandise: Déjà payée (0$)' : `Colis: $${colis.prixColis}`;
+              const deliveryLabel = colis.paidByClient ? `Livraison: $${deliveryToPay.toFixed(2)}` : 'Livraison: 0$ (Vendeur)';
+              return (
+                <InfoRow
+                  label="Montant à payer"
+                  value={`$${totalToPay.toFixed(2)} USD (${itemLabel} + ${deliveryLabel})`}
+                  highlight
+                />
+              );
+            })()}
           </div>
 
           {/* Code Secret OTP */}
@@ -345,7 +354,11 @@ function TrackingPage() {
           <InfoRow label="Client" value={colis.clientName} />
           <InfoRow label="Téléphone" value={colis.clientPhone} />
           <InfoRow label="Adresse" value={colis.clientAddress} />
-          <InfoRow label="Montant à encaisser" value={`$${(colis.prixColis + (colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0)).toFixed(2)} USD`} highlight />
+          <InfoRow
+            label="Montant à encaisser"
+            value={`$${((colis.isPrepaid ? 0 : colis.prixColis) + (colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0)).toFixed(2)} USD`}
+            highlight
+          />
         </div>
 
         {/* Saisie OTP */}

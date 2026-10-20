@@ -190,6 +190,7 @@ export default function AgencyVersementsPage() {
           method: payMethod,
           date: new Date().toISOString(),
           reference: data.entryId || Math.random().toString(36).slice(-8).toUpperCase(),
+          otp: data.otp || null,
         });
         setPayVendorModal(null);
         setPayAmount('');
@@ -795,6 +796,24 @@ export default function AgencyVersementsPage() {
             <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-muted)', margin: '0 0 16px' }}>
               Réf : {paymentSuccessReceipt.reference}
             </p>
+
+            {/* Code OTP généré pour confirmation vendeur */}
+            {paymentSuccessReceipt.otp && (
+              <div style={{
+                backgroundColor: 'rgba(245, 158, 11, 0.12)', border: '1px dashed #f59e0b',
+                borderRadius: '12px', padding: '14px', marginBottom: '16px', textAlign: 'center'
+              }}>
+                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#f59e0b', fontWeight: '800', letterSpacing: '0.05em', display: 'block', marginBottom: '4px' }}>
+                  🔑 Code OTP à communiquer au vendeur
+                </span>
+                <span style={{ fontSize: '2rem', fontWeight: '900', letterSpacing: '6px', color: '#f59e0b', fontFamily: 'monospace' }}>
+                  {paymentSuccessReceipt.otp}
+                </span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', display: 'block', marginTop: '4px' }}>
+                  Le vendeur doit saisir ce code dans son tableau Finance pour confirmer la réception du versement.
+                </span>
+              </div>
+            )}
 
             <div style={{
               backgroundColor: 'var(--ag-surface-hover)', borderRadius: '10px',

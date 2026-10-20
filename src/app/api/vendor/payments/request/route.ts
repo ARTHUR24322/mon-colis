@@ -64,6 +64,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la création de la demande.' }, { status: 500 });
     }
 
+    // Notifier l'agence de la demande de versement
+    try {
+      const { data: vendorProfile } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', session.userId)
+        .maybeSingle();
+
+      const vendorName = vendorProfile?.name || session.name || 'Un vendeur';
+      await supabase.from('notifications').insert({
+        user_id: agencyId,
+        type: 'VENDOR_PAYMENT_REQUESTED',
+        message: `Demande de versement de ${amount.toLocaleString('fr-FR')} CDF de ${vendorName}`,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+    } catch (notifErr) {
+      console.warn('Erreur notification agence:', notifErr);
+    }
+
     return NextResponse.json({ success: true, requestId: req.id });
   } catch (err) {
     console.error('[POST /api/vendor/payments/request]', err);

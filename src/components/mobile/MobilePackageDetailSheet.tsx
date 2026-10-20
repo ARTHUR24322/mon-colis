@@ -241,40 +241,85 @@ export default function MobilePackageDetailSheet({
           />
         )}
 
-        {/* Section 2 : Montants Financiers */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem'
-        }}>
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: '14px', padding: '0.85rem'
-          }}>
-            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
-              Prix Marchandise
-            </span>
-            <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#ffffff' }}>
-              {formatPrice(colis.prixColis || 0)}
-            </span>
-            <span style={{ fontSize: '0.68rem', color: colis.paidByClient ? '#4ade80' : '#fb923c', display: 'block', marginTop: '2px' }}>
-              {colis.paidByClient ? 'À percevoir au retrait' : 'Déjà payé par client'}
-            </span>
-          </div>
+        {/* Section 2 : Montants Financiers & Collecte Livreur */}
+        {(() => {
+          const itemToCollect = !colis.isPrepaid ? (colis.prixColis || 0) : 0;
+          const deliveryToCollect = colis.paidByClient ? (colis.deliveryPrice || colis.prixLivraison || 0) : 0;
+          const totalToCollect = itemToCollect + deliveryToCollect;
 
-          <div style={{
-            background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
-            borderRadius: '14px', padding: '0.85rem'
-          }}>
-            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
-              Frais Livraison
-            </span>
-            <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#60a5fa' }}>
-              {formatPrice(colis.deliveryPrice || colis.prixLivraison || 0)}
-            </span>
-            <span style={{ fontSize: '0.68rem', color: colis.isPrepaid ? '#4ade80' : '#94a3b8', display: 'block', marginTop: '2px' }}>
-              {colis.isPrepaid ? 'Prépayé' : 'À la livraison'}
-            </span>
-          </div>
-        </div>
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+                  borderRadius: '14px', padding: '0.85rem'
+                }}>
+                  <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
+                    📦 Marchandise
+                  </span>
+                  <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#ffffff' }}>
+                    {formatPrice(colis.prixColis || 0)}
+                  </span>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    color: !colis.isPrepaid ? '#fbbf24' : '#4ade80',
+                    display: 'block', marginTop: '2px', fontWeight: '700'
+                  }}>
+                    {!colis.isPrepaid ? '🏦 Agence collecte (COD)' : '✅ Déjà réglé par client'}
+                  </span>
+                </div>
+
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+                  borderRadius: '14px', padding: '0.85rem'
+                }}>
+                  <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
+                    🚚 Frais Livraison
+                  </span>
+                  <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#60a5fa' }}>
+                    {formatPrice(colis.deliveryPrice || colis.prixLivraison || 0)}
+                  </span>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    color: colis.paidByClient ? '#93c5fd' : '#94a3b8',
+                    display: 'block', marginTop: '2px', fontWeight: '700'
+                  }}>
+                    {colis.paidByClient ? '🛒 Payé par le client' : '🏪 Payé par le vendeur'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Total à percevoir chez le client lors de la remise */}
+              <div style={{
+                background: totalToCollect > 0 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(34, 197, 94, 0.1)',
+                border: totalToCollect > 0 ? '1px solid rgba(245, 158, 11, 0.35)' : '1px solid rgba(34, 197, 94, 0.3)',
+                borderRadius: '12px', padding: '0.7rem 0.9rem',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+              }}>
+                <div>
+                  <span style={{
+                    fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em',
+                    color: totalToCollect > 0 ? '#fcd34d' : '#86efac', display: 'block'
+                  }}>
+                    {totalToCollect > 0 ? '💵 Total à encaisser chez le client' : '✅ Rien à encaisser'}
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    {totalToCollect > 0
+                      ? `Marchandise: ${formatPrice(itemToCollect)} + Frais: ${formatPrice(deliveryToCollect)}`
+                      : 'Le colis et la livraison sont déjà intégralement réglés.'
+                    }
+                  </span>
+                </div>
+                <div style={{
+                  fontSize: '1.2rem', fontWeight: '900',
+                  color: totalToCollect > 0 ? '#fbbf24' : '#4ade80'
+                }}>
+                  {formatPrice(totalToCollect)}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Section 3 : Transporteur & Point Relais */}
         <div style={{

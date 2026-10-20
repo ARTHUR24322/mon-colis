@@ -75,6 +75,23 @@ export default function VendeurDashboard() {
   // Accordéon historique revenus repliable
   const [showRevenueHistory, setShowRevenueHistory] = useState(false);
 
+  // Paiement marchandise (séparé des frais de livraison)
+  const [merchandisePrepaid, setMerchandisePrepaid] = useState(false); // false = l'agence collecte, true = déjà réglé
+
+  // OTPs de versement en attente de confirmation (agence → vendeur)
+  const [pendingPaymentOtps, setPendingPaymentOtps] = useState<Array<{
+    id: string;
+    agency_id: string;
+    amount: number;
+    expires_at: string;
+    created_at: string;
+    agency?: { profile?: { name: string } };
+  }>>([]);
+  const [otpConfirmInput, setOtpConfirmInput] = useState('');
+  const [otpConfirmLoading, setOtpConfirmLoading] = useState(false);
+  const [otpConfirmError, setOtpConfirmError] = useState<string | null>(null);
+  const [otpConfirmSuccess, setOtpConfirmSuccess] = useState<string | null>(null);
+
   // Demande de versement
   const [vendorRequestModal, setVendorRequestModal] = useState<{
     agencyId: string;
@@ -104,9 +121,53 @@ export default function VendeurDashboard() {
     }
   };
 
+  // Chargement des OTPs de versement en attente (agence → vendeur)
+  const loadPendingPaymentOtps = async () => {
+    try {
+      const res = await fetch('/api/vendor/payments/balance');
+      if (res.ok) {
+        const data = await res.json();
+        setPendingPaymentOtps(data.pendingConfirmations ?? []);
+      }
+    } catch {
+      // silencieux
+    }
+  };
+
+  // Confirmer un versement via OTP
+  const handleConfirmPaymentOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpConfirmInput.trim() || otpConfirmInput.trim().length !== 6) return;
+    setOtpConfirmLoading(true);
+    setOtpConfirmError(null);
+    setOtpConfirmSuccess(null);
+    try {
+      const res = await fetch('/api/vendor/payments/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otpCode: otpConfirmInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOtpConfirmSuccess('✅ Versement confirmé avec succès ! L\'agence a bien transféré vos fonds.');
+        setOtpConfirmInput('');
+        await loadPendingPaymentOtps();
+        await refreshColis();
+        showToast('Versement confirmé !');
+      } else {
+        setOtpConfirmError(data.error || 'Code OTP incorrect ou expiré.');
+      }
+    } catch {
+      setOtpConfirmError('Erreur réseau. Réessayez.');
+    } finally {
+      setOtpConfirmLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (user?.id) {
       refreshColis();
+      loadPendingPaymentOtps();
       dataService.getAgencies().then(list => {
         const map: Record<string, number> = {};
         list.forEach(ag => { if (ag.id && ag.tauxConversionFC) map[ag.id] = ag.tauxConversionFC; });
@@ -245,7 +306,7 @@ export default function VendeurDashboard() {
         poids: parseFloat(poids) || 1,
         vendeurId: user?.id ?? '',
         paidByClient,
-        isPrepaid,
+        isPrepaid: merchandisePrepaid, // true = marchandise déjà réglée, false = livreur collecte
         deliveryMode,
         originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
         agencyId: selectedAgencyId || undefined,
@@ -278,6 +339,8 @@ export default function VendeurDashboard() {
       setClientPhone('');
       setPrixColis('');
       setIsPrepaid(false);
+      setMerchandisePrepaid(false);
+      setPaidByClient(true);
       setDeliveryMode('DIRECT');
       setSelectedAgencyId(null);
       setActiveTab('apercu');
@@ -608,6 +671,89 @@ export default function VendeurDashboard() {
             Mes Revenus & Versements
           </h1>
 
+          {/* ── CONFIRMATION OTP DE VERSEMENT ── */}
+          {pendingPaymentOtps.length > 0 && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))',
+              border: '2px solid rgba(34,197,94,0.5)',
+              borderRadius: '20px', padding: '1.25rem',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>🔐</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: '900', color: '#4ade80' }}>
+                  Versement reçu — Confirmez votre paiement
+                </span>
+              </div>
+              {pendingPaymentOtps.map(otp => (
+                <div key={otp.id} style={{ marginBottom: '0.75rem', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
+                    Agence : <strong style={{ color: '#fff' }}>{(otp.agency as any)?.profile?.name || 'Votre agence'}</strong>
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: '900', color: '#4ade80', marginBottom: '0.1rem' }}>
+                    {formatPrice(otp.amount)}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                    Expire le {new Date(otp.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+              <p style={{ margin: '0 0 0.85rem', fontSize: '0.8rem', color: '#86efac', lineHeight: 1.4 }}>
+                L'agence a généré un code OTP pour confirmer ce versement. Entrez le code ci-dessous pour valider que vous avez bien reçu l'argent.
+              </p>
+              {otpConfirmSuccess ? (
+                <div style={{
+                  background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.5)',
+                  borderRadius: '12px', padding: '0.85rem', fontSize: '0.85rem', color: '#4ade80', fontWeight: '700'
+                }}>
+                  {otpConfirmSuccess}
+                </div>
+              ) : (
+                <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                      Code OTP reçu de l'agence (6 chiffres) :
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Ex: 482951"
+                      value={otpConfirmInput}
+                      onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                      style={{
+                        width: '100%', minHeight: '52px', borderRadius: '12px',
+                        background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(34,197,94,0.4)',
+                        padding: '0 1rem', color: '#fff', fontSize: '1.6rem',
+                        fontWeight: '900', letterSpacing: '8px', textAlign: 'center',
+                        fontFamily: 'monospace', boxSizing: 'border-box'
+                      }}
+                    />
+                    {otpConfirmError && (
+                      <div style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '0.3rem', fontWeight: '600' }}>
+                        {otpConfirmError}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
+                    style={{
+                      minHeight: '48px', borderRadius: '12px', border: 'none',
+                      background: otpConfirmInput.length === 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.1)',
+                      color: otpConfirmInput.length === 6 ? '#000' : '#64748b',
+                      fontWeight: '900', fontSize: '0.95rem', cursor: otpConfirmInput.length !== 6 ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <Check size={18} />
+                    {otpConfirmLoading ? 'Vérification...' : 'Confirmer la réception du versement'}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
           {/* Chiffre principal : Reste à recevoir */}
           <div style={{
             background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05))',
@@ -625,6 +771,16 @@ export default function VendeurDashboard() {
             <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
               Marchandises livrées par les agences en attente de versement.
             </p>
+            <button
+              onClick={loadPendingPaymentOtps}
+              style={{
+                marginTop: '0.75rem', padding: '0.35rem 0.85rem', borderRadius: '8px',
+                border: '1px solid rgba(245,158,11,0.3)', background: 'transparent',
+                color: '#fcd34d', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer'
+              }}
+            >
+              🔄 Actualiser les versements
+            </button>
           </div>
 
           {/* Soldes par Agence */}
@@ -1148,10 +1304,57 @@ export default function VendeurDashboard() {
                 )}
               </div>
 
+              {/* ── Paiement de la marchandise ── */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                  💰 Paiement de la marchandise :
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMerchandisePrepaid(false)}
+                    style={{
+                      minHeight: '60px', borderRadius: '10px', padding: '0.6rem 0.4rem',
+                      border: !merchandisePrepaid ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                      background: !merchandisePrepaid ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: !merchandisePrepaid ? '#fcd34d' : '#94a3b8',
+                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.1rem' }}>🏦</span>
+                    <span>Agence collecte</span>
+                    <span style={{ fontSize: '0.62rem', opacity: 0.75, textAlign: 'center' }}>Livreur récupère le montant chez le client (COD)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMerchandisePrepaid(true)}
+                    style={{
+                      minHeight: '60px', borderRadius: '10px', padding: '0.6rem 0.4rem',
+                      border: merchandisePrepaid ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
+                      background: merchandisePrepaid ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: merchandisePrepaid ? '#4ade80' : '#94a3b8',
+                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.1rem' }}>✅</span>
+                    <span>Déjà réglé</span>
+                    <span style={{ fontSize: '0.62rem', opacity: 0.75, textAlign: 'center' }}>Client a déjà payé la marchandise</span>
+                  </button>
+                </div>
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.7rem', color: '#64748b', lineHeight: 1.4 }}>
+                  {!merchandisePrepaid
+                    ? '🚚 Le livreur récupèrera le montant de la marchandise en espèces chez le client.'
+                    : '✅ Le client a déjà réglé la marchandise. Le livreur ne collecte rien pour la marchandise.'
+                  }
+                </p>
+              </div>
+
               {/* ── Qui paie les frais de livraison ? ── */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                  Frais de livraison à la charge de :
+                  🚚 Frais de livraison à la charge de :
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <button
@@ -1189,8 +1392,8 @@ export default function VendeurDashboard() {
                 </div>
                 <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#64748b', lineHeight: 1.4 }}>
                   {paidByClient
-                    ? '✅ Le livreur encaisse les frais + la marchandise auprès du client.'
-                    : '✅ L\'agence déduit les frais de livraison de votre reversement (dette agence → vendeur).'
+                    ? '✅ Le livreur encaisse les frais de livraison auprès du client.'
+                    : '✅ L\'agence déduit les frais de livraison de votre reversement.'
                   }
                 </p>
               </div>

@@ -177,7 +177,11 @@ export async function POST(
       });
 
       const prixMarchandise = pkg.package_price || 0;
-      const montantEncaisser = pkg.paid_by_client ? (prixMarchandise + (pkg.is_prepaid ? 0 : totalUsd)) : totalUsd;
+      // !is_prepaid = l'agence/livreur collecte la marchandise (COD)
+      // paid_by_client = le livreur collecte les frais de livraison chez le client
+      const partMarchandise = pkg.is_prepaid ? 0 : prixMarchandise;
+      const partLivraison = pkg.paid_by_client !== false ? totalUsd : 0;
+      const montantEncaisser = partMarchandise + partLivraison;
 
       const validUntil = new Date(Date.now() + QUOTE_VALIDITY_HOURS * 60 * 60 * 1000).toISOString();
 
