@@ -21,6 +21,7 @@ export default function AgencyReceptionPage() {
   const [activeTab, setActiveTab] = useState<'cash_deposit' | 'parcel_intake'>('cash_deposit');
 
   // ─── État Dépôt Cash Livreur (QR / OTP) ──────────────────────────────────
+  const [driverPhone, setDriverPhone] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [cashLoading, setCashLoading] = useState(false);
   const [cashPreview, setCashPreview] = useState<{
@@ -57,7 +58,18 @@ export default function AgencyReceptionPage() {
     setConfirmedCash(null);
 
     try {
-      const res = await fetch(`/api/agency/confirm-deposit-qr?token=${encodeURIComponent(inputCode.trim())}`);
+      const isOtp = /^\d{6}$/.test(inputCode.trim());
+      const params = new URLSearchParams();
+      if (isOtp) {
+        params.set('otp', inputCode.trim());
+      } else {
+        params.set('token', inputCode.trim());
+      }
+      if (driverPhone.trim()) {
+        params.set('phone', driverPhone.trim());
+      }
+
+      const res = await fetch(`/api/agency/confirm-deposit-qr?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) {
         setCashError(data.error || 'Code OTP ou QR invalide ou introuvable.');
@@ -78,16 +90,23 @@ export default function AgencyReceptionPage() {
     setCashError('');
 
     try {
+      const isOtp = /^\d{6}$/.test(inputCode.trim());
+      const body: Record<string, string> = isOtp
+        ? { otpCode: inputCode.trim() }
+        : { qrToken: inputCode.trim() };
+      if (driverPhone.trim()) body.phone = driverPhone.trim();
+
       const res = await fetch('/api/agency/confirm-deposit-qr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qrToken: inputCode.trim() }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
         setConfirmedCash(data);
         setCashPreview(null);
         setInputCode('');
+        setDriverPhone('');
       } else {
         setCashError(data.error || 'Erreur lors de la validation du dépôt.');
       }
@@ -228,7 +247,7 @@ export default function AgencyReceptionPage() {
                 Validation de Versement Livreur
               </h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', margin: '0 0 24px' }}>
-                Scannez le QR code présenté sur le smartphone du livreur ou tapez simplement le <strong>code OTP à 6 chiffres</strong> qu'il vous communique.
+                Entrez le numéro du livreur et son <strong>code OTP à 6 chiffres</strong> (ou scannez son QR code) pour identifier et valider son versement sans ambiguïté.
               </p>
 
               {cashError && (
@@ -243,32 +262,65 @@ export default function AgencyReceptionPage() {
                 </div>
               )}
 
-              {/* Formulaire saisie code */}
-              <form onSubmit={handleCheckCashCode} style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="Code OTP (6 chiffres) ou Token QR..."
-                  value={inputCode}
-                  onChange={e => setInputCode(e.target.value)}
-                  style={{
-                    flex: 1, height: '48px', borderRadius: '10px',
-                    border: '2px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
-                    color: 'var(--ag-text-primary)', padding: '0 16px',
-                    fontSize: '1.05rem', fontWeight: '700', textAlign: 'center', letterSpacing: '0.1em'
-                  }}
-                />
+              {/* Formulaire saisie Téléphone + Code OTP */}
+              <form onSubmit={handleCheckCashCode} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', textAlign: 'left' }}>
+                  {/* Champ 1 : Téléphone du livreur */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '700', marginBottom: '6px', color: 'var(--ag-text-secondary)' }}>
+                      <Phone size={14} style={{ color: 'var(--ag-brand)' }} />
+                      <span>Téléphone du livreur</span>
+                    </label>
+                    <input
+                      type="tel"
+                      autoFocus
+                      placeholder="Ex: 0812345678"
+                      value={driverPhone}
+                      onChange={e => setDriverPhone(e.target.value)}
+                      style={{
+                        width: '100%', height: '48px', borderRadius: '10px',
+                        border: '2px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                        color: 'var(--ag-text-primary)', padding: '0 14px',
+                        fontSize: '0.95rem', fontWeight: '600', boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  {/* Champ 2 : Code OTP */}
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '700', marginBottom: '6px', color: 'var(--ag-text-secondary)' }}>
+                      <KeyRound size={14} style={{ color: 'var(--ag-brand)' }} />
+                      <span>Code OTP (6 chiffres) ou QR</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 482910"
+                      value={inputCode}
+                      onChange={e => setInputCode(e.target.value)}
+                      style={{
+                        width: '100%', height: '48px', borderRadius: '10px',
+                        border: '2px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                        color: 'var(--ag-text-primary)', padding: '0 14px',
+                        fontSize: '1.05rem', fontWeight: '800', textAlign: 'center', letterSpacing: '0.1em',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   disabled={cashLoading || !inputCode.trim()}
                   style={{
-                    padding: '0 24px', borderRadius: '10px', border: 'none',
+                    height: '48px', borderRadius: '10px', border: 'none',
                     backgroundColor: 'var(--ag-brand)', color: '#fff',
-                    fontWeight: '800', fontSize: '0.9rem', cursor: 'pointer',
-                    boxShadow: '0 2px 8px var(--ag-brand-glow)'
+                    fontWeight: '800', fontSize: '0.95rem', cursor: 'pointer',
+                    boxShadow: '0 2px 8px var(--ag-brand-glow)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
                   }}
                 >
-                  {cashLoading ? 'Vérification...' : 'Vérifier'}
+                  {cashLoading ? <RefreshCw className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+                  <span>{cashLoading ? 'Vérification en cours...' : 'Vérifier le versement'}</span>
                 </button>
               </form>
 

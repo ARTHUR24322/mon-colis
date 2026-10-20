@@ -17,24 +17,27 @@ import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
  */
 async function resolveDriverIdByPhone(phone: string): Promise<string | null> {
   const cleanPhone = phone.replace(/\s/g, '');
+  const digits = cleanPhone.replace(/\D/g, '');
+  const suffix = digits.length >= 8 ? digits.slice(-8) : digits;
 
   // Essai 1 : table drivers
-  const { data: drv } = await supabase
-    .from('drivers')
-    .select('id')
-    .or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`)
-    .limit(1)
-    .maybeSingle();
-
+  let qDrv = supabase.from('drivers').select('id');
+  if (suffix) {
+    qDrv = qDrv.or(`phone.eq.${cleanPhone},phone.ilike.%${suffix}%`);
+  } else {
+    qDrv = qDrv.eq('phone', cleanPhone);
+  }
+  const { data: drv } = await qDrv.limit(1).maybeSingle();
   if (drv?.id) return drv.id;
 
   // Essai 2 : table profiles (par numéro)
-  const { data: prof } = await supabase
-    .from('profiles')
-    .select('id')
-    .or(`phone.eq.${cleanPhone},phone.ilike.%${cleanPhone}%`)
-    .limit(1)
-    .maybeSingle();
+  let qProf = supabase.from('profiles').select('id');
+  if (suffix) {
+    qProf = qProf.or(`phone.eq.${cleanPhone},phone.ilike.%${suffix}%`);
+  } else {
+    qProf = qProf.eq('phone', cleanPhone);
+  }
+  const { data: prof } = await qProf.limit(1).maybeSingle();
 
   return prof?.id ?? null;
 }
