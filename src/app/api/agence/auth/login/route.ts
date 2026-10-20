@@ -105,63 +105,92 @@ export async function POST(request: NextRequest) {
   }
 
   let email = '';
+  let identifier = '';
   try {
     const body = await request.json();
-    email = (body.email || '').toLowerCase().trim();
+    identifier = (body.identifier || body.email || '').trim();
+    email = identifier.toLowerCase();
     const { password } = body;
 
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email et mot de passe requis.' }, { status: 400 });
+    if (!identifier || !password) {
+      return NextResponse.json({ error: 'Identifiant et mot de passe requis.' }, { status: 400 });
     }
 
-    // 2. Recherche du compte : d'abord agency_members, puis fallback profiles
+    // 2. Recherche du compte selon l'identifiant fourni
+    // - Si format MC-XXX-... → recherche par staff_id (agents/gestionnaires/comptables)
+    // - Sinon → recherche par email (directeur ou legacy)
     let memberData: {
       id: string;
       agency_id: string;
       name: string;
       email: string;
       role: string;
+      staff_id: string | null;
       password_hash: string | null;
       is_active: boolean;
     } | null = null;
 
-    const { data: member } = await supabaseAdmin
-      .from('agency_members')
-      .select('id, agency_id, name, email, role, password_hash, is_active')
-      .ilike('email', email)
-      .maybeSingle();
+    const isStaffId = /^MC-[A-Z]{3}-\d{4,}/i.test(identifier);
 
-    if (member) {
-      if (!member.is_active) {
-        await logSecurityEvent({ action: 'AGENCY_LOGIN_DISABLED', ip, email, success: false, details: 'Membre désactivé' });
-        return NextResponse.json({ error: 'Ce compte utilisateur a été désactivé par le directeur de l’agence.' }, { status: 403 });
-      }
-      memberData = member;
-    } else {
-      // Fallback profil agence direct (legacy ou directeur originel)
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('id, name, email, password_hash, role')
-        .ilike('email', email)
-        .eq('role', 'agence')
+    if (isStaffId) {
+      // Login par identifiant staff
+      const { data: member } = await supabaseAdmin
+        .from('agency_members')
+        .select('id, agency_id, name, email, role, staff_id, password_hash, is_active')
+        .ilike('staff_id', identifier.toUpperCase())
         .maybeSingle();
 
-      if (profile) {
-        memberData = {
-          id: profile.id,
-          agency_id: profile.id,
-          name: profile.name,
-          email: profile.email,
-          role: 'directeur',
-          password_hash: profile.password_hash,
-          is_active: true,
-        };
+      if (member) {
+        if (!member.is_active) {
+          await logSecurityEvent({ action: 'AGENCY_LOGIN_DISABLED', ip, email: identifier, success: false, details: 'Membre désactivé' });
+          return NextResponse.json({ error: 'Ce compte a été désactivé par le directeur de l’agence.' }, { status: 403 });
+        }
+        memberData = member;
+      } else {
+        await logSecurityEvent({ action: 'AGENCY_LOGIN_FAILED', ip, email: identifier, success: false, details: 'Staff ID introuvable' });
+        return NextResponse.json({ error: 'Identifiant ou mot de passe incorrect.' }, { status: 401 });
+      }
+    } else {
+      // Login par email (directeur)
+      const { data: member } = await supabaseAdmin
+        .from('agency_members')
+        .select('id, agency_id, name, email, role, staff_id, password_hash, is_active')
+        .ilike('email', email)
+        .maybeSingle();
+
+      if (member) {
+        if (!member.is_active) {
+          await logSecurityEvent({ action: 'AGENCY_LOGIN_DISABLED', ip, email, success: false, details: 'Membre désactivé' });
+          return NextResponse.json({ error: 'Ce compte utilisateur a été désactivé par le directeur de l’agence.' }, { status: 403 });
+        }
+        memberData = member;
+      } else {
+        // Fallback profil agence direct (directeur originel)
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('id, name, email, password_hash, role')
+          .ilike('email', email)
+          .eq('role', 'agence')
+          .maybeSingle();
+
+        if (profile) {
+          memberData = {
+            id: profile.id,
+            agency_id: profile.id,
+            name: profile.name,
+            email: profile.email,
+            role: 'directeur',
+            staff_id: null,
+            password_hash: profile.password_hash,
+            is_active: true,
+          };
+        }
       }
     }
 
     if (!memberData) {
-      await logSecurityEvent({ action: 'AGENCY_LOGIN_FAILED', ip, email, success: false, details: 'Compte introuvable' });
-      return NextResponse.json({ error: 'Email ou mot de passe incorrect.' }, { status: 401 });
+      await logSecurityEvent({ action: 'AGENCY_LOGIN_FAILED', ip, email: identifier, success: false, details: 'Compte introuvable' });
+      return NextResponse.json({ error: 'Identifiant ou mot de passe incorrect.' }, { status: 401 });
     }
 
     // 3. Vérification du statut de l'agence parente (suspendue = accès refusé)
@@ -189,16 +218,16 @@ export async function POST(request: NextRequest) {
     // 4. Vérification du mot de passe
     const passwordOk = await bcrypt.compare(password, memberData.password_hash || '');
     if (!passwordOk) {
-      await logSecurityEvent({ action: 'AGENCY_LOGIN_FAILED', ip, email, agencyId: agency.id, agencyName: memberData.name, success: false, details: 'Mot de passe incorrect' });
-      return NextResponse.json({ error: 'Email ou mot de passe incorrect.' }, { status: 401 });
+      await logSecurityEvent({ action: 'AGENCY_LOGIN_FAILED', ip, email: identifier, agencyId: agency.id, agencyName: memberData.name, success: false, details: 'Mot de passe incorrect' });
+      return NextResponse.json({ error: 'Identifiant ou mot de passe incorrect.' }, { status: 401 });
     }
 
     // 5. Succès — créer le token de session avec sous-rôle (4h)
     resetRateLimit(ip);
 
     // Mettre à jour last_login_at si agency_members
-    if (member) {
-      supabaseAdmin.from('agency_members').update({ last_login_at: new Date().toISOString() }).eq('id', member.id).then();
+    if (memberData.staff_id !== undefined) {
+      supabaseAdmin.from('agency_members').update({ last_login_at: new Date().toISOString() }).eq('id', memberData.id).then();
     }
 
     const token = await createToken({

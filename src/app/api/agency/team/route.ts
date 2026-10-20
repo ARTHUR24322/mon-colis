@@ -5,6 +5,50 @@ import { hasAgencyPermission, normalizeAgencyRole, AgencyRole } from '@/lib/agen
 import bcrypt from 'bcryptjs';
 
 /**
+ * Génère un identifiant staff unique lié à l'agence.
+ * Format : MC-[3 lettres agence]-[4 chiffres auto-incrément]
+ * Ex: MC-KIN-0042
+ */
+async function generateStaffId(agencyId: string): Promise<string> {
+  // Récupérer le nom de l'agence pour les 3 lettres
+  const { data: agency } = await supabaseAdmin
+    .from('agencies')
+    .select('name')
+    .eq('id', agencyId)
+    .maybeSingle();
+
+  const agencyCode = (agency?.name || 'AGC')
+    .replace(/[^A-Za-z]/g, '')
+    .toUpperCase()
+    .slice(0, 3)
+    .padEnd(3, 'X');
+
+  // Compter les membres existants pour le numéro séquentiel global
+  const { count } = await supabaseAdmin
+    .from('agency_members')
+    .select('id', { count: 'exact', head: true })
+    .not('staff_id', 'is', null);
+
+  const seq = String((count || 0) + 1).padStart(4, '0');
+  const candidate = `MC-${agencyCode}-${seq}`;
+
+  // Vérifier l'unicité et incrémenter si collision
+  const { data: existing } = await supabaseAdmin
+    .from('agency_members')
+    .select('id')
+    .eq('staff_id', candidate)
+    .maybeSingle();
+
+  if (existing) {
+    // Collision rare : ajouter un suffixe aléatoire
+    const rand = Math.floor(Math.random() * 90 + 10);
+    return `MC-${agencyCode}-${seq}${rand}`;
+  }
+
+  return candidate;
+}
+
+/**
  * GET /api/agency/team
  * Liste les membres de l'équipe de l'agence connectée
  */
@@ -17,7 +61,7 @@ export async function GET() {
 
     const { data: members, error } = await supabaseAdmin
       .from('agency_members')
-      .select('id, agency_id, email, phone, name, role, is_active, last_login_at, created_at')
+      .select('id, agency_id, email, phone, name, role, staff_id, is_active, last_login_at, created_at')
       .eq('agency_id', session.agencyId)
       .order('created_at', { ascending: true });
 
@@ -36,6 +80,7 @@ export async function GET() {
           phone: session.phone || '',
           name: session.name || 'Directeur Agence',
           role: 'directeur',
+          staff_id: null,
           is_active: true,
           last_login_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
@@ -97,6 +142,9 @@ export async function POST(req: NextRequest) {
     const initialPassword = password && password.length >= 6 ? password : Math.random().toString(36).slice(-8) + 'A1!';
     const passwordHash = await bcrypt.hash(initialPassword, 10);
 
+    // Générer un staff_id uniquement pour les non-directeurs
+    const staffId = role !== 'directeur' ? await generateStaffId(session.agencyId) : null;
+
     const { data: newMember, error: insertError } = await supabaseAdmin
       .from('agency_members')
       .insert({
@@ -105,11 +153,12 @@ export async function POST(req: NextRequest) {
         phone: phone || null,
         name: name.trim(),
         role,
+        staff_id: staffId,
         password_hash: passwordHash,
         is_active: true,
         invited_by: session.userId,
       })
-      .select('id, agency_id, email, phone, name, role, is_active, created_at')
+      .select('id, agency_id, email, phone, name, role, staff_id, is_active, created_at')
       .single();
 
     if (insertError) {
@@ -120,7 +169,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       member: newMember,
-      initialPassword: password ? undefined : initialPassword, // renvoyé au directeur si auto-généré
+      staffId: newMember?.staff_id || null,
+      initialPassword: password ? undefined : initialPassword,
     });
 
   } catch (err) {

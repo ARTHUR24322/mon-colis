@@ -2,23 +2,31 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Eye, EyeOff, Lock, Mail, AlertCircle, Building2, CheckCircle2 } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, Mail, Hash, AlertCircle, Building2, CheckCircle2, ChevronDown } from 'lucide-react';
 
 /**
  * /agence/login — Formulaire de connexion agence secret.
+ * - Directeur : se connecte avec son EMAIL + mot de passe
+ * - Personnel (agent, gestionnaire, comptable...) : se connecte avec son IDENTIFIANT STAFF (MC-XXX-0001) + mot de passe
  * - noindex (ne pas révéler l'URL dans les résultats de recherche)
  * - Rate-limit côté serveur (5 essais / 15 min par IP)
- * - Pas de lien depuis les pages publiques
  */
 export default function AgenceLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [loginType, setLoginType] = useState<'directeur' | 'personnel'>('directeur');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [attempts, setAttempts] = useState(0);
+
+  // Reset identifiant quand on change de type
+  useEffect(() => {
+    setIdentifier('');
+    setError('');
+  }, [loginType]);
 
   // Compte à rebours de verrouillage
   useEffect(() => {
@@ -32,6 +40,18 @@ export default function AgenceLoginPage() {
     return () => clearInterval(t);
   }, [lockoutSeconds]);
 
+  // Auto-formater le staff_id : ajouter tirets automatiquement
+  const handleIdentifierChange = (val: string) => {
+    if (loginType === 'personnel') {
+      // Capitaliser et nettoyer
+      let v = val.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+      setIdentifier(v);
+    } else {
+      setIdentifier(val);
+    }
+    setError('');
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading || lockoutSeconds > 0) return;
@@ -42,14 +62,13 @@ export default function AgenceLoginPage() {
       const res = await fetch('/api/agence/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
         credentials: 'same-origin',
       });
 
       const data = await res.json();
 
       if (res.status === 429) {
-        // Rate-limited : le serveur indique combien de secondes attendre
         const wait = data.retryAfter || 900;
         setLockoutSeconds(wait);
         setError(`Trop de tentatives. Réessayez dans ${Math.ceil(wait / 60)} min.`);
@@ -61,15 +80,14 @@ export default function AgenceLoginPage() {
         const newAttempts = attempts + 1;
         setAttempts(newAttempts);
         if (newAttempts >= 5) {
-          setError('Compte temporairement verrouillé. Contactez votre administrateur.');
+          setError('Compte temporairement verrouillé. Contactez votre directeur.');
         } else {
-          setError(data.error || 'Email ou mot de passe incorrect.');
+          setError(data.error || 'Identifiant ou mot de passe incorrect.');
         }
         setLoading(false);
         return;
       }
 
-      // Succès — redirection vers le dashboard agence
       setAttempts(0);
       router.push('/agence/dashboard');
     } catch {
@@ -79,6 +97,7 @@ export default function AgenceLoginPage() {
   };
 
   const isLocked = lockoutSeconds > 0;
+  const isPersonnel = loginType === 'personnel';
 
   return (
     <div style={{
@@ -90,13 +109,7 @@ export default function AgenceLoginPage() {
       padding: '2rem 1rem',
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '420px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1.5rem',
-      }}>
+      <div style={{ width: '100%', maxWidth: '440px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
         {/* Header */}
         <div style={{ textAlign: 'center' }}>
@@ -115,6 +128,64 @@ export default function AgenceLoginPage() {
           <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
             Accès réservé aux partenaires agence
           </p>
+        </div>
+
+        {/* Sélecteur de type de connexion */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '14px', padding: '4px', gap: '4px',
+        }}>
+          {(['directeur', 'personnel'] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setLoginType(type)}
+              style={{
+                padding: '0.65rem 0.5rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: loginType === type
+                  ? type === 'directeur'
+                    ? 'linear-gradient(135deg, rgba(245,158,11,0.25), rgba(217,119,6,0.15))'
+                    : 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(79,70,229,0.15))'
+                  : 'transparent',
+                color: loginType === type ? '#fff' : '#475569',
+                fontWeight: loginType === type ? '700' : '500',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                borderWidth: loginType === type ? '1px' : '0',
+                borderStyle: 'solid',
+                borderColor: loginType === type
+                  ? type === 'directeur' ? 'rgba(245,158,11,0.3)' : 'rgba(99,102,241,0.3)'
+                  : 'transparent',
+              }}
+            >
+              {type === 'directeur' ? '👑 Directeur' : '🪪 Personnel'}
+            </button>
+          ))}
+        </div>
+
+        {/* Info contextuelle */}
+        <div style={{
+          padding: '0.65rem 0.9rem',
+          background: isPersonnel ? 'rgba(99,102,241,0.08)' : 'rgba(245,158,11,0.08)',
+          border: `1px solid ${isPersonnel ? 'rgba(99,102,241,0.2)' : 'rgba(245,158,11,0.2)'}`,
+          borderRadius: '10px',
+          fontSize: '0.78rem',
+          color: isPersonnel ? '#a5b4fc' : '#fcd34d',
+          display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
+        }}>
+          {isPersonnel ? <Hash size={14} style={{ flexShrink: 0, marginTop: '1px' }} /> : <Mail size={14} style={{ flexShrink: 0, marginTop: '1px' }} />}
+          <span>
+            {isPersonnel
+              ? 'Utilisez votre identifiant personnel (ex: MC-KIN-0042) communiqué par votre directeur.'
+              : 'Connectez-vous avec l\'adresse e-mail de votre agence.'}
+          </span>
         </div>
 
         {/* Formulaire */}
@@ -151,27 +222,34 @@ export default function AgenceLoginPage() {
           )}
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Email */}
+
+            {/* Identifiant : email ou staff_id */}
             <div>
               <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                Adresse e-mail
+                {isPersonnel ? 'Identifiant personnel' : 'Adresse e-mail'}
               </label>
               <div style={{ position: 'relative' }}>
-                <Mail size={16} color="#475569" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                {isPersonnel
+                  ? <Hash size={16} color="#6366f1" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                  : <Mail size={16} color="#475569" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                }
                 <input
-                  type="email"
+                  type={isPersonnel ? 'text' : 'email'}
                   required
-                  autoComplete="username"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  autoComplete={isPersonnel ? 'username' : 'email'}
+                  value={identifier}
+                  onChange={e => handleIdentifierChange(e.target.value)}
                   disabled={isLocked}
-                  placeholder="agence@exemple.com"
+                  placeholder={isPersonnel ? 'MC-KIN-0042' : 'agence@exemple.com'}
                   style={{
-                    width: '100%', height: '44px', borderRadius: '10px',
+                    width: '100%', height: '48px', borderRadius: '10px',
                     background: isLocked ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    border: `1px solid ${isPersonnel ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.12)'}`,
                     paddingLeft: '2.5rem', paddingRight: '0.85rem',
-                    color: '#fff', fontSize: '0.9rem',
+                    color: '#fff',
+                    fontSize: isPersonnel ? '1rem' : '0.9rem',
+                    fontFamily: isPersonnel ? 'monospace' : 'inherit',
+                    letterSpacing: isPersonnel ? '0.1em' : 'normal',
                     boxSizing: 'border-box',
                     opacity: isLocked ? 0.5 : 1,
                   }}
@@ -195,7 +273,7 @@ export default function AgenceLoginPage() {
                   disabled={isLocked}
                   placeholder="••••••••"
                   style={{
-                    width: '100%', height: '44px', borderRadius: '10px',
+                    width: '100%', height: '48px', borderRadius: '10px',
                     background: isLocked ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(255,255,255,0.12)',
                     paddingLeft: '2.5rem', paddingRight: '2.75rem',
@@ -225,8 +303,10 @@ export default function AgenceLoginPage() {
                 width: '100%', height: '48px', borderRadius: '12px', border: 'none',
                 background: isLocked
                   ? 'rgba(100,116,139,0.3)'
-                  : 'linear-gradient(135deg, #d97706, #f59e0b)',
-                color: isLocked ? '#64748b' : '#000',
+                  : isPersonnel
+                    ? 'linear-gradient(135deg, #4338ca, #6366f1)'
+                    : 'linear-gradient(135deg, #d97706, #f59e0b)',
+                color: isLocked ? '#64748b' : '#fff',
                 fontWeight: '800', fontSize: '0.95rem',
                 cursor: loading || isLocked ? 'not-allowed' : 'pointer',
                 marginTop: '0.25rem',
@@ -237,8 +317,8 @@ export default function AgenceLoginPage() {
               {loading ? (
                 <>
                   <div style={{
-                    width: '16px', height: '16px', border: '2px solid rgba(0,0,0,0.3)',
-                    borderTopColor: '#000', borderRadius: '50%',
+                    width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)',
+                    borderTopColor: '#fff', borderRadius: '50%',
                     animation: 'spin 0.8s linear infinite',
                   }} />
                   Connexion...
@@ -251,7 +331,7 @@ export default function AgenceLoginPage() {
               ) : (
                 <>
                   <Shield size={16} />
-                  Se connecter
+                  {isPersonnel ? 'Accéder au tableau de bord' : 'Se connecter'}
                 </>
               )}
             </button>
@@ -273,7 +353,7 @@ export default function AgenceLoginPage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem', color: '#475569' }}>
               <CheckCircle2 size={12} color="#22c55e" />
-              <span>Session courte — déconnexion automatique</span>
+              <span>Session courte — déconnexion automatique après 4h</span>
             </div>
           </div>
         </div>
@@ -285,7 +365,7 @@ export default function AgenceLoginPage() {
             href="/agence/rejoindre"
             style={{ color: '#f59e0b', fontWeight: '700', textDecoration: 'none' }}
           >
-            Faire une demande d'adhésion
+            Faire une demande d&apos;adhésion
           </a>
         </p>
       </div>

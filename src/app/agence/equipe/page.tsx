@@ -5,7 +5,7 @@ import AgencyShell from '@/components/agency/AgencyShell';
 import { useAuth } from '@/lib/use-auth';
 import {
   Users, UserPlus, Shield, CheckCircle2, XCircle, Key,
-  Mail, Phone, Lock, RefreshCw, AlertCircle, Edit2, ShieldAlert
+  Mail, Phone, Lock, RefreshCw, AlertCircle, Edit2, ShieldAlert, Hash, Copy, Check
 } from 'lucide-react';
 import {
   AGENCY_ROLE_LABELS,
@@ -22,6 +22,7 @@ interface AgencyMember {
   phone: string | null;
   name: string;
   role: AgencyRole;
+  staff_id: string | null;
   is_active: boolean;
   last_login_at: string | null;
   created_at: string;
@@ -46,7 +47,15 @@ export default function AgencyTeamPage() {
   const [formPassword, setFormPassword] = useState('');
   const [formError, setFormError] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
-  const [newCredentialsModal, setNewCredentialsModal] = useState<{ email: string; pass: string } | null>(null);
+  const [newCredentialsModal, setNewCredentialsModal] = useState<{ name: string; email: string; pass: string; staffId?: string | null } | null>(null);
+  const [copiedStaffId, setCopiedStaffId] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedStaffId(text);
+      setTimeout(() => setCopiedStaffId(null), 2000);
+    });
+  };
 
   const fetchMembers = async () => {
     setLoading(true);
@@ -93,8 +102,13 @@ export default function AgencyTeamPage() {
       }
 
       setModalOpen(false);
-      if (data.initialPassword) {
-        setNewCredentialsModal({ email: formEmail, pass: data.initialPassword });
+      if (data.initialPassword || data.staffId) {
+        setNewCredentialsModal({
+          name: formName,
+          email: formEmail,
+          pass: data.initialPassword || '',
+          staffId: data.staffId || null,
+        });
       }
       setFormName('');
       setFormEmail('');
@@ -219,7 +233,7 @@ export default function AgencyTeamPage() {
             <thead>
               <tr>
                 <th>Collaborateur</th>
-                <th>Coordonnées</th>
+                <th>Coordonnées &amp; Identifiant</th>
                 <th>Rôle Attribué</th>
                 <th>Statut</th>
                 <th>Dernière Connexion</th>
@@ -255,15 +269,42 @@ export default function AgencyTeamPage() {
                     </td>
 
                     <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem' }}>
-                          <Mail size={12} style={{ color: 'var(--ag-text-muted)' }} />
-                          {member.email}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {/* Staff ID badge avec copier */}
+                        {member.staff_id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '2px 8px', borderRadius: '6px',
+                              background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                              color: '#818cf8', fontSize: '0.78rem', fontFamily: 'monospace',
+                              fontWeight: '700', letterSpacing: '0.05em',
+                            }}>
+                              <Hash size={11} /> {member.staff_id}
+                            </span>
+                            <button
+                              onClick={() => copyToClipboard(member.staff_id!)}
+                              title="Copier l'identifiant"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                color: copiedStaffId === member.staff_id ? '#4ade80' : 'var(--ag-text-muted)',
+                                padding: '2px', display: 'flex', alignItems: 'center',
+                              }}
+                            >
+                              {copiedStaffId === member.staff_id ? <Check size={12} /> : <Copy size={12} />}
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
+                            Directeur — connexion par email
+                          </span>
+                        )}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
+                          <Mail size={11} /> {member.email}
                         </span>
                         {member.phone && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
-                            <Phone size={11} />
-                            {member.phone}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.73rem', color: 'var(--ag-text-muted)' }}>
+                            <Phone size={11} /> {member.phone}
                           </span>
                         )}
                       </div>
@@ -551,22 +592,58 @@ export default function AgencyTeamPage() {
               <CheckCircle2 size={28} />
             </div>
             <h3 style={{ fontSize: '1.15rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
-              Collaborateur créé avec succès
+              ✅ Compte créé — {newCredentialsModal.name}
             </h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', margin: '0 0 16px' }}>
-              Transmettez ces identifiants de connexion à l'agent :
+              Transmettez ces identifiants de connexion à votre collaborateur. Ils ne seront plus affichés ensuite.
             </p>
+
+            {/* Staff ID — mis en avant */}
+            {newCredentialsModal.staffId && (
+              <div style={{
+                background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)',
+                borderRadius: '12px', padding: '16px', marginBottom: '12px', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '0.72rem', color: '#818cf8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>
+                  🪪 Identifiant de connexion
+                </div>
+                <div style={{
+                  fontFamily: 'monospace', fontWeight: '900', fontSize: '1.4rem',
+                  color: '#a5b4fc', letterSpacing: '0.1em',
+                }}>
+                  {newCredentialsModal.staffId}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#6366f1', marginTop: '4px' }}>
+                  Utilisé à la place de l'email pour se connecter
+                </div>
+              </div>
+            )}
 
             <div style={{
               backgroundColor: 'var(--ag-surface-hover)', border: '1px solid var(--ag-border)',
-              borderRadius: '8px', padding: '12px', textAlign: 'left', marginBottom: '16px'
+              borderRadius: '10px', padding: '14px', textAlign: 'left', marginBottom: '16px',
+              display: 'flex', flexDirection: 'column', gap: '8px',
             }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>E-mail :</div>
-              <div style={{ fontWeight: '700', marginBottom: '8px' }}>{newCredentialsModal.email}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Mot de passe initial :</div>
-              <div style={{ fontFamily: 'monospace', fontWeight: '800', color: 'var(--ag-brand)', fontSize: '1rem' }}>
-                {newCredentialsModal.pass}
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}>📧 E-mail (info seulement)</div>
+                <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{newCredentialsModal.email}</div>
               </div>
+              {newCredentialsModal.pass && (
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}>🔑 Mot de passe initial</div>
+                  <div style={{ fontFamily: 'monospace', fontWeight: '800', color: 'var(--ag-brand)', fontSize: '1.05rem' }}>
+                    {newCredentialsModal.pass}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              fontSize: '0.73rem', color: 'var(--ag-text-muted)',
+              background: 'rgba(245,158,11,0.07)', borderRadius: '8px', padding: '10px',
+              marginBottom: '14px', textAlign: 'left',
+            }}>
+              ⚠️ Le collaborateur doit utiliser son <strong>identifiant</strong> (pas l'email) pour se connecter à la page <strong>/agence/login</strong> en sélectionnant le mode <em>Personnel</em>.
             </div>
 
             <button
