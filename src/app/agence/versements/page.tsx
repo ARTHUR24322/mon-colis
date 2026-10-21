@@ -31,6 +31,27 @@ interface VendorBalance {
   };
 }
 
+interface VendorPaymentHistory {
+  id: string;
+  vendor_id: string;
+  amount: number;
+  currency: string;
+  type: string;
+  status: string;
+  created_at: string;
+  confirmed_by_vendor_at?: string | null;
+  notes?: string | null;
+  vendor?: {
+    name: string;
+    phone: string;
+  };
+  otpInfo?: {
+    id: string;
+    expires_at: string;
+    used: boolean;
+  } | null;
+}
+
 interface CashRequest {
   id: string;
   driver_id: string;
@@ -54,6 +75,7 @@ export default function AgencyVersementsPage() {
 
   const [loading, setLoading] = useState(true);
   const [vendorBalances, setVendorBalances] = useState<VendorBalance[]>([]);
+  const [vendorHistory, setVendorHistory] = useState<VendorPaymentHistory[]>([]);
   const [cashRequests, setCashRequests] = useState<CashRequest[]>([]);
 
   // Onglet sélectionné
@@ -95,10 +117,11 @@ export default function AgencyVersementsPage() {
     setLoading(true);
     try {
       const [resBalances, resRequests] = await Promise.all([
-        fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [] }),
+        fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [], history: [] }),
         fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] })
       ]);
       setVendorBalances(resBalances.balances || []);
+      setVendorHistory(resBalances.history || []);
       setCashRequests(resRequests.requests || []);
     } catch {
       // Silencieux
@@ -215,7 +238,7 @@ export default function AgencyVersementsPage() {
               Caisse & Versements Partenaires
             </h1>
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ag-text-secondary)' }}>
-              Gestion des sessions de caisse en double devise (USD & CDF), réconciliation des écarts et paiements aux vendeurs.
+              Gestion des sessions de caisse en double devise (USD & CDF), suivi des dépôts livreurs et historique des versements vendeurs.
             </p>
           </div>
 
@@ -360,7 +383,7 @@ export default function AgencyVersementsPage() {
               fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
             }}
           >
-            Soldes Vendeurs ({vendorBalances.length})
+            Versements Vendeurs ({vendorBalances.length})
           </button>
           <button
             onClick={() => setActiveTab('drivers')}
@@ -463,122 +486,260 @@ export default function AgencyVersementsPage() {
           </div>
         )}
 
-        {/* CONTENU ONGLET 2 : SOLDES VENDEURS */}
+        {/* CONTENU ONGLET 2 : SOLDES ET HISTORIQUE VERSEMENTS VENDEURS */}
         {activeTab === 'vendors' && (
-          <div style={{
-            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-            borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
-          }}>
-            <table className="agency-table">
-              <thead>
-                <tr>
-                  <th>Vendeur</th>
-                  <th>Téléphone</th>
-                  <th>Colis Livrés</th>
-                  <th>Solde Dû au Vendeur</th>
-                  <th style={{ textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {vendorBalances.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* 1. Tableau des Soldes en attente de versement */}
+            <div style={{
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--ag-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                    Soldes Dus aux Vendeurs (Marchandises Livrées Non Reversées)
+                  </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                    Calculé en direct selon les colis remis avec succès aux clients par vos livreurs.
+                  </p>
+                </div>
+              </div>
+
+              <table className="agency-table">
+                <thead>
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
-                      Aucun solde vendeur enregistré.
-                    </td>
+                    <th>Vendeur</th>
+                    <th>Téléphone</th>
+                    <th>Colis Livrés</th>
+                    <th>Solde Dû au Vendeur</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
-                ) : (
-                  vendorBalances.map(vb => (
-                    <tr key={vb.vendor_id}>
-                      <td style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
-                        {vb.vendor?.name || 'Vendeur Inconnu'}
-                      </td>
-                      <td style={{ color: 'var(--ag-text-secondary)', fontSize: '0.8rem' }}>
-                        {vb.vendor?.phone || '—'}
-                      </td>
-                      <td style={{ fontWeight: '600' }}>
-                        {vb.total_delivered}
-                      </td>
-                      <td>
-                        <span style={{ fontWeight: '900', color: vb.amount_owed_to_vendor > 0 ? 'var(--ag-brand)' : 'var(--ag-text-muted)', fontSize: '0.95rem' }}>
-                          {formatPrice(vb.amount_owed_to_vendor)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {canManageCash && vb.amount_owed_to_vendor > 0 && (
-                          <button
-                            onClick={() => {
-                              setPayVendorModal(vb);
-                              setPayAmount(String(vb.amount_owed_to_vendor));
-                            }}
-                            style={{
-                              padding: '6px 12px', borderRadius: '6px', border: 'none',
-                              backgroundColor: 'var(--ag-success)', color: '#000',
-                              fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer'
-                            }}
-                          >
-                            Payer le vendeur
-                          </button>
-                        )}
+                </thead>
+                <tbody>
+                  {vendorBalances.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                        Aucun solde vendeur en attente.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    vendorBalances.map(vb => (
+                      <tr key={vb.vendor_id}>
+                        <td style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                          {vb.vendor?.name || 'Vendeur Inconnu'}
+                        </td>
+                        <td style={{ color: 'var(--ag-text-secondary)', fontSize: '0.8rem' }}>
+                          {vb.vendor?.phone || '—'}
+                        </td>
+                        <td style={{ fontWeight: '600' }}>
+                          {vb.total_delivered}
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: '900', color: vb.amount_owed_to_vendor > 0 ? 'var(--ag-brand)' : 'var(--ag-text-muted)', fontSize: '0.95rem' }}>
+                            {formatPrice(vb.amount_owed_to_vendor)}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {canManageCash && vb.amount_owed_to_vendor > 0 && (
+                            <button
+                              onClick={() => {
+                                setPayVendorModal(vb);
+                                setPayAmount(String(vb.amount_owed_to_vendor));
+                              }}
+                              style={{
+                                padding: '6px 14px', borderRadius: '6px', border: 'none',
+                                backgroundColor: 'var(--ag-success)', color: '#000',
+                                fontWeight: '800', fontSize: '0.78rem', cursor: 'pointer'
+                              }}
+                            >
+                              Effectuer un versement
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 2. Historique des versements effectués aux vendeurs */}
+            <div style={{
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--ag-border)' }}>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                  Historique des Versements Effectués aux Vendeurs
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                  Journal certifié des virements et paiements espèces validés ou en attente d'OTP.
+                </p>
+              </div>
+
+              <table className="agency-table">
+                <thead>
+                  <tr>
+                    <th>Date & Heure</th>
+                    <th>Vendeur Bénéficiaire</th>
+                    <th>Téléphone</th>
+                    <th>Montant Transféré</th>
+                    <th>Statut Versement</th>
+                    <th>Détails & Référence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendorHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                        Aucun versement vendeur enregistré dans l'historique.
+                      </td>
+                    </tr>
+                  ) : (
+                    vendorHistory.map(vh => {
+                      const isConfirmed = vh.status === 'CONFIRMED' || vh.type === 'VENDOR_PAYMENT_CONFIRMED';
+                      const isPending = vh.status === 'PENDING';
+                      return (
+                        <tr key={vh.id}>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-muted)', whiteSpace: 'nowrap' }}>
+                            {new Date(vh.created_at).toLocaleString('fr-FR')}
+                          </td>
+                          <td style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                            {vh.vendor?.name || 'Vendeur'}
+                          </td>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                            {vh.vendor?.phone || '—'}
+                          </td>
+                          <td style={{ fontWeight: '800', color: 'var(--ag-brand)', fontSize: '0.92rem' }}>
+                            {vh.currency === 'CDF' ? `${vh.amount.toLocaleString('fr-FR')} FC` : formatPrice(vh.amount)}
+                          </td>
+                          <td>
+                            <span className="agency-badge" style={{
+                              backgroundColor: isConfirmed ? 'var(--ag-success-bg)' : isPending ? 'var(--ag-warning-bg)' : 'var(--ag-danger-bg)',
+                              color: isConfirmed ? 'var(--ag-success)' : isPending ? 'var(--ag-warning)' : 'var(--ag-danger)'
+                            }}>
+                              {isConfirmed ? '✅ Confirmé par le vendeur' : isPending ? '⏳ En attente validation OTP' : vh.status}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {vh.notes || `#${vh.id.slice(0, 8)}`}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {/* CONTENU ONGLET 3 : DÉPÔTS LIVREURS */}
         {activeTab === 'drivers' && (
-          <div style={{
-            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-            borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
-          }}>
-            <table className="agency-table">
-              <thead>
-                <tr>
-                  <th>Livreur</th>
-                  <th>Téléphone</th>
-                  <th>Montant Déposé</th>
-                  <th>Statut</th>
-                  <th>Date & Heure</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cashRequests.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Cartes récapitulatives dépôts livreurs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <div style={{ background: 'var(--ag-surface)', border: '1px solid var(--ag-border)', borderRadius: '12px', padding: '14px' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontWeight: '700', textTransform: 'uppercase' }}>
+                  Total Dépôts Enregistrés
+                </span>
+                <div style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--ag-text-primary)', marginTop: '2px' }}>
+                  {cashRequests.length}
+                </div>
+              </div>
+              <div style={{ background: 'var(--ag-surface)', border: '1px solid var(--ag-border)', borderRadius: '12px', padding: '14px' }}>
+                <span style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: '700', textTransform: 'uppercase' }}>
+                  Dépôts Encaissés
+                </span>
+                <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#10b981', marginTop: '2px' }}>
+                  {cashRequests.filter(c => c.status === 'PAID').length}
+                </div>
+              </div>
+              <div style={{ background: 'var(--ag-surface)', border: '1px solid var(--ag-border)', borderRadius: '12px', padding: '14px' }}>
+                <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '700', textTransform: 'uppercase' }}>
+                  En Attente Validation Guichet
+                </span>
+                <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#f59e0b', marginTop: '2px' }}>
+                  {cashRequests.filter(c => c.status === 'PENDING').length}
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--ag-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                    Historique des Dépôts d'Espèces par les Livreurs
+                  </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                    Ensemble des versements de caisse initiés par vos livreurs via QR code ou code OTP guichet.
+                  </p>
+                </div>
+                <a
+                  href="/agence/reception"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                    padding: '6px 14px', borderRadius: '8px', background: 'var(--ag-brand)',
+                    color: '#fff', fontSize: '0.8rem', fontWeight: '700', textDecoration: 'none'
+                  }}
+                >
+                  Ouvrir Guichet Réception
+                </a>
+              </div>
+
+              <table className="agency-table">
+                <thead>
                   <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
-                      Aucun historique de dépôt livreur.
-                    </td>
+                    <th>Date & Heure</th>
+                    <th>Livreur</th>
+                    <th>Téléphone</th>
+                    <th>Montant Déposé</th>
+                    <th>Statut</th>
+                    <th>Code OTP / Note</th>
                   </tr>
-                ) : (
-                  cashRequests.map(cr => (
-                    <tr key={cr.id}>
-                      <td style={{ fontWeight: '700' }}>
-                        {cr.driver?.profile?.name || 'Livreur'}
-                      </td>
-                      <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
-                        {cr.driver?.phone || '—'}
-                      </td>
-                      <td style={{ fontWeight: '800', color: 'var(--ag-brand)' }}>
-                        {formatPrice(cr.amount)}
-                      </td>
-                      <td>
-                        <span className="agency-badge" style={{
-                          backgroundColor: cr.status === 'PAID' ? 'var(--ag-success-bg)' : 'var(--ag-warning-bg)',
-                          color: cr.status === 'PAID' ? 'var(--ag-success)' : 'var(--ag-warning)'
-                        }}>
-                          {cr.status === 'PAID' ? 'Encaissé' : 'En attente'}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>
-                        {new Date(cr.created_at).toLocaleString('fr-FR')}
+                </thead>
+                <tbody>
+                  {cashRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                        Aucun historique de dépôt livreur trouvé.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    cashRequests.map(cr => (
+                      <tr key={cr.id}>
+                        <td style={{ fontSize: '0.78rem', color: 'var(--ag-text-muted)', whiteSpace: 'nowrap' }}>
+                          {new Date(cr.created_at).toLocaleString('fr-FR')}
+                        </td>
+                        <td style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                          {cr.driver?.profile?.name || 'Livreur'}
+                        </td>
+                        <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                          {cr.driver?.phone || '—'}
+                        </td>
+                        <td style={{ fontWeight: '900', color: 'var(--ag-brand)', fontSize: '0.92rem' }}>
+                          {formatPrice(cr.amount)}
+                        </td>
+                        <td>
+                          <span className="agency-badge" style={{
+                            backgroundColor: cr.status === 'PAID' ? 'var(--ag-success-bg)' : cr.status === 'PENDING' ? 'var(--ag-warning-bg)' : 'var(--ag-danger-bg)',
+                            color: cr.status === 'PAID' ? 'var(--ag-success)' : cr.status === 'PENDING' ? 'var(--ag-warning)' : 'var(--ag-danger)'
+                          }}>
+                            {cr.status === 'PAID' ? '✅ Encaissé' : cr.status === 'PENDING' ? '⏳ En attente' : cr.status}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', fontFamily: 'monospace' }}>
+                          {cr.note || '—'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Lock, XCircle, CheckCircle, Package, ArrowLeft, Truck, Phone, MapPin, DollarSign, ShieldCheck } from 'lucide-react';
 import { dataService, ColisItem } from '@/lib/data-service';
+import { useAuth } from '@/lib/use-auth';
 
 /* ---------------------------------------------
    Wrapper Suspense pour useSearchParams
@@ -32,7 +33,13 @@ function TrackingPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = params?.id as string;
-  const role = searchParams.get('role') as 'client' | 'livreur' | null;
+  const roleParam = searchParams.get('role') as 'client' | 'livreur' | null;
+  const { user } = useAuth();
+
+  // Sécurité stricte : si l'utilisateur connecté est un livreur ou que le rôle est livreur,
+  // il bascule obligatoirement en vue livreur sans accès au code OTP client.
+  const isDriver = user?.role === 'livreur' || roleParam === 'livreur';
+  const role = isDriver ? 'livreur' : (roleParam || 'client');
 
   const [loading, setLoading] = useState(true);
   const [colis, setColis] = useState<ColisItem | null>(null);

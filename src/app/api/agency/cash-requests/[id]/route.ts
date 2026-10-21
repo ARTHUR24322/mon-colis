@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
-import { supabase } from '@/utils/supabase/client';
+import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 import { logFinancialAudit } from '@/utils/auditLogger';
 
 export async function PATCH(

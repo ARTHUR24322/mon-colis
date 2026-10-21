@@ -487,33 +487,35 @@ export default function MobilePackageDetailSheet({
             </div>
           )}
 
-          {/* Partage du lien de tracking */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-            <button
-              onClick={handleCopyTracking}
-              style={{
-                height: '46px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.12)',
-                background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.82rem',
-                fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: '0.4rem'
-              }}
-            >
-              {copied ? <Check size={16} color="#4ade80" /> : <Copy size={16} />}
-              {copied ? 'Lien copié !' : 'Copier lien suivi'}
-            </button>
+          {/* Partage du lien de tracking — Réservé EXCLUSIVEMENT au Vendeur */}
+          {role === 'vendeur' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <button
+                onClick={handleCopyTracking}
+                style={{
+                  height: '46px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.82rem',
+                  fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: '0.4rem'
+                }}
+              >
+                {copied ? <Check size={16} color="#4ade80" /> : <Copy size={16} />}
+                {copied ? 'Lien copié !' : 'Copier lien suivi'}
+              </button>
 
-            <button
-              onClick={handleShareWhatsApp}
-              style={{
-                height: '46px', borderRadius: '12px', border: 'none',
-                background: '#25D366', color: '#000', fontSize: '0.82rem',
-                fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: '0.4rem'
-              }}
-            >
-              <Share2 size={16} /> WhatsApp client
-            </button>
-          </div>
+              <button
+                onClick={handleShareWhatsApp}
+                style={{
+                  height: '46px', borderRadius: '12px', border: 'none',
+                  background: '#25D366', color: '#000', fontSize: '0.82rem',
+                  fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: '0.4rem'
+                }}
+              >
+                <Share2 size={16} /> WhatsApp client
+              </button>
+            </div>
+          )}
         </div>
 
         {/* MODAL: Poser une réclamation */}

@@ -6,12 +6,13 @@ import {
   Truck, ShieldCheck, CheckCircle2, Phone, MapPin, ArrowLeft,
   User, Package, LogOut, ChevronRight, AlertTriangle, AlertCircle,
   DollarSign, Clock, CheckCircle, XCircle, QrCode, Building2,
-  RefreshCw, X, Info, Check, ShieldAlert
+  RefreshCw, X, Info, Check, ShieldAlert, Camera
 } from 'lucide-react';
 import { dataService, ColisItem, DriverAccount, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
 import CurrencyToggle from '@/components/CurrencyToggle';
+import QRScanner from '@/components/QRScanner';
 
 // Composants Design System Mobile
 import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottomNav';
@@ -39,6 +40,7 @@ export default function LivreurPage() {
   const [verifiedAgent, setVerifiedAgent] = useState<{ name: string; dropPointName: string; dropPointId: string; agentNumber: string } | null>(null);
   const [verifyingAgent, setVerifyingAgent] = useState(false);
   const [agentVerifyError, setAgentVerifyError] = useState('');
+  const [scanRelaisActive, setScanRelaisActive] = useState(false);
   const [rerouteReason, setRerouteReason] = useState('Route impraticable / inondée');
   const [rerouteLoading, setRerouteLoading] = useState(false);
 
@@ -194,9 +196,10 @@ export default function LivreurPage() {
     }
   };
 
-  // Vérification de l'agent relais par code à 9 chiffres
-  const handleVerifyAgent = async () => {
-    if (agentNumberInput.length !== 9) return;
+  // Vérification de l'agent relais par code à 9 chiffres ou QR code scanné
+  const handleVerifyAgent = async (codeToVerify?: string) => {
+    const target = String(codeToVerify || agentNumberInput).trim();
+    if (!target) return;
     setVerifyingAgent(true);
     setAgentVerifyError('');
     setVerifiedAgent(null);
@@ -204,7 +207,7 @@ export default function LivreurPage() {
       const res = await fetch('/api/drop-points/agents/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentNumber: agentNumberInput }),
+        body: JSON.stringify({ agentNumber: target }),
       });
       const json = await res.json();
       if (res.ok && json.agent) {
@@ -214,8 +217,10 @@ export default function LivreurPage() {
           dropPointId: json.agent.dropPointId,
           agentNumber: json.agent.agentNumber,
         });
+        setAgentNumberInput(json.agent.agentNumber);
+        setScanRelaisActive(false);
       } else {
-        setAgentVerifyError(json.error || 'Numéro agent introuvable.');
+        setAgentVerifyError(json.error || 'Numéro agent ou point relais introuvable.');
       }
     } catch {
       setAgentVerifyError('Erreur réseau. Réessayez.');
@@ -745,11 +750,51 @@ export default function LivreurPage() {
               Route impraticable ou client indisponible : déposez le colis au point relais du secteur. Le client recevra son code OTP pour aller le retirer.
             </p>
 
+            {/* Options de vérification : Scanner QR ou Saisie Manuelle 9 chiffres */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setScanRelaisActive(!scanRelaisActive)}
+                style={{
+                  flex: 1, minHeight: '40px', borderRadius: '10px',
+                  background: scanRelaisActive ? '#2563eb' : 'rgba(59, 130, 246, 0.15)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)', color: '#93c5fd',
+                  fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                }}
+              >
+                <Camera size={16} />
+                <span>{scanRelaisActive ? 'Fermer la caméra scanner' : 'Scanner le QR Code du Point Relais'}</span>
+              </button>
+            </div>
+
+            {scanRelaisActive && (
+              <div style={{
+                background: '#020617', padding: '12px', borderRadius: '14px',
+                border: '1px solid rgba(59,130,246,0.3)', marginBottom: '10px'
+              }}>
+                <p style={{ margin: '0 0 8px', fontSize: '0.78rem', color: '#93c5fd', textAlign: 'center', fontWeight: '700' }}>
+                  Pointez la caméra vers le QR Code affiché par le Point Relais :
+                </p>
+                <QRScanner
+                  onScanSuccess={(decodedText) => {
+                    handleVerifyAgent(decodedText);
+                  }}
+                  onScanFailure={() => {}}
+                />
+              </div>
+            )}
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
-                  Numéro agent point relais (9 chiffres) :
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1' }}>
+                    Numéro du Point Relais (9 chiffres) :
+                  </label>
+                  <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                    Affiché sur le compte relais
+                  </span>
+                </div>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input
                     type="text"
@@ -761,25 +806,29 @@ export default function LivreurPage() {
                     style={{
                       flex: 1, minHeight: '44px', borderRadius: '10px',
                       background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-                      padding: '0 0.85rem', color: '#fff', fontSize: '1rem', letterSpacing: '2px', fontWeight: '800'
+                      padding: '0 0.85rem', color: '#fff', fontSize: '1.05rem', letterSpacing: '2px', fontWeight: '800'
                     }}
                   />
                   <button
                     type="button"
-                    onClick={handleVerifyAgent}
+                    onClick={() => handleVerifyAgent()}
                     disabled={verifyingAgent || agentNumberInput.length !== 9}
                     style={{
-                      minHeight: '44px', padding: '0 1rem', borderRadius: '10px', border: 'none',
-                      background: '#3b82f6', color: '#fff', fontWeight: '800', fontSize: '0.82rem',
-                      cursor: verifyingAgent ? 'not-allowed' : 'pointer'
+                      minHeight: '44px', padding: '0 1.25rem', borderRadius: '10px', border: 'none',
+                      background: agentNumberInput.length === 9 ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      color: agentNumberInput.length === 9 ? '#000' : '#64748b', fontWeight: '800', fontSize: '0.82rem',
+                      cursor: verifyingAgent || agentNumberInput.length !== 9 ? 'not-allowed' : 'pointer'
                     }}
                   >
                     {verifyingAgent ? '...' : 'Vérifier'}
                   </button>
                 </div>
+                <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: '#94a3b8' }}>
+                  💡 Demandez au gestionnaire du point relais de vous lire son numéro à 9 chiffres s'il vous est impossible de scanner.
+                </p>
                 {agentVerifyError && (
-                  <div style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '0.3rem' }}>
-                    {agentVerifyError}
+                  <div style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '0.35rem', fontWeight: '600' }}>
+                    ⚠️ {agentVerifyError}
                   </div>
                 )}
               </div>

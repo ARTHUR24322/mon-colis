@@ -423,10 +423,36 @@ export default function PointRelaisPage() {
             }}>
               {agent?.dropPointName || 'Point Relais'}
             </h1>
-            <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
               <span>{agent?.dropPointCommune}</span>
               <span>•</span>
-              <span style={{ color: '#60a5fa', fontWeight: '700' }}>Agent #{agent?.agentNumber}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (agent?.agentNumber) {
+                    navigator.clipboard.writeText(agent.agentNumber);
+                    triggerToast(`Numéro relais #${agent.agentNumber} copié !`, 'success');
+                  }
+                }}
+                title="Cliquer pour copier le code du point relais"
+                style={{
+                  background: 'rgba(59, 130, 246, 0.2)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  color: '#93c5fd',
+                  borderRadius: '6px',
+                  padding: '2px 8px',
+                  fontWeight: '800',
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <span>N° Relais : {agent?.agentNumber || '000000'}</span>
+                <Copy size={11} />
+              </button>
             </div>
           </div>
         </div>
@@ -1412,15 +1438,52 @@ export default function PointRelaisPage() {
             </div>
 
             <div style={{
-              background: '#fff', borderRadius: '16px', padding: '20px',
+              background: '#fff', borderRadius: '16px', padding: '16px',
               display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto'
             }}>
-              {/* Image QR Code dynamique générée via API publique ou SVG */}
+              {/* Image QR Code dynamique encodant directement le numéro agent à 9 chiffres */}
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(agent?.dropPointId || 'dp-1')}`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(agent?.agentNumber || agent?.dropPointId || 'dp-1')}`}
                 alt="QR Code Point Relais"
                 style={{ width: '180px', height: '180px', display: 'block' }}
               />
+            </div>
+
+            {/* BLOC MIS EN ÉVIDENCE : NUMÉRO DU POINT RELAIS (9 CHIFFRES) */}
+            <div style={{
+              background: 'rgba(59, 130, 246, 0.12)',
+              border: '2px solid rgba(59, 130, 246, 0.4)',
+              borderRadius: '16px', padding: '14px',
+              display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center'
+            }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Numéro du Point Relais (9 chiffres) :
+              </span>
+              <div style={{
+                fontSize: '1.9rem', fontWeight: '900', letterSpacing: '4px',
+                color: '#fff', fontFamily: 'monospace'
+              }}>
+                {agent?.agentNumber || '000000000'}
+              </div>
+              <p style={{ margin: 0, fontSize: '0.75rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                Communiquez ce numéro à 9 chiffres au livreur s'il ne parvient pas à scanner le QR code.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (agent?.agentNumber) {
+                    navigator.clipboard.writeText(agent.agentNumber);
+                    triggerToast(`Numéro relais #${agent.agentNumber} copié !`, 'success');
+                  }
+                }}
+                style={{
+                  padding: '7px 16px', borderRadius: '8px', border: 'none',
+                  background: '#2563eb', color: '#fff', fontWeight: '800', fontSize: '0.8rem',
+                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px'
+                }}
+              >
+                <Copy size={13} /> Copier le numéro (9 chiffres)
+              </button>
             </div>
 
             <div>
@@ -1428,7 +1491,7 @@ export default function PointRelaisPage() {
                 {agent?.dropPointName}
               </h4>
               <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
-                Présentez ce QR Code aux vendeurs déposants pour scanner à leur arrivée au relais.
+                Présentez ce QR Code ou votre numéro à 9 chiffres aux livreurs et clients.
               </p>
             </div>
 
