@@ -72,6 +72,46 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
   const [commandOpen, setCommandOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Notifications temps réel agence
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; message: string; read: boolean; created_at: string }>>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const fetchAgencyNotifications = async () => {
+    try {
+      const res = await fetch('/api/notifications');
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch {
+      // silencieux
+    }
+  };
+
+  const markAllAgencyNotifsAsRead = async () => {
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
+    } catch {
+      // silencieux
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchAgencyNotifications();
+      const interval = setInterval(fetchAgencyNotifications, 25000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
   // Clock in Kinshasa timezone (UTC+1)
   const [timeStr, setTimeStr] = useState('');
 
@@ -538,6 +578,105 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
               <span className="animate-ag-pulse" style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--ag-success)' }} />
               <Clock size={13} style={{ color: 'var(--ag-text-muted)' }} />
               <span>{timeStr || 'Kinshasa'}</span>
+            </div>
+
+            {/* Cloche Notifications Agence */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setNotifOpen(v => !v)}
+                title="Notifications de l'agence"
+                style={{
+                  position: 'relative',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-surface)',
+                  color: 'var(--ag-text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Bell size={16} />
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: '-4px', right: '-4px',
+                    backgroundColor: '#ef4444', color: '#fff', borderRadius: '10px',
+                    fontSize: '0.62rem', fontWeight: '800', padding: '1px 5px',
+                    border: '2px solid var(--ag-topbar-bg)'
+                  }}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Dropdown des Notifications */}
+              {notifOpen && (
+                <div style={{
+                  position: 'absolute', right: 0, top: '46px', width: '360px',
+                  maxHeight: '440px', backgroundColor: 'var(--ag-surface)',
+                  border: '1px solid var(--ag-border)', borderRadius: '16px',
+                  boxShadow: '0 12px 36px rgba(0,0,0,0.25)', zIndex: 100,
+                  display: 'flex', flexDirection: 'column', overflow: 'hidden'
+                }}>
+                  <div style={{
+                    padding: '12px 16px', borderBottom: '1px solid var(--ag-border)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Bell size={16} style={{ color: 'var(--ag-brand)' }} />
+                      <span style={{ fontWeight: '800', fontSize: '0.9rem', color: 'var(--ag-text-primary)' }}>
+                        Notifications ({notifications.length})
+                      </span>
+                    </div>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={markAllAgencyNotifsAsRead}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--ag-brand)',
+                          fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer', padding: 0
+                        }}
+                      >
+                        Tout marquer lu
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ padding: '8px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '360px' }}>
+                    {notifications.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--ag-text-muted)' }}>
+                        <p style={{ margin: 0, fontSize: '0.8rem' }}>Aucune notification récente.</p>
+                      </div>
+                    ) : (
+                      notifications.map(n => (
+                        <div
+                          key={n.id}
+                          style={{
+                            padding: '10px 12px', borderRadius: '10px',
+                            backgroundColor: n.read ? 'transparent' : 'var(--ag-surface-hover)',
+                            border: n.read ? '1px solid transparent' : '1px solid var(--ag-border)',
+                            display: 'flex', flexDirection: 'column', gap: '3px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.82rem', fontWeight: '800', color: n.read ? 'var(--ag-text-secondary)' : 'var(--ag-text-primary)' }}>
+                              {n.title}
+                            </span>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--ag-text-muted)' }}>
+                              {new Date(n.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--ag-text-muted)', lineHeight: 1.4 }}>
+                            {n.message}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Switch Mode Sombre / Clair */}

@@ -111,20 +111,72 @@ export default function LivreurPage() {
   const [qrData, setQrData] = useState<{ requestId: string; qrToken: string; amount: number; expiresAt: string; otpCode?: string } | null>(null);
   const [qrConfirmed, setQrConfirmed] = useState(false);
 
+  // Notifications
+  const [notifications, setNotifications] = useState<LivreurNotification[]>([]);
+  const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const previousCoursesCountRef = useRef<number | null>(null);
+
   // Toast alert
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const loadCourses = async (d?: DriverAccount | null) => {
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('/api/notifications');
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.notifications || []);
+        setUnreadNotifsCount(data.unreadCount || 0);
+      }
+    } catch {
+      // silencieux
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadNotifsCount(0);
+    } catch {
+      // silencieux
+    }
+  };
+
+  const loadCourses = async (d?: DriverAccount | null, isRealtimeTrigger = false) => {
     const drv = d || driver;
     if (!drv) return;
     setCoursesLoading(true);
     try {
       const all = await dataService.getPackagesForDriver(drv.id);
+      
+      const activeNow = all.filter(c => 
+        c.status === 'En transit' || 
+        c.status === 'Déposé en point relais' || 
+        c.status === 'En attente de collecte'
+      ).length;
+
+      // Détection en temps réel d'une nouvelle course assignée
+      if (isRealtimeTrigger && previousCoursesCountRef.current !== null) {
+        if (activeNow > previousCoursesCountRef.current) {
+          playNotificationChime();
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            try { navigator.vibrate([250, 100, 250]); } catch {}
+          }
+          showToast('🔔 Nouvelle course assignée par votre agence !');
+        }
+      }
+
+      previousCoursesCountRef.current = activeNow;
       setCourses(all);
     } catch {
       showToast('Erreur chargement des courses');
@@ -151,6 +203,7 @@ export default function LivreurPage() {
       };
       setDriver(d);
       loadCourses(d);
+      fetchNotifications();
     }
   }, [user, sessionChecked]);
 
@@ -159,7 +212,8 @@ export default function LivreurPage() {
     let unsubscribe: () => void;
     if (driver) {
       unsubscribe = dataService.subscribeToPackages(() => {
-        loadCourses(driver);
+        loadCourses(driver, true);
+        fetchNotifications();
       });
     }
     return () => {
@@ -383,7 +437,32 @@ export default function LivreurPage() {
                 Bonjour, {driver?.name || 'Livreur'}
               </h1>
             </div>
-            <CurrencyToggle />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => setShowNotifModal(true)}
+                title="Notifications"
+                style={{
+                  position: 'relative',
+                  width: '38px', height: '38px', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <Bell size={18} />
+                {unreadNotifsCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: '-4px', right: '-4px',
+                    background: '#ef4444', color: '#fff', borderRadius: '10px',
+                    fontSize: '0.62rem', fontWeight: '900', padding: '1px 5px',
+                    border: '2px solid #0f172a'
+                  }}>
+                    {unreadNotifsCount > 9 ? '9+' : unreadNotifsCount}
+                  </span>
+                )}
+              </button>
+              <CurrencyToggle />
+            </div>
           </div>
 
           {/* Résumé rapide (Courses & Caisse) */}
@@ -949,6 +1028,91 @@ export default function LivreurPage() {
               >
                 {rerouteLoading ? 'Dépôt en cours...' : 'Confirmer le dépôt au relais'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ══════════════ MODALE / TIROIR NOTIFICATIONS LIVREUR ══════════════ */}
+      {showNotifModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9998,
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center'
+        }}>
+          <div style={{
+            width: '100%', maxWidth: '430px', maxHeight: '80vh',
+            background: '#0f172a', borderTop: '2px solid rgba(255,255,255,0.15)',
+            borderRadius: '24px 24px 0 0', display: 'flex', flexDirection: 'column',
+            overflow: 'hidden', animation: 'slideUp 0.25s ease-out'
+          }}>
+            {/* Header modal */}
+            <div style={{
+              padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Bell size={20} color="#38bdf8" />
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#fff' }}>
+                  Notifications ({notifications.length})
+                </h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {unreadNotifsCount > 0 && (
+                  <button
+                    onClick={markAllNotificationsAsRead}
+                    style={{
+                      background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.3)',
+                      color: '#38bdf8', fontSize: '0.72rem', fontWeight: '700',
+                      padding: '4px 8px', borderRadius: '8px', cursor: 'pointer'
+                    }}
+                  >
+                    Tout marquer lu
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowNotifModal(false)}
+                  style={{
+                    background: 'none', border: 'none', color: '#94a3b8',
+                    cursor: 'pointer', padding: '4px'
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Liste notifications */}
+            <div style={{ padding: '1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {notifications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#64748b' }}>
+                  <Bell size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.4 }} />
+                  <p style={{ margin: 0, fontSize: '0.85rem' }}>Aucune notification pour le moment.</p>
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    style={{
+                      padding: '0.85rem 1rem', borderRadius: '14px',
+                      background: n.read ? 'rgba(255,255,255,0.02)' : 'rgba(56,189,248,0.08)',
+                      border: n.read ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(56,189,248,0.25)',
+                      display: 'flex', flexDirection: 'column', gap: '0.25rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '800', color: n.read ? '#cbd5e1' : '#38bdf8' }}>
+                        {n.title}
+                      </span>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                        {new Date((n as any).created_at || (n as any).timestamp || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                      {n.message}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
