@@ -155,22 +155,13 @@ export async function POST(request: NextRequest) {
         });
       } else {
         // Authenticate as superadmin
-        let activeHash = adminHash;
-        if (!activeHash || activeHash.includes('pbu8vf3fKQgmYfQZq2cq4.Jqppm6iCoqlB2GDFqZ98yr6l3gCRSn2') || activeHash.includes('rmKQHb3GaRgNqJK6zVxXUugbxP7aJN8vl9vPKD.7gfIugS4cstDHe')) {
-          // Fallback to "ArthurAdmin243@@"
-          activeHash = '$2b$12$Vrov3ggnRk555OeBm/jEYOqjsGfnmI58vjmY98K.CtOL1.D3T.L3m';
-        }
+        const activeHash = adminHash || process.env.ADMIN_PASSWORD_HASH;
 
         if (!activeHash) {
           return NextResponse.json({ error: 'Configuration admin manquante (ADMIN_PASSWORD_HASH).' }, { status: 500 });
         }
 
-        let passwordValid = false;
-        if (password === 'ArthurAdmin243@@') {
-          passwordValid = true;
-        } else {
-          passwordValid = await bcrypt.compare(password, activeHash);
-        }
+        const passwordValid = await bcrypt.compare(password, activeHash);
 
         if (!passwordValid) {
           await logLoginAttempt(request, email, role, 'failed', 'Mot de passe incorrect.');

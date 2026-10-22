@@ -33,28 +33,20 @@ export async function POST(request: NextRequest) {
       targetRole = subAdmin.role;
       targetEmail = subAdmin.email || targetEmail;
     } else {
-      let activeHash = adminHash;
-      if (!activeHash || activeHash.includes('pbu8vf3fKQgmYfQZq2cq4.Jqppm6iCoqlB2GDFqZ98yr6l3gCRSn2') || activeHash.includes('rmKQHb3GaRgNqJK6zVxXUugbxP7aJN8vl9vPKD.7gfIugS4cstDHe') || activeHash === '$2b$12$MsriZPYu2GI.51v0hRByAehMp39cEL/BP/j4frl62ak8sxGO9ORBG' || activeHash === '$2b$12$ieM5cl..Ps7IOUyAZoW6weR4VPXrN5imoO1U5gpo4dEu2DdUauEz2') {
-        activeHash = '$2b$12$8KXe9PDXlYEqlvreSD.NbePXwsae8VYZsvxmYG6yJ/tzSCBUDzR/2';
+      const activeHash = adminHash || process.env.ADMIN_PASSWORD_HASH;
+      if (!activeHash) {
+        return NextResponse.json({ success: false, error: 'Configuration admin manquante (ADMIN_PASSWORD_HASH).' }, { status: 500 });
       }
 
-      if (activeHash) {
-        const bcrypt = require('bcryptjs');
-        const isValid = await bcrypt.compare(password, activeHash);
-        if (!isValid) {
-          if (password !== 'ArthurAdmin243@@') {
-            return NextResponse.json({ success: false, error: 'Identifiants incorrects' }, { status: 401 });
-          }
-        }
-      } else {
-        if (password !== 'ArthurAdmin243@@') {
-          return NextResponse.json({ success: false, error: 'Identifiants incorrects' }, { status: 401 });
-        }
+      const bcrypt = require('bcryptjs');
+      const isValid = await bcrypt.compare(password, activeHash);
+      if (!isValid) {
+        return NextResponse.json({ success: false, error: 'Identifiants incorrects' }, { status: 401 });
       }
     }
 
-    // Generate 6 digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate 6 digit cryptographically secure OTP
+    const otp = crypto.randomInt(100000, 1000000).toString();
     
     // Hash the OTP and store in cookie for verification
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
@@ -144,11 +136,19 @@ export async function POST(request: NextRequest) {
       
       return createSuccessResponse();
     } else {
-      // Fallback if no API key is provided: show in server console AND return to client
-      console.log('=============================================');
-      console.log(`Aucune configuration Email. Code OTP généré pour ${targetEmail} :`, otp);
-      console.log('=============================================');
-      return createSuccessResponse({ otp });
+      // Aucun service d'envoi configuré
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('=============================================');
+        console.log(`[DEV MODE] Code OTP généré pour ${targetEmail} :`, otp);
+        console.log('=============================================');
+        return createSuccessResponse();
+      }
+
+      console.error('Aucun service email configuré (GMAIL ou RESEND_API_KEY manquant).');
+      return NextResponse.json({ 
+        success: false, 
+        error: "Le service d'envoi du code OTP n'est pas configuré. Veuillez contacter l'administrateur système." 
+      }, { status: 503 });
     }
   } catch (error) {
     console.error(error);

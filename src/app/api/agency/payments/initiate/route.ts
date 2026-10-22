@@ -5,6 +5,7 @@
  * Body: { vendorId, amount, notes? }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 import bcrypt from 'bcryptjs';
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
       .eq('used', false);
 
     // Générer le code OTP à 6 chiffres
-    const otpPlain = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpPlain = crypto.randomInt(100000, 1000000).toString();
     const otpHash = await bcrypt.hash(otpPlain, 10);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
 

@@ -8,6 +8,7 @@
  * Retourne la demande QR PENDING active du livreur (si existante).
  */
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     // Créer une nouvelle demande avec token QR et code OTP à 6 chiffres
     const qrToken = generateQrToken();
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // expire dans 30 min
 
     const { data: cashRequest, error: insertErr } = await supabase

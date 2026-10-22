@@ -188,13 +188,29 @@ export interface VendorDeposit {
 // key = pickupCode
 const vendorDepositCache = new Map<string, VendorDeposit>();
 
+/** Génère un entier aléatoire cryptographiquement sécurisé dans l'intervalle [min, max[ */
+function secureRandomInt(min: number, max: number): number {
+  if (typeof crypto !== 'undefined') {
+    if (typeof (crypto as any).randomInt === 'function') {
+      return (crypto as any).randomInt(min, max);
+    }
+    if (typeof crypto.getRandomValues === 'function') {
+      const range = max - min;
+      const arr = new Uint32Array(1);
+      crypto.getRandomValues(arr);
+      return min + (arr[0] % range);
+    }
+  }
+  return Math.floor(min + Math.random() * (max - min));
+}
+
 /** Generate a pickup code: 3 uppercase letters + 3 digits */
 function generatePickupCode(): string {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O to avoid confusion
   const digits  = '0123456789';
   let code = '';
-  for (let i = 0; i < 3; i++) code += letters[Math.floor(Math.random() * letters.length)];
-  for (let i = 0; i < 3; i++) code += digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 0; i < 3; i++) code += letters[secureRandomInt(0, letters.length)];
+  for (let i = 0; i < 3; i++) code += digits[secureRandomInt(0, digits.length)];
   // Ensure uniqueness
   if (vendorDepositCache.has(code)) return generatePickupCode();
   return code;
@@ -468,8 +484,8 @@ class DataService {
     originDropPointId?: string;
     agencyId?: string;
   }): Promise<ColisItem> {
-    const trackCode = 'MC-' + Math.floor(100000 + Math.random() * 900000).toString();
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const trackCode = 'MC-' + secureRandomInt(100000, 1000000).toString();
+    const otp = secureRandomInt(100000, 1000000).toString();
 
     // Use the provided vendeurId, or fall back to the first vendeur found
     let vendeurId = p.vendeurId;
@@ -1217,11 +1233,11 @@ class DataService {
     // Generate unique 9-digit agent number
     let agentNumber: string;
     do {
-      agentNumber = String(Math.floor(100_000_000 + Math.random() * 900_000_000));
+      agentNumber = String(secureRandomInt(100_000_000, 1_000_000_000));
     } while (dropPointAgentCache.has(agentNumber));
 
     // Generate 6-digit PIN
-    const plainPin = String(Math.floor(100_000 + Math.random() * 900_000));
+    const plainPin = String(secureRandomInt(100_000, 1_000_000));
 
     // Hash the PIN using bcrypt (jamais en clair)
     const bcrypt = await import('bcryptjs');
@@ -1777,8 +1793,8 @@ class DataService {
     const dp = this.getDropPointById(data.dropPointId);
     if (!dp) throw new Error('Point relais introuvable.');
 
-    const trackCode = 'MC-' + Math.floor(100000 + Math.random() * 900000).toString();
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const trackCode = 'MC-' + secureRandomInt(100000, 1000000).toString();
+    const otp = secureRandomInt(100000, 1000000).toString();
     const pickupCode = generatePickupCode();
 
     // On crée directement dans la table packages Supabase
