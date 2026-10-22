@@ -177,8 +177,92 @@ export default function HomeEntryPage() {
         )}
       </div>
 
-      {/* ─── 3. CENTRE : BOUTON SE CONNECTER ─── */}
-      <div style={{ margin: '0.5rem 0' }}>
+      {/* ─── 3. CENTRE : LOGO OFFICIEL & PRÉSENTATION ─── */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        padding: '0.75rem 0',
+      }}>
+        {/* Conteneur Logo avec Glow */}
+        <div style={{
+          position: 'relative',
+          width: '120px',
+          height: '120px',
+          marginBottom: '0.85rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          {/* Halo émeraude */}
+          <div style={{
+            position: 'absolute',
+            inset: '-12px',
+            background: 'radial-gradient(circle, rgba(34, 197, 94, 0.45) 0%, rgba(34, 197, 94, 0.1) 60%, transparent 80%)',
+            borderRadius: '50%',
+            filter: 'blur(14px)',
+            pointerEvents: 'none',
+          }} />
+
+          {/* Logo officiel Moncolis */}
+          <img
+            src="/icon.svg"
+            alt="Moncolis Logo"
+            width={112}
+            height={112}
+            style={{
+              width: '112px',
+              height: '112px',
+              borderRadius: '26px',
+              boxShadow: '0 10px 28px rgba(0, 0, 0, 0.6), 0 0 25px rgba(34, 197, 94, 0.3)',
+              position: 'relative',
+              zIndex: 1,
+            }}
+          />
+        </div>
+
+        <h2 style={{
+          fontSize: '1.4rem',
+          fontWeight: '900',
+          color: '#ffffff',
+          letterSpacing: '-0.02em',
+          margin: '0 0 0.25rem',
+        }}>
+          Moncolis Kinshasa
+        </h2>
+
+        <p style={{
+          fontSize: '0.82rem',
+          color: '#94a3b8',
+          margin: '0 0 0.75rem',
+          maxWidth: '280px',
+          lineHeight: 1.4,
+        }}>
+          La solution logistique des vendeurs, agences et livreurs en RDC.
+        </p>
+
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+          padding: '0.3rem 0.75rem',
+          borderRadius: '999px',
+          background: 'rgba(34, 197, 94, 0.1)',
+          border: '1px solid rgba(34, 197, 94, 0.3)',
+          fontSize: '0.72rem',
+          fontWeight: '700',
+          color: '#4ade80',
+        }}>
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e' }} />
+          Livraison & Points Relais 7j/7
+        </div>
+      </div>
+
+      {/* ─── 4. BOUTON SE CONNECTER ─── */}
+      <div style={{ margin: '0.4rem 0 0.6rem' }}>
         <button
           onClick={handleLogin}
           style={{
