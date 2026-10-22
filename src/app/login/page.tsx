@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Store,
-  Truck,
   ArrowLeft,
   ShieldCheck,
   Lock,
@@ -19,29 +18,14 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-// --- Tooltips d'aide par espace ---
-const HELP: Record<'vendeur' | 'agence', { title: string; lines: string[] }> = {
-  vendeur: {
-    title: 'Espace Vendeur',
-    lines: [
-      'Connectez-vous avec votre numero de telephone enregistre lors de la creation de votre compte.',
-      'Vous pouvez aussi utiliser votre adresse email en cliquant sur "Utiliser mon email".',
-      'Mot de passe oublie ? Contactez le support Moncolis.',
-    ],
-  },
-  agence: {
-    title: 'Espace Agence',
-    lines: [
-      "Connectez-vous avec l'email et le mot de passe de votre compte agence.",
-      "Votre acces a ete cree lors de l'enregistrement de votre agence partenaire.",
-      "Pour le personnel (livreurs, agents), utilisez l'Espace Agence dedie.",
-    ],
-  },
-};
+const HELP_LINES = [
+  'Connectez-vous avec votre numero de telephone enregistre lors de la creation de votre compte.',
+  'Vous pouvez aussi utiliser votre adresse email en cliquant sur "Utiliser mon email".',
+  'Mot de passe oublie ? Contactez le support Moncolis.',
+];
 
 export default function GlobalLoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'vendeur' | 'agence'>('vendeur');
   const [useEmail, setUseEmail] = useState(false);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -50,23 +34,14 @@ export default function GlobalLoginPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [showHelp, setShowHelp] = useState(false);
 
-  const isVendeur = role === 'vendeur';
-  const usePhone = isVendeur && !useEmail;
-
-  const handleRoleSwitch = (r: 'vendeur' | 'agence') => {
-    setRole(r);
-    setIdentifier('');
-    setErrorMsg('');
-    setShowHelp(false);
-    if (r === 'agence') setUseEmail(false);
-  };
+  const usePhone = !useEmail;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
-    const body: Record<string, string> = { role, password };
+    const body: Record<string, string> = { role: 'vendeur', password };
     if (usePhone) {
       body.phone = identifier.trim();
     } else {
@@ -89,20 +64,13 @@ export default function GlobalLoginPage() {
         return;
       }
 
-      try { localStorage.setItem('moncolis_last_role', role); } catch {}
-
-      router.push(role === 'vendeur' ? '/dashboard/vendeur' : '/dashboard/agence');
+      try { localStorage.setItem('moncolis_last_role', 'vendeur'); } catch {}
+      router.push('/dashboard/vendeur');
     } catch {
       setErrorMsg('Impossible de joindre le serveur. Verifiez votre connexion.');
       setLoading(false);
     }
   };
-
-  const help = HELP[role];
-
-  const accent = isVendeur
-    ? { main: '#22c55e', dark: '#16a34a', glow: 'rgba(34,197,94,0.4)', border: 'rgba(34,197,94,0.35)', text: '#4ade80', faint: 'rgba(34,197,94,0.15)' }
-    : { main: '#2563eb', dark: '#1d4ed8', glow: 'rgba(37,99,235,0.4)', border: 'rgba(59,130,246,0.35)', text: '#60a5fa', faint: 'rgba(59,130,246,0.15)' };
 
   return (
     <div style={{
@@ -117,6 +85,7 @@ export default function GlobalLoginPage() {
     }}>
       <div style={{ maxWidth: '420px', width: '100%', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
+        {/* Back */}
         <Link href="/" style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.45rem',
           fontSize: '0.85rem', color: '#64748b', textDecoration: 'none',
@@ -126,6 +95,7 @@ export default function GlobalLoginPage() {
           Retour a l&apos;accueil
         </Link>
 
+        {/* Card */}
         <div style={{
           background: 'rgba(255,255,255,0.03)',
           border: '1px solid rgba(255,255,255,0.09)',
@@ -136,58 +106,22 @@ export default function GlobalLoginPage() {
         }}>
 
           {/* Brand */}
-          <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
             <div style={{
               width: '52px', height: '52px', borderRadius: '14px',
-              background: `linear-gradient(135deg, ${accent.main}, ${accent.dark})`,
+              background: 'linear-gradient(135deg, #22c55e, #16a34a)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: '#fff', margin: '0 auto 0.9rem',
-              boxShadow: `0 8px 20px ${accent.glow}`,
-              transition: 'all 0.3s ease',
+              boxShadow: '0 8px 20px rgba(34,197,94,0.4)',
             }}>
-              {isVendeur ? <Store size={26} /> : <Truck size={26} />}
+              <Store size={26} />
             </div>
             <h1 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fff', margin: '0 0 0.3rem', letterSpacing: '-0.02em' }}>
-              Espace {isVendeur ? 'Vendeur' : 'Agence'}
+              Espace Vendeur
             </h1>
             <p style={{ color: '#64748b', fontSize: '0.83rem', margin: 0 }}>
               Accedez a votre tableau de bord
             </p>
-          </div>
-
-          {/* Role tabs */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr',
-            gap: '0.4rem', background: 'rgba(255,255,255,0.04)',
-            padding: '0.3rem', borderRadius: '14px', marginBottom: '1.25rem',
-            border: '1px solid rgba(255,255,255,0.07)',
-          }}>
-            {(['vendeur', 'agence'] as const).map((r) => {
-              const ac = r === 'vendeur'
-                ? { faint: 'rgba(34,197,94,0.18)', border: 'rgba(34,197,94,0.35)', text: '#4ade80' }
-                : { faint: 'rgba(59,130,246,0.18)', border: 'rgba(59,130,246,0.35)', text: '#60a5fa' };
-              const active = role === r;
-              return (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => handleRoleSwitch(r)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '0.45rem', minHeight: '44px', padding: '0.5rem',
-                    borderRadius: '10px',
-                    border: active ? `1px solid ${ac.border}` : '1px solid transparent',
-                    cursor: 'pointer', fontSize: '0.88rem', fontWeight: active ? '700' : '500',
-                    background: active ? ac.faint : 'transparent',
-                    color: active ? ac.text : '#64748b',
-                    transition: 'all 0.2s ease', fontFamily: 'inherit',
-                  }}
-                >
-                  {r === 'vendeur' ? <Store size={15} /> : <Truck size={15} />}
-                  {r === 'vendeur' ? 'Vendeur' : 'Agence'}
-                </button>
-              );
-            })}
           </div>
 
           {/* Error */}
@@ -212,23 +146,21 @@ export default function GlobalLoginPage() {
                   {usePhone ? 'Numero de telephone' : 'Adresse email'}
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                  {isVendeur && (
-                    <button
-                      type="button"
-                      onClick={() => { setUseEmail(!useEmail); setIdentifier(''); setErrorMsg(''); }}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: '0.72rem', color: accent.text, fontWeight: '600',
-                        padding: 0, fontFamily: 'inherit',
-                      }}
-                    >
-                      {useEmail ? 'Utiliser mon numero' : 'Utiliser mon email'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setUseEmail(!useEmail); setIdentifier(''); setErrorMsg(''); }}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: '0.72rem', color: '#4ade80', fontWeight: '600',
+                      padding: 0, fontFamily: 'inherit',
+                    }}
+                  >
+                    {useEmail ? 'Utiliser mon numero' : 'Utiliser mon email'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setShowHelp(v => !v)}
-                    aria-label="Aide"
+                    aria-label="En savoir plus"
                     title="En savoir plus"
                     style={{
                       background: showHelp ? 'rgba(255,255,255,0.1)' : 'none',
@@ -245,10 +177,11 @@ export default function GlobalLoginPage() {
                 </div>
               </div>
 
+              {/* Help tooltip */}
               {showHelp && (
                 <div style={{
                   background: 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${accent.border}`,
+                  border: '1px solid rgba(34,197,94,0.3)',
                   borderRadius: '10px',
                   padding: '0.75rem 0.9rem',
                   marginBottom: '0.6rem',
@@ -256,11 +189,11 @@ export default function GlobalLoginPage() {
                   color: '#94a3b8',
                   lineHeight: 1.65,
                 }}>
-                  <p style={{ margin: '0 0 0.35rem', fontWeight: '700', color: accent.text, fontSize: '0.78rem' }}>
-                    {help.title}
+                  <p style={{ margin: '0 0 0.35rem', fontWeight: '700', color: '#4ade80', fontSize: '0.78rem' }}>
+                    Espace Vendeur
                   </p>
-                  {help.lines.map((l, i) => (
-                    <p key={i} style={{ margin: i < help.lines.length - 1 ? '0 0 0.2rem' : '0' }}>• {l}</p>
+                  {HELP_LINES.map((l, i) => (
+                    <p key={i} style={{ margin: i < HELP_LINES.length - 1 ? '0 0 0.2rem' : '0' }}>• {l}</p>
                   ))}
                 </div>
               )}
@@ -273,7 +206,7 @@ export default function GlobalLoginPage() {
                 <input
                   type={usePhone ? 'tel' : 'email'}
                   inputMode={usePhone ? 'tel' : 'email'}
-                  placeholder={usePhone ? '+243 8X XXX XXXX' : (isVendeur ? 'boutique@exemple.com' : 'contact@agence.com')}
+                  placeholder={usePhone ? '+243 8X XXX XXXX' : 'boutique@exemple.com'}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
@@ -325,8 +258,8 @@ export default function GlobalLoginPage() {
                 marginTop: '0.25rem', width: '100%', minHeight: '48px',
                 borderRadius: '12px', border: 'none', fontWeight: '700', fontSize: '0.95rem',
                 cursor: loading ? 'not-allowed' : 'pointer', color: '#fff',
-                background: `linear-gradient(135deg, ${accent.main}, ${accent.dark})`,
-                boxShadow: `0 4px 14px ${accent.glow}`,
+                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                boxShadow: '0 4px 14px rgba(34,197,94,0.4)',
                 opacity: loading ? 0.7 : 1, transition: 'all 0.2s ease',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 fontFamily: 'inherit',
@@ -344,28 +277,19 @@ export default function GlobalLoginPage() {
                 </>
               ) : (
                 <>
-                  {isVendeur ? <Store size={16} /> : <Truck size={16} />}
-                  Se connecter ({isVendeur ? 'Vendeur' : 'Agence'})
+                  <Store size={16} />
+                  Se connecter
                 </>
               )}
             </button>
           </form>
 
-          {/* Register / info */}
+          {/* Register */}
           <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.85rem', color: '#64748b' }}>
-            {isVendeur ? (
-              <>Pas encore de compte ?{' '}
-                <Link href="/register" style={{ color: accent.text, fontWeight: '600', textDecoration: 'none' }}>
-                  Creer un compte Vendeur
-                </Link>
-              </>
-            ) : (
-              <>Pas encore partenaire ?{' '}
-                <Link href="/agence/rejoindre" style={{ color: accent.text, fontWeight: '600', textDecoration: 'none' }}>
-                  Faire une demande d&apos;adhesion
-                </Link>
-              </>
-            )}
+            Pas encore de compte ?{' '}
+            <Link href="/register" style={{ color: '#4ade80', fontWeight: '600', textDecoration: 'none' }}>
+              Creer un compte vendeur
+            </Link>
           </div>
         </div>
 
