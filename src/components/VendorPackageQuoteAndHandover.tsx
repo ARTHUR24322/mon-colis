@@ -214,6 +214,8 @@ export default function VendorPackageQuoteAndHandover({
   const canChangeAgency = ['Créé', "En attente d'agence", "Décliné par l'agence", 'CREATED', 'PENDING_AGENCY', 'REJECTED_BY_AGENCY', 'QUOTE_PENDING'].includes(colis.status as string);
   const isQuoteAccepted = quote && quote.status === 'ACCEPTED';
   const isRejectedByAgency = (colis.status as string) === "Décliné par l'agence" || (colis.status as string) === 'REJECTED_BY_AGENCY' || colis.rawStatus === 'REJECTED_BY_AGENCY';
+  // Agence a déjà accepté le colis → verrouiller les boutons d'action du devis
+  const isAgencyAccepted = (colis.status as string) === 'Accepté' || colis.rawStatus === 'ACCEPTED_BY_AGENCY';
   const handoverCode = colis.trackingCode || `MC-${colis.id.slice(0, 8).toUpperCase()}`;
 
   // QR Code Data payload
@@ -347,24 +349,39 @@ export default function VendorPackageQuoteAndHandover({
             </div>
           )}
 
+          {isAgencyAccepted && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.45rem 0.65rem', borderRadius: '8px', marginBottom: '0.4rem',
+              background: 'rgba(34, 197, 94, 0.08)',
+              border: '1px solid rgba(34, 197, 94, 0.25)',
+              fontSize: '0.72rem', color: '#86efac', fontWeight: '600',
+            }}>
+              <ShieldCheck size={13} style={{ flexShrink: 0 }} />
+              L'agence a accepté ce colis — l'itinéraire est figé.
+            </div>
+          )}
           <button
             type="button"
             onClick={handleCalculateDistance}
-            disabled={distanceLoading || quoteActionLoading}
+            disabled={distanceLoading || quoteActionLoading || isAgencyAccepted}
             style={{
               width: '100%',
               minHeight: '36px',
               borderRadius: '8px',
-              border: 'none',
-              background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-              color: '#fff',
+              background: isAgencyAccepted
+                ? 'rgba(255,255,255,0.06)'
+                : 'linear-gradient(135deg, #2563eb, #3b82f6)',
+              color: isAgencyAccepted ? '#475569' : '#fff',
               fontWeight: '700',
               fontSize: '0.78rem',
-              cursor: distanceLoading ? 'not-allowed' : 'pointer',
+              cursor: (distanceLoading || isAgencyAccepted) ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px'
+              gap: '6px',
+              opacity: isAgencyAccepted ? 0.45 : 1,
+              border: isAgencyAccepted ? '1px solid rgba(255,255,255,0.08)' : 'none',
             }}
           >
             {distanceLoading ? (
@@ -417,20 +434,35 @@ export default function VendorPackageQuoteAndHandover({
             </div>
 
             {!isQuoteAccepted && (
-              <button
-                type="button"
-                onClick={handleAcceptQuote}
-                disabled={quoteActionLoading}
-                style={{
-                  width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#000', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
+              isAgencyAccepted ? (
+                /* Bouton verrouillé : agence a déjà accepté + devis figé */
+                <div style={{
+                  width: '100%', minHeight: '44px', borderRadius: '10px',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                }}
-              >
-                <CheckCircle2 size={16} />
-                {quoteActionLoading ? 'Validation en cours...' : 'Accepter ce devis et débloquer le QR code'}
-              </button>
+                  color: '#4ade80', fontWeight: '700', fontSize: '0.82rem',
+                  cursor: 'not-allowed', opacity: 0.75,
+                }}>
+                  <ShieldCheck size={16} />
+                  Agence acceptée — devis et QR déjà activés
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleAcceptQuote}
+                  disabled={quoteActionLoading}
+                  style={{
+                    width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    color: '#000', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                  }}
+                >
+                  <CheckCircle2 size={16} />
+                  {quoteActionLoading ? 'Validation en cours...' : 'Accepter ce devis et débloquer le QR code'}
+                </button>
+              )
             )}
           </div>
         ) : (
