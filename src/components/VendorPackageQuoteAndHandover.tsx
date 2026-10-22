@@ -210,12 +210,12 @@ export default function VendorPackageQuoteAndHandover({
     }
   };
 
-  // Le vendeur peut changer d'agence tant que le colis n'est pas pris en charge
-  const canChangeAgency = ['Créé', "En attente d'agence", "Décliné par l'agence", 'CREATED', 'PENDING_AGENCY', 'REJECTED_BY_AGENCY', 'QUOTE_PENDING'].includes(colis.status as string);
+  // Agence a déjà accepté le colis → verrouiller toutes les actions vendeur
+  const isAgencyAccepted = (colis.status as string) === 'Accepté' || colis.rawStatus === 'ACCEPTED_BY_AGENCY';
+  // Le vendeur peut changer d'agence uniquement si le colis n'est pas encore pris en charge
+  const canChangeAgency = !isAgencyAccepted && ['Créé', "En attente d'agence", "Décliné par l'agence", 'CREATED', 'PENDING_AGENCY', 'REJECTED_BY_AGENCY', 'QUOTE_PENDING'].includes(colis.status as string);
   const isQuoteAccepted = quote && quote.status === 'ACCEPTED';
   const isRejectedByAgency = (colis.status as string) === "Décliné par l'agence" || (colis.status as string) === 'REJECTED_BY_AGENCY' || colis.rawStatus === 'REJECTED_BY_AGENCY';
-  // Agence a déjà accepté le colis → verrouiller les boutons d'action du devis
-  const isAgencyAccepted = (colis.status as string) === 'Accepté' || colis.rawStatus === 'ACCEPTED_BY_AGENCY';
   const handoverCode = colis.trackingCode || `MC-${colis.id.slice(0, 8).toUpperCase()}`;
 
   // QR Code Data payload
