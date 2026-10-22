@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Package, Store, Truck, MapPin, Search,
-  ArrowRight, ChevronRight
+  Package, Search, ArrowRight, ChevronRight, LogIn,
 } from 'lucide-react';
 
 export default function HomeEntryPage() {
@@ -44,44 +43,9 @@ export default function HomeEntryPage() {
     }
   };
 
-  const handleRoleSelect = (roleKey: string) => {
-    try {
-      localStorage.setItem('moncolis_last_role', roleKey);
-    } catch {}
-    router.push(`/auth/${roleKey}/login`);
+  const handleLogin = () => {
+    router.push('/auth/vendeur/login');
   };
-
-  const roleCards = [
-    {
-      key: 'vendeur',
-      label: 'Vendeur',
-      desc: 'Boutiques, e-commerce, réseaux',
-      icon: <Store size={22} />,
-      color: '#22c55e',
-      border: 'rgba(34, 197, 94, 0.35)',
-      bg: 'rgba(34, 197, 94, 0.08)',
-    },
-    {
-      key: 'livreur',
-      label: 'Livreur',
-      desc: 'Courses, tournées et OTP',
-      icon: <Truck size={22} />,
-      color: '#3b82f6',
-      border: 'rgba(59, 130, 246, 0.35)',
-      bg: 'rgba(59, 130, 246, 0.08)',
-    },
-    {
-      key: 'point-relais',
-      label: 'Point Relais',
-      desc: 'Dépôts et retraits de quartier',
-      icon: <MapPin size={22} />,
-      color: '#06b6d4',
-      border: 'rgba(6, 182, 212, 0.35)',
-      bg: 'rgba(6, 182, 212, 0.08)',
-    },
-    // NOTE: L'espace Agence n'est PAS listé ici intentionnellement.
-    // Les agences accèdent uniquement via /agence (URL non référencée).
-  ];
 
   return (
     <main style={{
@@ -189,7 +153,7 @@ export default function HomeEntryPage() {
         {lastRole && (
           <div style={{ marginBottom: '0.65rem' }}>
             <button
-              onClick={() => handleRoleSelect(lastRole)}
+              onClick={() => router.push(`/auth/${lastRole}/login`)}
               style={{
                 width: '100%',
                 minHeight: '46px',
@@ -213,48 +177,33 @@ export default function HomeEntryPage() {
         )}
       </div>
 
-      {/* ─── 3. CENTRE : LES 4 TUILES D'ACCÈS PAR RÔLE ─── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '0.6rem',
-        margin: '0.25rem 0',
-      }}>
-        {roleCards.map(rc => (
-          <button
-            key={rc.key}
-            onClick={() => handleRoleSelect(rc.key)}
-            style={{
-              background: rc.bg,
-              border: `1px solid ${rc.border}`,
-              borderRadius: '16px',
-              padding: '0.85rem 0.75rem',
-              textAlign: 'left',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              minHeight: '92px',
-              position: 'relative',
-              transition: 'transform 0.1s ease',
-              WebkitTapHighlightColor: 'transparent',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ color: rc.color }}>{rc.icon}</div>
-              <ChevronRight size={16} color={rc.color} style={{ opacity: 0.8 }} />
-            </div>
-
-            <div>
-              <div style={{ fontSize: '0.95rem', fontWeight: '900', color: '#ffffff', lineHeight: 1.2 }}>
-                {rc.label}
-              </div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.2rem', lineHeight: 1.2 }}>
-                {rc.desc}
-              </div>
-            </div>
-          </button>
-        ))}
+      {/* ─── 3. CENTRE : BOUTON SE CONNECTER ─── */}
+      <div style={{ margin: '0.5rem 0' }}>
+        <button
+          onClick={handleLogin}
+          style={{
+            width: '100%',
+            minHeight: '54px',
+            borderRadius: '14px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+            color: '#fff',
+            fontWeight: '800',
+            fontSize: '1rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.55rem',
+            boxShadow: '0 6px 20px rgba(34,197,94,0.35)',
+            transition: 'opacity 0.15s ease',
+            WebkitTapHighlightColor: 'transparent',
+            letterSpacing: '-0.01em',
+          }}
+        >
+          <LogIn size={20} />
+          Se connecter
+        </button>
       </div>
 
       {/* ─── 4. BAS : S'INSCRIRE & LIEN PRÉSENTATION ─── */}
