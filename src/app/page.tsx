@@ -1,5 +1,51 @@
 'use client';
 
+const styles = `
+  @keyframes trackBtnPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.55), 0 4px 14px rgba(59, 130, 246, 0.35); }
+    50% { box-shadow: 0 0 0 7px rgba(59, 130, 246, 0), 0 4px 14px rgba(59, 130, 246, 0.5); }
+  }
+  @keyframes trackBtnShimmer {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  @keyframes logoFloat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+  }
+  @keyframes haloBreath {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.12); }
+  }
+  @keyframes dotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.75); }
+  }
+  .track-btn {
+    min-height: 40px;
+    padding: 0 0.85rem;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 40%, #3b82f6 60%, #2563eb 100%);
+    background-size: 300% 100%;
+    color: #fff;
+    font-weight: 800;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    animation: trackBtnPulse 2.2s ease-in-out infinite, trackBtnShimmer 3s linear infinite;
+    transition: transform 0.12s ease, filter 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .track-btn:hover { transform: scale(1.06); filter: brightness(1.12); }
+  .track-btn:active { transform: scale(0.95); filter: brightness(0.95); }
+  .logo-float { animation: logoFloat 3.5s ease-in-out infinite; }
+  .logo-halo { animation: haloBreath 3.5s ease-in-out infinite; }
+  .status-dot { animation: dotPulse 1.8s ease-in-out infinite; }
+`;
+
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -48,6 +94,8 @@ export default function HomeEntryPage() {
   };
 
   return (
+    <>
+    <style>{styles}</style>
     <main style={{
       minHeight: '100dvh',
       height: '100dvh',
@@ -129,20 +177,7 @@ export default function HomeEntryPage() {
             />
             <button
               type="submit"
-              style={{
-                minHeight: '40px',
-                padding: '0 0.85rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: '#3b82f6',
-                color: '#fff',
-                fontWeight: '800',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.2rem',
-              }}
+              className="track-btn"
             >
               Suivre
             </button>
@@ -198,7 +233,7 @@ export default function HomeEntryPage() {
           justifyContent: 'center',
         }}>
           {/* Halo émeraude */}
-          <div style={{
+          <div className="logo-halo" style={{
             position: 'absolute',
             inset: '-12px',
             background: 'radial-gradient(circle, rgba(34, 197, 94, 0.45) 0%, rgba(34, 197, 94, 0.1) 60%, transparent 80%)',
@@ -211,6 +246,7 @@ export default function HomeEntryPage() {
           <img
             src="/icon.svg"
             alt="Moncolis Logo"
+            className="logo-float"
             width={112}
             height={112}
             style={{
@@ -256,7 +292,7 @@ export default function HomeEntryPage() {
           fontWeight: '700',
           color: '#4ade80',
         }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e' }} />
+          <span className="status-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
           Livraison & Points Relais 7j/7
         </div>
       </div>
@@ -315,5 +351,6 @@ export default function HomeEntryPage() {
         </Link>
       </div>
     </main>
+    </>  
   );
 }
