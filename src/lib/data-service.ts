@@ -449,7 +449,10 @@ class DataService {
     const cleanQuery = query.trim();
     if (!cleanQuery) return null;
 
-    const { data, error } = await supabase
+    // Détection si la recherche est un UUID valide pour éviter l'erreur Postgres 22P02
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanQuery);
+
+    let queryBuilder = supabase
       .from('packages')
       .select(`
         id, tracking_code, vendeur_id, agency_id, driver_id,
@@ -461,9 +464,15 @@ class DataService {
         agency:agencies(id, profile:profiles(name)),
         driver:drivers(id, phone, profile:profiles(name)),
         vendeur:profiles!packages_vendeur_id_fkey(id, name, phone)
-      `)
-      .or(`id.eq.${cleanQuery},tracking_code.eq.${cleanQuery},validation_code.eq.${cleanQuery}`)
-      .single();
+      `);
+
+    if (isUuid) {
+      queryBuilder = queryBuilder.or(`id.eq.${cleanQuery},tracking_code.eq.${cleanQuery}`);
+    } else {
+      queryBuilder = queryBuilder.or(`tracking_code.eq.${cleanQuery},validation_code.eq.${cleanQuery}`);
+    }
+
+    const { data, error } = await queryBuilder.maybeSingle();
 
     if (error || !data) return null;
     return mapPackage(data);
