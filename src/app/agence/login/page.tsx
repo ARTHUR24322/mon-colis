@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Eye, EyeOff, Lock, Mail, Hash, AlertCircle, Building2, CheckCircle2, ChevronDown } from 'lucide-react';
+import { Shield, Eye, EyeOff, Lock, Mail, Hash, AlertCircle, Building2, CheckCircle2, Crown, BadgeCheck } from 'lucide-react';
 
 /**
  * /agence/login — Formulaire de connexion agence secret.
@@ -165,7 +165,11 @@ export default function AgenceLoginPage() {
                   : 'transparent',
               }}
             >
-              {type === 'directeur' ? '👑 Directeur' : '🪪 Personnel'}
+              {type === 'directeur' ? (
+                <><Crown size={14} /> Directeur</>
+              ) : (
+                <><BadgeCheck size={14} /> Personnel</>
+              )}
             </button>
           ))}
         </div>

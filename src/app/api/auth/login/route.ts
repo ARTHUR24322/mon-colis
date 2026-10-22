@@ -1,6 +1,11 @@
 /**
  * POST /api/auth/login
- * Body: { email, password, role: 'vendeur'|'agence' } OR { phone, pinCode, role: 'livreur' }
+ * Body:
+ *   - Vendeur  : { phone, password, role: 'vendeur' }  ← numéro de téléphone (DRC preferred)
+ *               { email, password, role: 'vendeur' }   ← fallback email
+ *   - Agence   : { email, password, role: 'agence' }
+ *   - Livreur  : { phone, pinCode, role: 'livreur' }
+ *   - Relais   : { agentNumber, pinCode, role: 'point_relais' }
  * Returns: 200 + sets httpOnly session cookie  |  401 if invalid
  * All accounts are verified against Supabase — no hardcoded credentials.
  */
@@ -87,6 +92,8 @@ export async function POST(request: NextRequest) {
         role: 'point_relais' as any,
         name: agent.name,
         agencyId: agent.dropPointId, // reuse agencyId field to store dropPointId
+        dropPointId: agent.dropPointId,
+        agentNumber: agent.agentNumber,
       });
       await setSessionCookie(token);
 
@@ -186,34 +193,68 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // -- VENDEUR / AGENCE: authenticate by email + password --------
-    const { email, password } = body as { email: string; password: string };
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email et mot de passe requis.' }, { status: 400 });
+    // -- VENDEUR / AGENCE: authenticate by phone (preferred) or email + password --------
+    const { email, phone, password } = body as { email?: string; phone?: string; password: string };
+    const identifier = phone?.trim() || email?.trim() || '';
+
+    if (!identifier || !password) {
+      return NextResponse.json({ error: 'Identifiant (téléphone ou email) et mot de passe requis.' }, { status: 400 });
     }
 
     if (!['vendeur', 'agence'].includes(role)) {
       return NextResponse.json({ error: 'Rôle invalide.' }, { status: 400 });
     }
 
-    // 1. Find the profile by email + role
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, name, email, password_hash, role, phone, is_active')
-      .eq('email', email.toLowerCase().trim())
-      .eq('role', role)
-      .maybeSingle();
+    // 1. Find the profile by phone OR email + role
+    //    For vendeur, phone is the primary identifier in the DRC market.
+    let profile: Record<string, any> | null = null;
+    let profileError: any = null;
+
+    if (phone) {
+      // Normalize phone: strip spaces, keep + prefix
+      const normalizedPhone = phone.trim().replace(/\s+/g, '');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, password_hash, role, phone, is_active')
+        .eq('phone', normalizedPhone)
+        .eq('role', role)
+        .maybeSingle();
+      profile = data;
+      profileError = error;
+
+      // Also try without leading + (some entries may be stored without it)
+      if (!profile && normalizedPhone.startsWith('+')) {
+        const phoneWithout = normalizedPhone.slice(1);
+        const { data: data2 } = await supabase
+          .from('profiles')
+          .select('id, name, email, password_hash, role, phone, is_active')
+          .eq('phone', phoneWithout)
+          .eq('role', role)
+          .maybeSingle();
+        if (data2) profile = data2;
+      }
+    } else {
+      // Fallback: lookup by email
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, email, password_hash, role, phone, is_active')
+        .eq('email', email!.toLowerCase().trim())
+        .eq('role', role)
+        .maybeSingle();
+      profile = data;
+      profileError = error;
+    }
 
     if (profileError || !profile) {
-      await logLoginAttempt(request, email, role, 'failed', 'Identifiants incorrects.');
+      await logLoginAttempt(request, identifier, role, 'failed', 'Identifiants incorrects.');
       return NextResponse.json(
-        { error: 'Identifiants incorrects. Vérifiez votre email et mot de passe.' },
+        { error: 'Identifiants incorrects. Vérifiez votre numéro ou email et mot de passe.' },
         { status: 401 }
       );
     }
 
     if (profile.is_active === false) {
-      await logLoginAttempt(request, email, role, 'blocked', 'Compte suspendu par l\'administration.');
+      await logLoginAttempt(request, identifier, role, 'blocked', 'Compte suspendu par l\'administration.');
       return NextResponse.json(
         { error: 'Votre compte a été suspendu par l\'administration. Veuillez contacter le support.' },
         { status: 403 }
@@ -239,9 +280,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (!passwordValid) {
-      await logLoginAttempt(request, email, role, 'failed', 'Mot de passe incorrect.');
+      await logLoginAttempt(request, identifier, role, 'failed', 'Mot de passe incorrect.');
       return NextResponse.json(
-        { error: 'Identifiants incorrects. Vérifiez votre email et mot de passe.' },
+        { error: 'Identifiants incorrects. Vérifiez votre numéro ou email et mot de passe.' },
         { status: 401 }
       );
     }
@@ -293,7 +334,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Create session
-    await logLoginAttempt(request, email, role, 'success', 'Connexion réussie');
+    await logLoginAttempt(request, identifier, role, 'success', 'Connexion réussie');
     const token = await createToken({
       userId: profile.id,
       role: profile.role as UserRole,
