@@ -83,28 +83,25 @@ export async function GET(request: NextRequest) {
     const isDestRelay = pkg.dest_drop_point_id === dropPointId;
     const isAssignedToThisRelay = isOriginRelay || isDestRelay;
 
-    // 3. Règle Option A : L'agence choisie par le vendeur doit avoir accepté le colis
-    const isAcceptedByAgency = ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER'].includes(pkg.status);
+    // 3. Statut d'acceptabilité pour dépôt vendeur
+    const isAlreadyAtRelay = pkg.status === 'DEPOSITED_AT_DROP_POINT' || pkg.status === 'WAITING_FOR_AGENCY_PICKUP';
+    const isDeliveredOrCancelled = ['DELIVERED', 'CANCELLED', 'RETURNED'].includes(pkg.status);
     let handoverBlockReason: string | null = null;
 
-    if (!pkg.agency_id) {
-      handoverBlockReason = 'Aucune agence n’a été choisie par le vendeur pour ce colis.';
-    } else if (pkg.status === 'PENDING_AGENCY') {
-      handoverBlockReason = 'L’agence sélectionnée n’a pas encore validé la prise en charge de ce colis. Le dépôt n’est autorisé qu’après acceptation par l’agence.';
-    } else if (pkg.status === 'REJECTED_BY_AGENCY') {
+    if (pkg.status === 'REJECTED_BY_AGENCY') {
       handoverBlockReason = 'L’agence a décliné ce colis. Le vendeur doit choisir une nouvelle agence avant tout dépôt.';
+    } else if (isAlreadyAtRelay) {
+      handoverBlockReason = 'Ce colis a déjà été réceptionné au point relais.';
+    } else if (isDeliveredOrCancelled) {
+      handoverBlockReason = 'Ce colis est déjà finalisé ou annulé.';
     }
 
     // 4. Calcul du montant à encaisser
     const quote = pkg.quote as any;
     const montantAEncaisser = quote?.montant_encaisser ?? (pkg.is_prepaid ? 0 : (pkg.package_price || 0));
 
-    // 5. Statut d'acceptabilité (Règle Option A stricte)
-    const canAcceptHandover = isAcceptedByAgency && !handoverBlockReason && (
-      pkg.status !== 'DEPOSITED_AT_DROP_POINT' &&
-      pkg.status !== 'WAITING_FOR_AGENCY_PICKUP' &&
-      pkg.status !== 'DELIVERED'
-    );
+    // 5. Statut d'acceptabilité : permis si le colis est en cours de création, attente agence ou accepté
+    const canAcceptHandover = !handoverBlockReason && !isAlreadyAtRelay && !isDeliveredOrCancelled;
 
     const vendeurProfile = Array.isArray(pkg.vendeur) ? pkg.vendeur[0] : pkg.vendeur;
     const agencyProfile = Array.isArray(pkg.agency) ? pkg.agency[0] : pkg.agency;
@@ -141,7 +138,7 @@ export async function GET(request: NextRequest) {
       },
       checks: {
         isAssignedToThisRelay,
-        isAcceptedByAgency,
+        isAcceptedByAgency: ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER'].includes(pkg.status),
         canAcceptHandover,
         handoverBlockReason,
         alreadyDeposited: pkg.status === 'DEPOSITED_AT_DROP_POINT' || pkg.status === 'WAITING_FOR_AGENCY_PICKUP',
@@ -191,16 +188,15 @@ export async function POST(request: NextRequest) {
 
     // 2. Traitement ACCEPT
     if (action === 'ACCEPT') {
-      // Règle 1 (Option A) : L'agence doit avoir préalablement accepté le colis
-      if (!pkg.agency_id) {
+      if (pkg.status === 'REJECTED_BY_AGENCY') {
         return NextResponse.json({
-          error: 'Dépôt impossible : le vendeur n’a pas encore sélectionné d’agence.'
+          error: 'Dépôt impossible : l’agence sélectionnée a décliné ce colis. Le vendeur doit choisir une autre agence.'
         }, { status: 400 });
       }
 
-      if (!['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER'].includes(pkg.status)) {
+      if (['DELIVERED', 'CANCELLED', 'RETURNED'].includes(pkg.status)) {
         return NextResponse.json({
-          error: 'Dépôt impossible : l’agence sélectionnée n’a pas encore accepté le colis. Le dépôt n’est autorisé qu’après validation par l’agence.'
+          error: 'Dépôt impossible : ce colis est déjà finalisé ou annulé.'
         }, { status: 400 });
       }
 

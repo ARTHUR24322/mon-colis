@@ -358,15 +358,20 @@ export default function VendeurDashboard() {
     setVendorRequestLoading(true);
 
     try {
+      const amountInCdf = Math.round(vendorRequestModal.amount * (exchangeRate || 2800));
       const res = await fetch('/api/vendor/payments/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          agencyId: vendorRequestModal.agencyId,
           agency_id: vendorRequestModal.agencyId,
-          amount: vendorRequestModal.amount,
+          amount: amountInCdf,
+          amountUsd: vendorRequestModal.amount,
           message: vendorRequestMessage.trim() || undefined,
         }),
       });
+
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
         setVendorRequestSuccess('Demande de versement transmise à l\'agence.');
@@ -376,7 +381,7 @@ export default function VendeurDashboard() {
           setVendorRequestMessage('');
         }, 2000);
       } else {
-        showToast('Impossible d\'envoyer la demande.');
+        showToast(data.error || 'Impossible d\'envoyer la demande.');
       }
     } catch {
       showToast('Erreur réseau.');

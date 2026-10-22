@@ -76,12 +76,19 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (dpRecord) {
-      // Récupérer un agent associé ou générer une réponse valide
+      const { data: linkedAgent } = await supabase
+        .from('drop_point_agents')
+        .select('id, agent_number, name')
+        .eq('drop_point_id', dpRecord.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+
       return NextResponse.json({
         agent: {
-          id: dpRecord.id,
-          agentNumber: rawInput.padEnd(9, '0').slice(0, 9),
-          name: dpRecord.manager_name || 'Responsable Relais',
+          id: linkedAgent?.id || dpRecord.id,
+          agentNumber: linkedAgent?.agent_number || (digitsOnly.length === 9 ? digitsOnly : '100000001'),
+          name: linkedAgent?.name || dpRecord.manager_name || 'Responsable Relais',
           dropPointId: dpRecord.id,
           dropPointName: dpRecord.name,
           dropPointCommune: dpRecord.commune || '',

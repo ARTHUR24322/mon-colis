@@ -40,6 +40,8 @@ function applySecurityHeaders(response: NextResponse, pathname?: string): NextRe
   response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Autoriser explicitement la caméra et géolocalisation pour le domaine
+  response.headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)');
 
   // Sécurité renforcée pour l'espace agence (route secrète)
   if (pathname && pathname.startsWith('/agence')) {

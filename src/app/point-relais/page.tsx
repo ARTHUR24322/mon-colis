@@ -16,7 +16,7 @@ import QRScanner from '@/components/QRScanner';
 
 // Types navigation
 type NavTab = 'accueil' | 'stock' | 'scanner' | 'plus';
-type StockFilter = 'all' | 'collecte_livreur' | 'retrait_client';
+type StockFilter = 'all' | 'reception_livreur' | 'collecte_livreur' | 'retrait_client';
 type ScannerMode = 'vendor_reception' | 'driver_handover' | 'client_otp';
 
 interface AgentSession {
@@ -146,6 +146,9 @@ export default function PointRelaisPage() {
             phone: data.dropPoint.phone,
             qrToken: data.dropPoint.id,
           });
+          if (data.dropPoint.agentNumber) {
+            setAgent(prev => prev ? ({ ...prev, agentNumber: data.dropPoint.agentNumber }) : prev);
+          }
         }
       }
     } catch (e) {
@@ -174,24 +177,30 @@ export default function PointRelaisPage() {
   // Colis unifiés en stock
   const allStockColis = useMemo(() => {
     const list: ColisItem[] = [];
-    // 1. Dépôts vendeurs à collecter
+    // 1. Colis apportés par livreurs en attente d'acceptation relais
+    incomingDriver.forEach(p => {
+      if (!list.some(x => x.id === p.id)) list.push(p);
+    });
+    // 2. Dépôts vendeurs à collecter
     vendorDeposits.forEach(p => {
       if (!list.some(x => x.id === p.id)) list.push(p);
     });
-    // 2. Colis disponibles pour retrait client
+    // 3. Colis disponibles pour retrait client
     available.forEach(p => {
       if (!list.some(x => x.id === p.id)) list.push(p);
     });
     return list;
-  }, [vendorDeposits, available]);
+  }, [incomingDriver, vendorDeposits, available]);
 
   // Filtrage du stock
   const filteredStock = useMemo(() => {
     return allStockColis.filter(c => {
+      const isReception = incomingDriver.some(p => p.id === c.id);
       const isCollecte = vendorDeposits.some(p => p.id === c.id);
       const isRetrait = available.some(p => p.id === c.id);
 
       let matchType = true;
+      if (stockFilter === 'reception_livreur') matchType = isReception;
       if (stockFilter === 'collecte_livreur') matchType = isCollecte;
       if (stockFilter === 'retrait_client') matchType = isRetrait;
 
@@ -204,7 +213,49 @@ export default function PointRelaisPage() {
 
       return matchType && matchQuery;
     });
-  }, [allStockColis, stockFilter, stockSearch, vendorDeposits, available]);
+  }, [allStockColis, stockFilter, stockSearch, incomingDriver, vendorDeposits, available]);
+
+  // Acceptation / Refus d'un colis apporté par un livreur
+  const handleAcceptDriverPackage = async (packageId: string) => {
+    if (!agent) return;
+    try {
+      const res = await fetch(`/api/packages/${packageId}/drop-point-decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'ACCEPT' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerToast('✅ Colis accepté ! Il est désormais disponible pour le retrait client.', 'success');
+        await loadPackages(agent.dropPointId);
+      } else {
+        triggerToast(data.error || 'Erreur lors de l’acceptation.', 'error');
+      }
+    } catch {
+      triggerToast('Erreur réseau.', 'error');
+    }
+  };
+
+  const handleRefuseDriverPackage = async (packageId: string) => {
+    if (!agent) return;
+    if (!confirm('Voulez-vous vraiment refuser ce colis apporté par le livreur ?')) return;
+    try {
+      const res = await fetch(`/api/packages/${packageId}/drop-point-decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'REFUSE' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        triggerToast('Colis refusé et renvoyé en transit au livreur.', 'error');
+        await loadPackages(agent.dropPointId);
+      } else {
+        triggerToast(data.error || 'Erreur lors du refus.', 'error');
+      }
+    } catch {
+      triggerToast('Erreur réseau.', 'error');
+    }
+  };
 
   // Actions Scanner
   const handleProcessScanCode = async (code: string) => {
@@ -552,7 +603,43 @@ export default function PointRelaisPage() {
             </button>
 
             {/* Compteurs Tactiles */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {/* Colis reçus des livreurs (à valider) */}
+              <div
+                onClick={() => {
+                  setCurrentTab('stock');
+                  setStockFilter('reception_livreur');
+                }}
+                style={{
+                  background: incomingDriver.length > 0 ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.06)',
+                  border: `1px solid ${incomingDriver.length > 0 ? 'rgba(59, 130, 246, 0.45)' : 'rgba(59, 130, 246, 0.2)'}`,
+                  borderRadius: '14px', padding: '12px 10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative'
+                }}
+              >
+                {incomingDriver.length > 0 && (
+                  <span style={{
+                    position: 'absolute', top: '-6px', right: '-6px',
+                    background: '#3b82f6', color: '#fff', borderRadius: '10px',
+                    fontSize: '0.62rem', fontWeight: '900', padding: '1px 5px'
+                  }}>
+                    À valider
+                  </span>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Package size={16} color="#60a5fa" />
+                  <span style={{ fontSize: '1.25rem', fontWeight: '900', color: '#60a5fa' }}>
+                    {incomingDriver.length}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Reçus livreurs
+                </div>
+                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                  À accepter
+                </div>
+              </div>
+
               {/* Dépôts Vendeurs à collecter */}
               <div
                 onClick={() => {
@@ -562,21 +649,21 @@ export default function PointRelaisPage() {
                 style={{
                   background: 'rgba(249, 115, 22, 0.08)',
                   border: '1px solid rgba(249, 115, 22, 0.25)',
-                  borderRadius: '14px', padding: '14px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: '4px'
+                  borderRadius: '14px', padding: '12px 10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: '3px'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Truck size={18} color="#fb923c" />
-                  <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#fb923c' }}>
+                  <Truck size={16} color="#fb923c" />
+                  <span style={{ fontSize: '1.25rem', fontWeight: '900', color: '#fb923c' }}>
                     {vendorDeposits.length}
                   </span>
                 </div>
-                <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#f8fafc' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   À collecter
                 </div>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
-                  Dépôts pour agence
+                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                  Pour agence
                 </div>
               </div>
 
@@ -589,21 +676,21 @@ export default function PointRelaisPage() {
                 style={{
                   background: 'rgba(34, 197, 94, 0.08)',
                   border: '1px solid rgba(34, 197, 94, 0.25)',
-                  borderRadius: '14px', padding: '14px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: '4px'
+                  borderRadius: '14px', padding: '12px 10px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: '3px'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <CheckCircle2 size={18} color="#4ade80" />
-                  <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#4ade80' }}>
+                  <CheckCircle2 size={16} color="#4ade80" />
+                  <span style={{ fontSize: '1.25rem', fontWeight: '900', color: '#4ade80' }}>
                     {available.length}
                   </span>
                 </div>
-                <div style={{ fontSize: '0.8rem', fontWeight: '800', color: '#f8fafc' }}>
-                  Retraits clients
+                <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Retraits
                 </div>
-                <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
-                  En attente de retrait
+                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                  Clients OTP
                 </div>
               </div>
             </div>
@@ -734,6 +821,17 @@ export default function PointRelaisPage() {
                 Tous ({allStockColis.length})
               </button>
               <button
+                onClick={() => setStockFilter('reception_livreur')}
+                style={{
+                  padding: '7px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: '700',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: stockFilter === 'reception_livreur' ? '#2563eb' : (incomingDriver.length > 0 ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255,255,255,0.06)'),
+                  color: stockFilter === 'reception_livreur' || incomingDriver.length > 0 ? '#93c5fd' : '#fff'
+                }}
+              >
+                Reçus livreurs ({incomingDriver.length})
+              </button>
+              <button
                 onClick={() => setStockFilter('collecte_livreur')}
                 style={{
                   padding: '7px 14px', borderRadius: '20px', fontSize: '0.78rem', fontWeight: '700',
@@ -769,6 +867,7 @@ export default function PointRelaisPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {filteredStock.map(c => {
+                  const isReception = incomingDriver.some(p => p.id === c.id);
                   const isCollecte = vendorDeposits.some(p => p.id === c.id);
                   const isDispute = c.status === 'En réclamation' || c.claimStatus === 'OPEN';
 
@@ -777,7 +876,7 @@ export default function PointRelaisPage() {
                       key={c.id}
                       style={{
                         background: 'rgba(255, 255, 255, 0.03)',
-                        border: `1px solid ${isDispute ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+                        border: `1px solid ${isDispute ? 'rgba(239, 68, 68, 0.4)' : (isReception ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.08)')}`,
                         borderRadius: '16px', padding: '14px',
                         display: 'flex', flexDirection: 'column', gap: '10px'
                       }}
@@ -797,10 +896,10 @@ export default function PointRelaisPage() {
 
                         <span style={{
                           fontSize: '0.72rem', fontWeight: '800', padding: '3px 8px', borderRadius: '6px',
-                          background: isDispute ? 'rgba(239, 68, 68, 0.2)' : (isCollecte ? 'rgba(249, 115, 22, 0.15)' : 'rgba(34, 197, 94, 0.15)'),
-                          color: isDispute ? '#f87171' : (isCollecte ? '#fb923c' : '#4ade80')
+                          background: isDispute ? 'rgba(239, 68, 68, 0.2)' : (isReception ? 'rgba(59, 130, 246, 0.2)' : (isCollecte ? 'rgba(249, 115, 22, 0.15)' : 'rgba(34, 197, 94, 0.15)')),
+                          color: isDispute ? '#f87171' : (isReception ? '#93c5fd' : (isCollecte ? '#fb923c' : '#4ade80'))
                         }}>
-                          {isDispute ? '🚨 Litige Vendeur' : (isCollecte ? 'Collecte Agence' : 'Retrait Client')}
+                          {isDispute ? '🚨 Litige Vendeur' : (isReception ? '📦 Reçu du Livreur' : (isCollecte ? 'Collecte Agence' : 'Retrait Client'))}
                         </span>
                       </div>
 
@@ -818,31 +917,51 @@ export default function PointRelaisPage() {
                         </div>
                       </div>
 
-                      {/* Bloc Agence Choisie & Livreur Attendu */}
+                      {/* Bloc Agence Choisie & Livreur */}
                       <div style={{
                         background: 'rgba(0,0,0,0.25)', borderRadius: '10px', padding: '8px 10px',
                         display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem'
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbd5e1' }}>
                           <Building2 size={13} color="#60a5fa" />
-                          <span>Agence assignée par vendeur : <strong>{c.agence || 'Assignée'}</strong></span>
+                          <span>Agence : <strong>{c.agence || 'Assignée'}</strong></span>
                         </div>
 
-                        {isCollecte && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: c.livreur ? '#4ade80' : '#fb923c' }}>
+                        {c.livreur && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4ade80' }}>
                             <Truck size={13} />
-                            {c.livreur ? (
-                              <span>Livreur attendu : <strong>{c.livreur}</strong> {c.livreurPhone ? `(${c.livreurPhone})` : ''}</span>
-                            ) : (
-                              <span>En attente d'affectation d'un livreur par l'agence</span>
-                            )}
+                            <span>Livreur : <strong>{c.livreur}</strong> {c.livreurPhone ? `(${c.livreurPhone})` : ''}</span>
                           </div>
                         )}
                       </div>
 
                       {/* Bouton d'action */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
-                        {isCollecte ? (
+                        {isReception ? (
+                          <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                            <button
+                              onClick={() => handleAcceptDriverPackage(c.id)}
+                              style={{
+                                flex: 2, height: '42px', borderRadius: '10px', border: 'none',
+                                background: '#22c55e', color: '#000', fontWeight: '800', fontSize: '0.82rem',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                              }}
+                            >
+                              <CheckCircle2 size={16} /> Accepter la réception
+                            </button>
+                            <button
+                              onClick={() => handleRefuseDriverPackage(c.id)}
+                              style={{
+                                flex: 1, height: '42px', borderRadius: '10px',
+                                border: '1px solid rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.15)',
+                                color: '#f87171', fontWeight: '800', fontSize: '0.82rem',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                              }}
+                            >
+                              <X size={15} /> Refuser
+                            </button>
+                          </div>
+                        ) : isCollecte ? (
                           <button
                             onClick={() => {
                               setHandoverModalColis(c);
@@ -1441,12 +1560,19 @@ export default function PointRelaisPage() {
               background: '#fff', borderRadius: '16px', padding: '16px',
               display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto'
             }}>
-              {/* Image QR Code dynamique encodant directement le numéro agent à 9 chiffres */}
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(agent?.agentNumber || agent?.dropPointId || 'dp-1')}`}
-                alt="QR Code Point Relais"
-                style={{ width: '180px', height: '180px', display: 'block' }}
-              />
+              {/* Image QR Code dynamique encodant le numéro agent à 9 chiffres ou dropPointId */}
+              {(() => {
+                const qrVal = (agent?.agentNumber && agent.agentNumber !== '000000' && agent.agentNumber !== '000000000')
+                  ? agent.agentNumber
+                  : (agent?.dropPointId || 'dp-1');
+                return (
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrVal)}`}
+                    alt="QR Code Point Relais"
+                    style={{ width: '180px', height: '180px', display: 'block' }}
+                  />
+                );
+              })()}
             </div>
 
             {/* BLOC MIS EN ÉVIDENCE : NUMÉRO DU POINT RELAIS (9 CHIFFRES) */}

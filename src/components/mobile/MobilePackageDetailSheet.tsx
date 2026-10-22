@@ -444,47 +444,61 @@ export default function MobilePackageDetailSheet({
             </button>
           )}
 
-          {/* Livreur : Saisie de l'OTP si en cours de livraison directe */}
+          {/* Livreur : Saisie de l'OTP si en cours de livraison directe (désactivé si colis en point relais) */}
           {role === 'livreur' && !isDelivered && (
-            <div style={{
-              background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)',
-              borderRadius: '14px', padding: '1rem'
-            }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#86efac', display: 'block', marginBottom: '0.5rem' }}>
-                Valider la remise avec le code OTP du client :
-              </span>
-              <form onSubmit={handleOtpSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="Code OTP client (6 chiffres)"
-                  value={otpValue}
-                  onChange={e => setOtpValue(e.target.value)}
-                  style={{
-                    flex: 1, height: '46px', borderRadius: '10px',
-                    background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.2)',
-                    color: '#fff', fontSize: '1.1rem', textAlign: 'center', letterSpacing: '3px', fontWeight: '800'
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={otpValidating || !otpValue.trim()}
-                  style={{
-                    height: '46px', padding: '0 1.25rem', borderRadius: '10px', border: 'none',
-                    background: '#22c55e', color: '#000', fontWeight: '800', fontSize: '0.9rem',
-                    cursor: otpValidating ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  {otpValidating ? '...' : 'Valider'}
-                </button>
-              </form>
-              {otpError && (
-                <div style={{ color: '#f87171', fontSize: '0.78rem', marginTop: '0.4rem', fontWeight: '700' }}>
-                  {otpError}
-                </div>
-              )}
-            </div>
+            (colis.status === 'Déposé en point relais' || isAvailableAtRelay || colis.destDropPointId) ? (
+              <div style={{
+                background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: '14px', padding: '1rem', textAlign: 'center'
+              }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#93c5fd', display: 'block' }}>
+                  📍 Colis déposé en Point Relais
+                </span>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                  La session OTP livreur est désactivée : le client retirera son colis directement au point relais avec son code OTP de retrait.
+                </p>
+              </div>
+            ) : (
+              <div style={{
+                background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)',
+                borderRadius: '14px', padding: '1rem'
+              }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#86efac', display: 'block', marginBottom: '0.5rem' }}>
+                  Valider la remise avec le code OTP du client :
+                </span>
+                <form onSubmit={handleOtpSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="Code OTP client (6 chiffres)"
+                    value={otpValue}
+                    onChange={e => setOtpValue(e.target.value)}
+                    style={{
+                      flex: 1, height: '46px', borderRadius: '10px',
+                      background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.2)',
+                      color: '#fff', fontSize: '1.1rem', textAlign: 'center', letterSpacing: '3px', fontWeight: '800'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={otpValidating || !otpValue.trim()}
+                    style={{
+                      height: '46px', padding: '0 1.25rem', borderRadius: '10px', border: 'none',
+                      background: '#22c55e', color: '#000', fontWeight: '800', fontSize: '0.9rem',
+                      cursor: otpValidating ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {otpValidating ? '...' : 'Valider'}
+                  </button>
+                </form>
+                {otpError && (
+                  <div style={{ color: '#f87171', fontSize: '0.78rem', marginTop: '0.4rem', fontWeight: '700' }}>
+                    {otpError}
+                  </div>
+                )}
+              </div>
+            )
           )}
 
           {/* Partage du lien de tracking — Réservé EXCLUSIVEMENT au Vendeur */}

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Truck, ShieldCheck, CheckCircle2, Phone, MapPin, ArrowLeft,
   User, Package, LogOut, ChevronRight, AlertTriangle, AlertCircle,
   DollarSign, Clock, CheckCircle, XCircle, QrCode, Building2,
-  RefreshCw, X, Info, Check, ShieldAlert, Camera
+  RefreshCw, X, Info, Check, ShieldAlert, Camera, Bell, Trash2,
+  Volume2, CheckCheck
 } from 'lucide-react';
 import { dataService, ColisItem, DriverAccount, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
@@ -19,6 +20,66 @@ import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottom
 import MobilePackageCard from '@/components/mobile/MobilePackageCard';
 import MobilePackageDetailSheet from '@/components/mobile/MobilePackageDetailSheet';
 import { MOBILE_THEME } from '@/components/mobile/MobileDesignTokens';
+
+export interface LivreurNotification {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  type: 'nouvelle_course' | 'caisse' | 'incident' | 'livraison' | 'info';
+  read: boolean;
+  packageId?: string;
+  trackingCode?: string;
+}
+
+// Synthétiseur audio pour le carillon de notification (aucun fichier MP3 requis)
+function playNotificationChime() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    const now = ctx.currentTime;
+
+    // Note 1 : 587.33 Hz (D5)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(587.33, now);
+    gain1.gain.setValueAtTime(0, now);
+    gain1.gain.linearRampToValueAtTime(0.25, now + 0.04);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.25);
+
+    // Note 2 : 880 Hz (A5)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(880, now + 0.12);
+    gain2.gain.setValueAtTime(0, now + 0.12);
+    gain2.gain.linearRampToValueAtTime(0.3, now + 0.16);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(now + 0.12);
+    osc2.stop(now + 0.5);
+  } catch (e) {
+    console.warn('Audio chime failed:', e);
+  }
+
+  // Vibration haptique pour smartphones
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    try {
+      navigator.vibrate([150, 75, 150]);
+    } catch {}
+  }
+}
 
 type Tab = 'courses' | 'incidents' | 'caisse' | 'profil';
 
@@ -236,8 +297,7 @@ export default function LivreurPage() {
     try {
       const res = await dataService.assignColisToDropPoint(rerouteModalColis.id, verifiedAgent.agentNumber, driver.id);
       if (res.success) {
-        await dataService.rerouteToDropPoint(rerouteModalColis.id, verifiedAgent.dropPointId, rerouteReason);
-        showToast(`Colis déposé au ${verifiedAgent.dropPointName} !`);
+        showToast(`Colis remis au ${verifiedAgent.dropPointName}. En attente de validation par le relais.`);
         await loadCourses();
         setRerouteModalColis(null);
       } else {
@@ -397,30 +457,45 @@ export default function LivreurPage() {
 
                     {/* Action principale contextuelle rapide */}
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button
-                        onClick={() => setSelectedColis(c)}
-                        style={{
-                          flex: 1, minHeight: '44px', borderRadius: '10px', border: 'none',
-                          background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#000',
-                          fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
-                        }}
-                      >
-                        <CheckCircle2 size={16} /> Livrer (Code OTP)
-                      </button>
+                      {c.status === 'Déposé en point relais' || c.status === 'Disponible au point relais' || c.destDropPointId ? (
+                        <div style={{
+                          flex: 1, minHeight: '44px', borderRadius: '10px',
+                          background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.35)',
+                          color: '#93c5fd', fontWeight: '800', fontSize: '0.78rem',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                          padding: '0 0.5rem', textAlign: 'center'
+                        }}>
+                          <MapPin size={15} color="#60a5fa" />
+                          <span>Déposé au relais (Retrait client par code OTP)</span>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => setSelectedColis(c)}
+                            style={{
+                              flex: 1, minHeight: '44px', borderRadius: '10px', border: 'none',
+                              background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#000',
+                              fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
+                            }}
+                          >
+                            <CheckCircle2 size={16} /> Livrer (Code OTP)
+                          </button>
 
-                      <button
-                        onClick={() => setRerouteModalColis(c)}
-                        title="Déposer au relais si route impraticable"
-                        style={{
-                          padding: '0 0.85rem', minHeight: '44px', borderRadius: '10px',
-                          border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.1)',
-                          color: '#fcd34d', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', gap: '0.3rem'
-                        }}
-                      >
-                        <MapPin size={15} /> Déposer relais
-                      </button>
+                          <button
+                            onClick={() => setRerouteModalColis(c)}
+                            title="Déposer au relais si route impraticable"
+                            style={{
+                              padding: '0 0.85rem', minHeight: '44px', borderRadius: '10px',
+                              border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.1)',
+                              color: '#fcd34d', fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: '0.3rem'
+                            }}
+                          >
+                            <MapPin size={15} /> Déposer relais
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}

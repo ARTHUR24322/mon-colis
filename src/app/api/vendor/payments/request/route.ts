@@ -17,7 +17,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    const { agencyId, amount, message } = await request.json();
+    const body = await request.json();
+    const agencyId = body.agencyId || body.agency_id;
+    let rawAmount = Number(body.amount);
+    if (body.amountUsd && (!rawAmount || rawAmount < 500)) {
+      rawAmount = Math.round(Number(body.amountUsd) * 2800);
+    } else if (rawAmount && rawAmount < 500) {
+      // Si le montant a été passé en USD (ex: 20 USD), on le convertit en CDF
+      rawAmount = Math.round(rawAmount * 2800);
+    }
+    const amount = Math.round(rawAmount);
+    const message = body.message;
+
     if (!agencyId || !amount || amount <= 0) {
       return NextResponse.json({ error: 'Agence et montant requis.' }, { status: 400 });
     }

@@ -27,6 +27,8 @@ export async function GET() {
       agencyId: session.agencyId,
       agencyRole: session.agencyRole || (session.role === 'agence' ? 'directeur' : undefined),
       driverId: session.driverId,
+      agentNumber: session.agentNumber,
+      dropPointId: session.dropPointId || (session.role === 'point_relais' ? session.agencyId : undefined),
     },
   });
 }

@@ -22,7 +22,7 @@ export async function GET(
     if (!dropPointId) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
 
     // Use dataService so packageMetaCache status overrides are respected
-    const [incomingVendor, incomingDriver, available, vendorDeposits, dpRes] = await Promise.all([
+    const [incomingVendor, incomingDriver, available, vendorDeposits, dpRes, agentRes] = await Promise.all([
       dataService.getIncomingVendorPackagesForDropPoint(dropPointId),
       dataService.getIncomingDriverPackagesForDropPoint(dropPointId),
       dataService.getAvailablePackagesForDropPoint(dropPointId),
@@ -31,7 +31,16 @@ export async function GET(
         .select('id, name, credits, commune, address, phone, manager_name')
         .eq('id', dropPointId)
         .single(),
+      supabase.from('drop_point_agents')
+        .select('id, agent_number, name')
+        .eq('drop_point_id', dropPointId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
+
+    const agentNumber = agentRes.data?.agent_number || session.agentNumber || null;
 
     return NextResponse.json({
       success: true,
@@ -47,6 +56,7 @@ export async function GET(
         address: dpRes.data.address,
         phone: dpRes.data.phone,
         managerName: dpRes.data.manager_name,
+        agentNumber: agentNumber,
       } : null,
     });
   } catch (err) {
