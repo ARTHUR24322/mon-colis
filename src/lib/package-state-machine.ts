@@ -3,8 +3,11 @@
  * Côté serveur : garantit l'intégrité, les rôles, l'appartenance, l'idempotence et l'audit.
  */
 
-import { supabase } from '@/utils/supabase/client';
-import { z } from 'zod';
+import { supabase as supabaseClient } from '@/utils/supabase/client';
+import { supabaseAdmin } from '@/utils/supabase/admin';
+
+// Utilise le client admin sur le serveur si disponible, sinon le client par défaut
+const db = typeof window === 'undefined' ? (supabaseAdmin || supabaseClient) : supabaseClient;
 
 export type PackageDbStatus =
   | 'CREATED'
@@ -20,6 +23,62 @@ export type PackageDbStatus =
   | 'IN_DISPUTE'
   | 'DELIVERED'
   | 'CANCELLED';
+
+/**
+ * Traduction humaine obligatoire en français : aucun code technique brut (QUOTE_PENDING, etc.)
+ * ne doit être affiché à l'utilisateur.
+ */
+export const HUMAN_STATUS_MAP: Record<string, string> = {
+  CREATED: 'Créé',
+  PENDING_AGENCY: "En attente d'agence",
+  ACCEPTED_BY_AGENCY: "Accepté par l'agence",
+  REJECTED_BY_AGENCY: "Décliné par l'agence",
+  ASSIGNED_TO_DRIVER: 'Assigné au livreur',
+  IN_TRANSIT: 'En cours de livraison',
+  DEPOSITED_AT_DROP_POINT: 'Déposé en point relais',
+  AVAILABLE_AT_PICKUP_POINT: 'Disponible au point relais',
+  WAITING_FOR_AGENCY_PICKUP: 'En attente de collecte agence',
+  REFUSED_BY_DROP_POINT: 'Refusé par le point relais',
+  IN_DISPUTE: 'En réclamation',
+  DELIVERED: 'Livré',
+  CANCELLED: 'Annulé',
+  QUOTE_PENDING: 'Devis en attente',
+  DRAFT: 'Brouillon',
+};
+
+export function getHumanStatusLabel(status: string | null | undefined): string {
+  if (!status) return 'Inconnu';
+  return HUMAN_STATUS_MAP[status] || status;
+}
+
+/**
+ * Vérifie si un colis peut avoir son devis recalculé ou accepté.
+ * Règle stricte : Uniquement si le colis est en création/brouillon ET qu'aucune agence n'a accepté.
+ */
+export function canModifyOrAcceptQuote(status: string | null | undefined): boolean {
+  if (!status) return false;
+  const normalized = status.toUpperCase();
+  const forbiddenStatuses = [
+    'ACCEPTED_BY_AGENCY',
+    'ACCEPTÉ',
+    'ASSIGNED_TO_DRIVER',
+    'IN_TRANSIT',
+    'EN TRANSIT',
+    'DEPOSITED_AT_DROP_POINT',
+    'AVAILABLE_AT_PICKUP_POINT',
+    'WAITING_FOR_AGENCY_PICKUP',
+    'REFUSED_BY_DROP_POINT',
+    'IN_DISPUTE',
+    'DELIVERED',
+    'LIVRÉ',
+    'CANCELLED',
+    'ANNULÉ',
+  ];
+  if (forbiddenStatuses.includes(normalized)) {
+    return false;
+  }
+  return ['CREATED', 'CRÉÉ', 'DRAFT', 'BROUILLON', 'PENDING_AGENCY', "EN ATTENTE D'AGENCE"].includes(normalized);
+}
 
 export type UserRole = 'vendeur' | 'agence' | 'livreur' | 'point_relais' | 'superadmin';
 
@@ -143,7 +202,7 @@ export async function logPackageAudit(data: {
   metadata?: Record<string, unknown>;
 }) {
   try {
-    const { error } = await supabase.from('package_audit_logs').insert({
+    const { error } = await db.from('package_audit_logs').insert({
       package_id: data.packageId,
       package_code: data.packageCode || null,
       actor_id: data.actorId || null,
@@ -169,7 +228,7 @@ export async function logPackageAudit(data: {
  */
 export async function notifyUser(userId: string, type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT', message: string) {
   try {
-    await supabase.from('notifications').insert({
+    await db.from('notifications').insert({
       user_id: userId,
       type,
       message,
@@ -187,7 +246,7 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
 
   // 1. Idempotence : si une clé d'idempotence est fournie et déjà traitée, retourner succès immédiat
   if (idempotencyKey) {
-    const { data: existingAudit } = await supabase
+    const { data: existingAudit } = await db
       .from('package_audit_logs')
       .select('id, to_status')
       .eq('idempotency_key', idempotencyKey)
@@ -203,7 +262,7 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
   }
 
   // 2. Charger le colis
-  const { data: pkg, error: pkgErr } = await supabase
+  const { data: pkg, error: pkgErr } = await db
     .from('packages')
     .select('*')
     .eq('id', packageId)
@@ -264,14 +323,14 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
   // 5. Vérification de la transition dans la matrice
   const allowedFromCurrent = TRANSITIONS_RULES[currentStatus];
   if (!allowedFromCurrent) {
-    return { success: false, message: `Aucune transition permise depuis le statut ${currentStatus}.` };
+    return { success: false, message: `Aucune transition permise depuis le statut "${getHumanStatusLabel(currentStatus)}".` };
   }
 
   const rule = allowedFromCurrent[targetStatus];
   if (!rule) {
     return {
       success: false,
-      message: `Transition illégale : passage impossible de ${currentStatus} vers ${targetStatus}.`,
+      message: `Transition impossible : le colis ne peut pas passer de "${getHumanStatusLabel(currentStatus)}" à "${getHumanStatusLabel(targetStatus)}".`,
     };
   }
 
@@ -303,16 +362,20 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
     updateData.resolution_note = reason || 'Réclamation levée par le Super Admin';
   }
 
-  // 7. Appliquer l'update en base
-  const { data: updatedPkg, error: updateErr } = await supabase
+  // 7. Appliquer l'update en base avec verrouillage optimiste sur l'état courant
+  const { data: updatedPkg, error: updateErr } = await db
     .from('packages')
     .update(updateData)
     .eq('id', packageId)
+    .eq('status', currentStatus)
     .select()
     .single();
 
-  if (updateErr) {
-    return { success: false, message: `Échec mise à jour en base : ${updateErr.message}` };
+  if (updateErr || !updatedPkg) {
+    return {
+      success: false,
+      message: updateErr ? `Échec mise à jour en base : ${updateErr.message}` : "L'état du colis a été modifié en parallèle. Veuillez rafraîchir."
+    };
   }
 
   // 8. Enregistrer dans package_audit_logs

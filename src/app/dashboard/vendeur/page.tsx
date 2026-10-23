@@ -78,6 +78,29 @@ export default function VendeurDashboard() {
   // Paiement marchandise (séparé des frais de livraison)
   const [merchandisePrepaid, setMerchandisePrepaid] = useState(false); // false = l'agence collecte, true = déjà réglé
 
+  // Types et état pour l'écran Virements Vendeur
+  interface VendorPayoutItem {
+    id: string;
+    agencyId: string;
+    agencyName: string;
+    agencyPhone: string;
+    amount: number;
+    status: 'en_attente' | 'qr_genere' | 'confirme' | 'expire' | 'annule';
+    rawStatus: string;
+    code: string | null;
+    qrPayload: string | null;
+    qrImageUrl: string | null;
+    expiresAt: string | null;
+    rejectReason?: string | null;
+    createdAt: string;
+    resolvedAt?: string | null;
+  }
+
+  const [payoutRequests, setPayoutRequests] = useState<VendorPayoutItem[]>([]);
+  const [revenueSubTab, setRevenueSubTab] = useState<'virements' | 'soldes'>('virements');
+  const [zoomedQr, setZoomedQr] = useState<{ url: string; code: string; amount: number; agency: string } | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<Record<string, string>>({});
+
   // OTPs de versement en attente de confirmation (agence → vendeur)
   const [pendingPaymentOtps, setPendingPaymentOtps] = useState<Array<{
     id: string;
@@ -118,6 +141,19 @@ export default function VendeurDashboard() {
       console.warn('Erreur chargement colis:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Chargement des demandes de virement (ne disparaissent jamais)
+  const loadPayoutRequests = async () => {
+    try {
+      const res = await fetch('/api/vendor/payments/request');
+      if (res.ok) {
+        const data = await res.json();
+        setPayoutRequests(data.requests || []);
+      }
+    } catch {
+      // silencieux
     }
   };
 
@@ -168,6 +204,7 @@ export default function VendeurDashboard() {
     if (user?.id) {
       refreshColis();
       loadPendingPaymentOtps();
+      loadPayoutRequests();
       dataService.getAgencies().then(list => {
         const map: Record<string, number> = {};
         list.forEach(ag => { if (ag.id && ag.tauxConversionFC) map[ag.id] = ag.tauxConversionFC; });
@@ -182,11 +219,44 @@ export default function VendeurDashboard() {
       }).catch(() => {});
     }
 
+    // Polling régulier pour détecter en temps réel la génération du QR par l'agence
+    const pollInterval = setInterval(() => {
+      if (user?.id) {
+        loadPayoutRequests();
+        loadPendingPaymentOtps();
+      }
+    }, 6000);
+
     const unsubscribe = dataService.subscribeToPackages(() => {
       refreshColis();
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearInterval(pollInterval);
+    };
   }, [user?.id]);
+
+  // Horloge dynamique pour le compte à rebours des demandes avec QR actif
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const updated: Record<string, string> = {};
+      const now = Date.now();
+      payoutRequests.forEach(req => {
+        if (req.expiresAt && req.status === 'qr_genere') {
+          const diff = new Date(req.expiresAt).getTime() - now;
+          if (diff <= 0) {
+            updated[req.id] = '00:00 (Expiré)';
+          } else {
+            const minutes = Math.floor(diff / 60000);
+            const seconds = Math.floor((diff % 60000) / 1000);
+            updated[req.id] = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+          }
+        }
+      });
+      setTimeRemaining(updated);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [payoutRequests]);
 
   // Synchronisation du colis sélectionné lors d'un rafraîchissement
   useEffect(() => {
@@ -312,8 +382,8 @@ export default function VendeurDashboard() {
         agencyId: selectedAgencyId || undefined,
       });
 
-      // Calcul initial du devis
-      if (newPkg?.id) {
+      // BUG 3 : Le devis n'est calculé qu'après le choix de l'agence
+      if (newPkg?.id && selectedAgencyId) {
         try {
           await fetch(`/api/vendor/packages/${newPkg.id}/quote`, {
             method: 'POST',
@@ -669,178 +739,428 @@ export default function VendeurDashboard() {
         </div>
       )}
 
-      {/* ══════════════ 3. REVENUS (DÉDIÉ) ══════════════ */}
+      {/* ══════════════ 3. REVENUS & VIREMENTS (DÉDIÉ) ══════════════ */}
       {activeTab === 'revenus' && (
         <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
-            Mes Revenus & Versements
-          </h1>
-
-          {/* ── CONFIRMATION OTP DE VERSEMENT ── */}
-          {pendingPaymentOtps.length > 0 && (
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05))',
-              border: '2px solid rgba(34,197,94,0.5)',
-              borderRadius: '20px', padding: '1.25rem',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>🔐</span>
-                <span style={{ fontSize: '0.9rem', fontWeight: '900', color: '#4ade80' }}>
-                  Versement reçu — Confirmez votre paiement
-                </span>
-              </div>
-              {pendingPaymentOtps.map(otp => (
-                <div key={otp.id} style={{ marginBottom: '0.75rem', padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: '12px' }}>
-                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
-                    Agence : <strong style={{ color: '#fff' }}>{(otp.agency as any)?.profile?.name || 'Votre agence'}</strong>
-                  </div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: '900', color: '#4ade80', marginBottom: '0.1rem' }}>
-                    {formatPrice(otp.amount)}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                    Expire le {new Date(otp.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              ))}
-              <p style={{ margin: '0 0 0.85rem', fontSize: '0.8rem', color: '#86efac', lineHeight: 1.4 }}>
-                L'agence a généré un code OTP pour confirmer ce versement. Entrez le code ci-dessous pour valider que vous avez bien reçu l'argent.
-              </p>
-              {otpConfirmSuccess ? (
-                <div style={{
-                  background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.5)',
-                  borderRadius: '12px', padding: '0.85rem', fontSize: '0.85rem', color: '#4ade80', fontWeight: '700'
-                }}>
-                  {otpConfirmSuccess}
-                </div>
-              ) : (
-                <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
-                      Code OTP reçu de l'agence (6 chiffres) :
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="Ex: 482951"
-                      value={otpConfirmInput}
-                      onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
-                      style={{
-                        width: '100%', minHeight: '52px', borderRadius: '12px',
-                        background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(34,197,94,0.4)',
-                        padding: '0 1rem', color: '#fff', fontSize: '1.6rem',
-                        fontWeight: '900', letterSpacing: '8px', textAlign: 'center',
-                        fontFamily: 'monospace', boxSizing: 'border-box'
-                      }}
-                    />
-                    {otpConfirmError && (
-                      <div style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '0.3rem', fontWeight: '600' }}>
-                        {otpConfirmError}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
-                    style={{
-                      minHeight: '48px', borderRadius: '12px', border: 'none',
-                      background: otpConfirmInput.length === 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.1)',
-                      color: otpConfirmInput.length === 6 ? '#000' : '#64748b',
-                      fontWeight: '900', fontSize: '0.95rem', cursor: otpConfirmInput.length !== 6 ? 'not-allowed' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <Check size={18} />
-                    {otpConfirmLoading ? 'Vérification...' : 'Confirmer la réception du versement'}
-                  </button>
-                </form>
-              )}
-            </div>
-          )}
-
-          {/* Chiffre principal : Reste à recevoir */}
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05))',
-            border: '1px solid rgba(245, 158, 11, 0.35)',
-            borderRadius: '20px',
-            padding: '1.25rem',
-            textAlign: 'center',
-          }}>
-            <span style={{ fontSize: '0.8rem', color: '#fcd34d', fontWeight: '700', textTransform: 'uppercase' }}>
-              Reste net à recevoir
-            </span>
-            <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ffffff', margin: '0.2rem 0' }}>
-              {formatPrice(soldeNetRecevoir)}
-            </div>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
-              Marchandises livrées par les agences en attente de versement.
-            </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
+              Finance & Virements
+            </h1>
             <button
-              onClick={loadPendingPaymentOtps}
+              onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
               style={{
-                marginTop: '0.75rem', padding: '0.35rem 0.85rem', borderRadius: '8px',
-                border: '1px solid rgba(245,158,11,0.3)', background: 'transparent',
-                color: '#fcd34d', fontSize: '0.72rem', fontWeight: '700', cursor: 'pointer'
+                padding: '0.35rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', fontSize: '0.72rem', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '4px'
               }}
             >
-              🔄 Actualiser les versements
+              <RefreshCw size={12} /> Actualiser
             </button>
           </div>
 
-          {/* Soldes par Agence */}
-          <div>
-            <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#cbd5e1', margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
-              Détail par Agence
-            </h2>
+          {/* Sélecteur de sous-onglets : Virements vs Soldes */}
+          <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '12px' }}>
+            <button
+              type="button"
+              onClick={() => setRevenueSubTab('virements')}
+              style={{
+                flex: 1, minHeight: '38px', borderRadius: '8px', border: 'none',
+                background: revenueSubTab === 'virements' ? '#22c55e' : 'transparent',
+                color: revenueSubTab === 'virements' ? '#000' : '#cbd5e1',
+                fontWeight: '800', fontSize: '0.78rem', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+              }}
+            >
+              <span>💸 Mes Virements</span>
+              {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length > 0 && (
+                <span style={{
+                  background: revenueSubTab === 'virements' ? '#000' : '#22c55e',
+                  color: revenueSubTab === 'virements' ? '#fff' : '#000',
+                  fontSize: '0.65rem', padding: '1px 6px', borderRadius: '10px', fontWeight: '900'
+                }}>
+                  {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRevenueSubTab('soldes')}
+              style={{
+                flex: 1, minHeight: '38px', borderRadius: '8px', border: 'none',
+                background: revenueSubTab === 'soldes' ? '#22c55e' : 'transparent',
+                color: revenueSubTab === 'soldes' ? '#000' : '#cbd5e1',
+                fontWeight: '800', fontSize: '0.78rem', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+              }}
+            >
+              <span>📊 Soldes par agence</span>
+            </button>
+          </div>
 
-            {agencesFinances.length === 0 ? (
-              <div style={{
-                textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)',
-                borderRadius: '12px', color: '#64748b', fontSize: '0.82rem'
-              }}>
-                Aucun versement en attente. Tout est à jour !
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {agencesFinances.map(ag => (
-                  <div
-                    key={ag.agencyId}
-                    style={{
-                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '14px', padding: '0.9rem', display: 'flex',
-                      justifyContent: 'space-between', alignItems: 'center'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#fff' }}>
-                        {ag.agencyName}
-                      </div>
-                      <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#4ade80', marginTop: '0.2rem' }}>
-                        {formatPrice(ag.duAuVendeur)}
-                      </div>
+          {/* ── SOUS-ONGLET 1 : ÉCRAN VIREMENTS VENDEUR ── */}
+          {revenueSubTab === 'virements' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Demande active la plus récente */}
+              {payoutRequests.length > 0 && (() => {
+                const latest = payoutRequests[0];
+                const isActive = ['en_attente', 'qr_genere'].includes(latest.status);
+                const isQrReady = latest.status === 'qr_genere';
+                const isExpired = latest.status === 'expire';
+                const isConfirmed = latest.status === 'confirme';
+                const isCancelled = latest.status === 'annule';
+
+                return (
+                  <div style={{
+                    background: isQrReady
+                      ? 'linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.06))'
+                      : isExpired
+                      ? 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(239,68,68,0.06))'
+                      : 'rgba(255,255,255,0.04)',
+                    border: isQrReady
+                      ? '2px solid rgba(34,197,94,0.5)'
+                      : isExpired
+                      ? '2px solid rgba(239,68,68,0.4)'
+                      : '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '20px', padding: '1.25rem',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
+                        Dernière demande de virement
+                      </span>
+                      {/* Statuts explicites obligatoires */}
+                      <span style={{
+                        padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: '800',
+                        background: isQrReady ? 'rgba(34,197,94,0.2)' : isExpired ? 'rgba(239,68,68,0.2)' : isConfirmed ? 'rgba(59,130,246,0.2)' : 'rgba(245,158,11,0.2)',
+                        color: isQrReady ? '#4ade80' : isExpired ? '#f87171' : isConfirmed ? '#60a5fa' : '#fcd34d',
+                        border: `1px solid ${isQrReady ? '#22c55e' : isExpired ? '#ef4444' : isConfirmed ? '#3b82f6' : '#f59e0b'}`,
+                      }}>
+                        {isQrReady && '📱 QR Code généré'}
+                        {latest.status === 'en_attente' && '⏳ En attente de l\'agence'}
+                        {isExpired && '⚠️ Expiré'}
+                        {isConfirmed && '✅ Confirmé'}
+                        {isCancelled && '❌ Annulé'}
+                      </span>
                     </div>
 
-                    <button
-                      onClick={() => setVendorRequestModal({
-                        agencyId: ag.agencyId,
-                        agencyName: ag.agencyName,
-                        agencyPhone: ag.phone || '',
-                        amount: ag.duAuVendeur,
-                      })}
-                      style={{
-                        padding: '0.5rem 0.85rem', borderRadius: '10px', border: 'none',
-                        background: '#22c55e', color: '#000', fontWeight: '800',
-                        fontSize: '0.78rem', cursor: 'pointer'
-                      }}
-                    >
-                      Demander
-                    </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
+                          Agence : <strong style={{ color: '#fff' }}>{latest.agencyName}</strong>
+                        </div>
+                        <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', marginTop: '2px' }}>
+                          {latest.amount.toLocaleString('fr-FR')} CDF
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                          Demandé le {new Date(latest.createdAt).toLocaleString('fr-FR')}
+                        </div>
+                      </div>
+
+                      {/* Compte à rebours dynamique de validité */}
+                      {isQrReady && (
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '0.68rem', color: '#86efac', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                            Validité
+                          </span>
+                          <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#4ade80', fontFamily: 'monospace' }}>
+                            ⏱️ {timeRemaining[latest.id] || '15:00'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Affichage du QR code et du code de secours dès que l'agence le génère */}
+                    {isQrReady && (
+                      <div style={{
+                        background: 'rgba(0,0,0,0.4)', borderRadius: '16px', padding: '1rem',
+                        textAlign: 'center', marginBottom: '1rem', border: '1px solid rgba(34,197,94,0.3)'
+                      }}>
+                        <p style={{ margin: '0 0 0.6rem', fontSize: '0.75rem', color: '#86efac', fontWeight: '700' }}>
+                          Présentez ce QR Code à l'agence pour percevoir votre virement :
+                        </p>
+                        {latest.qrImageUrl && (
+                          <div style={{ display: 'inline-block', background: '#fff', padding: '10px', borderRadius: '12px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}
+                            onClick={() => setZoomedQr({ url: latest.qrImageUrl!, code: latest.code || '', amount: latest.amount, agency: latest.agencyName })}>
+                            <img src={latest.qrImageUrl} alt="QR Virement" style={{ width: '180px', height: '180px', display: 'block' }} />
+                            <span style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px', display: 'block' }}>🔍 Toucher pour agrandir</span>
+                          </div>
+                        )}
+
+                        {/* Code de secours à 6 chiffres */}
+                        {latest.code && (
+                          <div style={{ marginTop: '0.85rem' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '2px' }}>
+                              Code de secours à 6 chiffres
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '2rem', fontWeight: '900', letterSpacing: '8px', color: '#fbbf24', fontFamily: 'monospace' }}>
+                                {latest.code}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (latest.code) {
+                                    navigator.clipboard.writeText(latest.code);
+                                    showToast('Code copié !');
+                                  }
+                                }}
+                                style={{
+                                  padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.4)',
+                                  background: 'rgba(251,191,36,0.1)', color: '#fbbf24', cursor: 'pointer', fontSize: '0.7rem', fontWeight: '700'
+                                }}
+                              >
+                                Copier
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Si expirée : afficher « Expiré » avec « Refaire la demande » */}
+                    {isExpired && (
+                      <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+                        <p style={{ margin: '0 0 0.6rem', fontSize: '0.78rem', color: '#f87171' }}>
+                          Le délai de validité de ce versement a expiré avant confirmation. Les fonds sont restés sur votre solde.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setVendorRequestModal({
+                            agencyId: latest.agencyId,
+                            agencyName: latest.agencyName,
+                            agencyPhone: latest.agencyPhone,
+                            amount: latest.amount,
+                          })}
+                          style={{
+                            width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
+                            background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
+                            fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                          }}
+                        >
+                          <RefreshCw size={15} /> Refaire la demande de versement
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Si en attente de l'agence */}
+                    {latest.status === 'en_attente' && (
+                      <div style={{ textAlign: 'center', padding: '0.4rem 0', color: '#fcd34d', fontSize: '0.78rem' }}>
+                        ⏳ L'agence prépare votre virement. Dès qu'elle valide, le QR Code et le code de confirmation apparaîtront ici automatiquement.
+                      </div>
+                    )}
+
+                    {/* Saisie de validation manuelle si code disponible */}
+                    {isQrReady && (
+                      <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        {otpConfirmSuccess ? (
+                          <div style={{ padding: '0.6rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.8rem', fontWeight: '700', textAlign: 'center' }}>
+                            {otpConfirmSuccess}
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (latest.code) setOtpConfirmInput(latest.code);
+                              }}
+                              style={{
+                                background: 'transparent', border: 'none', color: '#60a5fa',
+                                fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start'
+                              }}
+                            >
+                              Pré-remplir avec le code de secours
+                            </button>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={6}
+                                placeholder="Code reçu"
+                                value={otpConfirmInput}
+                                onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                                style={{
+                                  flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)',
+                                  border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
+                                  textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
+                                style={{
+                                  padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
+                                  background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                                  color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
+                                  fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
+                                }}
+                              >
+                                {otpConfirmLoading ? '...' : 'Valider réception'}
+                              </button>
+                            </div>
+                            {otpConfirmError && (
+                              <div style={{ color: '#f87171', fontSize: '0.72rem' }}>{otpConfirmError}</div>
+                            )}
+                          </>
+                        )}
+                      </form>
+                    )}
                   </div>
-                ))}
+                );
+              })()}
+
+              {/* Historique persistant des demandes de virement : une demande ne disparaît JAMAIS */}
+              <div>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#cbd5e1', margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
+                  Historique de vos demandes ({payoutRequests.length})
+                </h2>
+
+                {payoutRequests.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', color: '#64748b', fontSize: '0.8rem' }}>
+                    Aucune demande de virement émise pour l'instant. Rendez-vous dans l'onglet "Soldes par agence" pour en demander une.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {payoutRequests.map(req => {
+                      const isExpired = req.status === 'expire';
+                      const isQr = req.status === 'qr_genere';
+                      const isPending = req.status === 'en_attente';
+                      const isPaid = req.status === 'confirme';
+
+                      return (
+                        <div
+                          key={req.id}
+                          style={{
+                            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                            borderRadius: '12px', padding: '0.75rem', display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#fff' }}>
+                              {req.agencyName}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                              {new Date(req.createdAt).toLocaleDateString('fr-FR')} · {req.amount.toLocaleString('fr-FR')} CDF
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{
+                              fontSize: '0.7rem', fontWeight: '800', padding: '2px 8px', borderRadius: '8px',
+                              background: isPaid ? 'rgba(59,130,246,0.15)' : isQr ? 'rgba(34,197,94,0.15)' : isExpired ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                              color: isPaid ? '#60a5fa' : isQr ? '#4ade80' : isExpired ? '#f87171' : '#fcd34d',
+                            }}>
+                              {isPaid && 'Confirmé'}
+                              {isQr && 'QR Prêt'}
+                              {isPending && 'En attente'}
+                              {isExpired && 'Expiré'}
+                              {req.status === 'annule' && 'Annulé'}
+                            </span>
+
+                            {isExpired && (
+                              <button
+                                type="button"
+                                onClick={() => setVendorRequestModal({
+                                  agencyId: req.agencyId,
+                                  agencyName: req.agencyName,
+                                  agencyPhone: req.agencyPhone,
+                                  amount: req.amount,
+                                })}
+                                style={{
+                                  padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.4)',
+                                  background: 'rgba(245,158,11,0.1)', color: '#fcd34d', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
+                                }}
+                              >
+                                Refaire
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* ── SOUS-ONGLET 2 : SOLDES & LIVRAISONS ── */}
+          {revenueSubTab === 'soldes' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Chiffre principal : Reste à recevoir */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05))',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                borderRadius: '20px',
+                padding: '1.25rem',
+                textAlign: 'center',
+              }}>
+                <span style={{ fontSize: '0.8rem', color: '#fcd34d', fontWeight: '700', textTransform: 'uppercase' }}>
+                  Reste net à recevoir
+                </span>
+                <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ffffff', margin: '0.2rem 0' }}>
+                  {formatPrice(soldeNetRecevoir)}
+                </div>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Marchandises livrées par les agences en attente de versement.
+                </p>
+              </div>
+
+              {/* Soldes par Agence */}
+              <div>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#cbd5e1', margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
+                  Détail par Agence
+                </h2>
+
+                {agencesFinances.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)',
+                    borderRadius: '12px', color: '#64748b', fontSize: '0.82rem'
+                  }}>
+                    Aucun versement en attente. Tout est à jour !
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {agencesFinances.map(ag => (
+                      <div
+                        key={ag.agencyId}
+                        style={{
+                          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '14px', padding: '0.9rem', display: 'flex',
+                          justifyContent: 'space-between', alignItems: 'center'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#fff' }}>
+                            {ag.agencyName}
+                          </div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#4ade80', marginTop: '0.2rem' }}>
+                            {formatPrice(ag.duAuVendeur)}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => setVendorRequestModal({
+                            agencyId: ag.agencyId,
+                            agencyName: ag.agencyName,
+                            agencyPhone: ag.phone || '',
+                            amount: ag.duAuVendeur,
+                          })}
+                          style={{
+                            padding: '0.5rem 0.85rem', borderRadius: '10px', border: 'none',
+                            background: '#22c55e', color: '#000', fontWeight: '800',
+                            fontSize: '0.78rem', cursor: 'pointer'
+                          }}
+                        >
+                          Demander
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Historique repliable */}
           <div style={{

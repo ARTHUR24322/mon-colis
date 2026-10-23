@@ -210,12 +210,23 @@ export default function VendorPackageQuoteAndHandover({
     }
   };
 
-  // Agence a déjà accepté le colis → verrouiller toutes les actions vendeur
-  const isAgencyAccepted = (colis.status as string) === 'Accepté' || colis.rawStatus === 'ACCEPTED_BY_AGENCY';
-  // Le vendeur peut changer d'agence uniquement si le colis n'est pas encore pris en charge
-  const canChangeAgency = !isAgencyAccepted && ['Créé', "En attente d'agence", "Décliné par l'agence", 'CREATED', 'PENDING_AGENCY', 'REJECTED_BY_AGENCY', 'QUOTE_PENDING'].includes(colis.status as string);
+  // Agence a déjà accepté le colis (ou statut ultérieur : transit, relais, livré, etc.)
+  const acceptedOrBeyondStatuses = [
+    'Accepté', 'En transit', 'Pris en charge', 'En attente de confirmation relais',
+    'Déposé en point relais', 'Disponible au point relais', 'En attente de collecte',
+    'Refusé par le point relais', 'En réclamation', 'Livré', 'Annulé',
+    'ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'IN_TRANSIT', 'DEPOSITED_AT_DROP_POINT',
+    'AVAILABLE_AT_PICKUP_POINT', 'WAITING_FOR_AGENCY_PICKUP', 'REFUSED_BY_DROP_POINT',
+    'IN_DISPUTE', 'DELIVERED', 'CANCELLED'
+  ];
+  const isAgencyAccepted = acceptedOrBeyondStatuses.includes(colis.status as string) ||
+    acceptedOrBeyondStatuses.includes(colis.rawStatus as string);
+
+  // BUG 3 : Sans agence, le choix est libre. Le changement d'agence reste possible tant qu'aucune agence n'a accepté.
+  const canChangeAgency = !isAgencyAccepted;
   const isQuoteAccepted = quote && quote.status === 'ACCEPTED';
   const isRejectedByAgency = (colis.status as string) === "Décliné par l'agence" || (colis.status as string) === 'REJECTED_BY_AGENCY' || colis.rawStatus === 'REJECTED_BY_AGENCY';
+  const hasAgency = Boolean(colis.agence || colis.agencyId);
   const handoverCode = colis.trackingCode || `MC-${colis.id.slice(0, 8).toUpperCase()}`;
 
   // QR Code Data payload
@@ -349,55 +360,64 @@ export default function VendorPackageQuoteAndHandover({
             </div>
           )}
 
-          {isAgencyAccepted && (
+          {isAgencyAccepted ? (
             <div style={{
               display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.45rem 0.65rem', borderRadius: '8px', marginBottom: '0.4rem',
+              padding: '0.55rem 0.75rem', borderRadius: '8px',
               background: 'rgba(34, 197, 94, 0.08)',
               border: '1px solid rgba(34, 197, 94, 0.25)',
-              fontSize: '0.72rem', color: '#86efac', fontWeight: '600',
+              fontSize: '0.76rem', color: '#86efac', fontWeight: '600',
             }}>
-              <ShieldCheck size={13} style={{ flexShrink: 0 }} />
-              L'agence a accepté ce colis — l'itinéraire est figé.
+              <ShieldCheck size={14} style={{ flexShrink: 0 }} />
+              L'agence a accepté ce colis — l'itinéraire et les tarifs sont validés et figés.
             </div>
+          ) : !hasAgency ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.55rem 0.75rem', borderRadius: '8px',
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.25)',
+              fontSize: '0.76rem', color: '#fcd34d', fontWeight: '600',
+            }}>
+              <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+              Choisissez une agence pour voir le devis.
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCalculateDistance}
+              disabled={distanceLoading || quoteActionLoading}
+              style={{
+                width: '100%',
+                minHeight: '36px',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                color: '#fff',
+                fontWeight: '700',
+                fontSize: '0.78rem',
+                cursor: distanceLoading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                border: 'none',
+              }}
+            >
+              {distanceLoading ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" /> Calcul du trajet via OpenStreetMap...
+                </>
+              ) : calculatedDistance ? (
+                <>
+                  <RefreshCw size={13} /> Recalculer l'itinéraire OpenStreetMap ({calculatedDistance} km)
+                </>
+              ) : (
+                <>
+                  <MapPin size={14} /> Cliquer pour calculer le trajet & tarif kilométrique (OpenStreetMap)
+                </>
+              )}
+            </button>
           )}
-          <button
-            type="button"
-            onClick={handleCalculateDistance}
-            disabled={distanceLoading || quoteActionLoading || isAgencyAccepted}
-            style={{
-              width: '100%',
-              minHeight: '36px',
-              borderRadius: '8px',
-              background: isAgencyAccepted
-                ? 'rgba(255,255,255,0.06)'
-                : 'linear-gradient(135deg, #2563eb, #3b82f6)',
-              color: isAgencyAccepted ? '#475569' : '#fff',
-              fontWeight: '700',
-              fontSize: '0.78rem',
-              cursor: (distanceLoading || isAgencyAccepted) ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              opacity: isAgencyAccepted ? 0.45 : 1,
-              border: isAgencyAccepted ? '1px solid rgba(255,255,255,0.08)' : 'none',
-            }}
-          >
-            {distanceLoading ? (
-              <>
-                <RefreshCw size={13} className="animate-spin" /> Calcul du trajet via OpenStreetMap...
-              </>
-            ) : calculatedDistance ? (
-              <>
-                <RefreshCw size={13} /> Recalculer l'itinéraire OpenStreetMap ({calculatedDistance} km)
-              </>
-            ) : (
-              <>
-                <MapPin size={14} /> Cliquer pour calculer le trajet & tarif kilométrique (OpenStreetMap)
-              </>
-            )}
-          </button>
         </div>
 
         {loadingQuote ? (
@@ -433,54 +453,52 @@ export default function VendorPackageQuoteAndHandover({
               {quote.distance_km ? ` • Distance : ${quote.distance_km} km` : ''}
             </div>
 
-            {!isQuoteAccepted && (
-              isAgencyAccepted ? (
-                /* Bouton verrouillé : agence a déjà accepté + devis figé */
-                <div style={{
-                  width: '100%', minHeight: '44px', borderRadius: '10px',
-                  background: 'rgba(34, 197, 94, 0.08)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
+            {/* Dès qu'une agence accepte le colis, le bouton d'acceptation disparaît */}
+            {!isQuoteAccepted && !isAgencyAccepted && hasAgency && (
+              <button
+                type="button"
+                onClick={handleAcceptQuote}
+                disabled={quoteActionLoading}
+                style={{
+                  width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#000', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                  color: '#4ade80', fontWeight: '700', fontSize: '0.82rem',
-                  cursor: 'not-allowed', opacity: 0.75,
-                }}>
-                  <ShieldCheck size={16} />
-                  Agence acceptée — devis et QR déjà activés
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleAcceptQuote}
-                  disabled={quoteActionLoading}
-                  style={{
-                    width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    color: '#000', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                  }}
-                >
-                  <CheckCircle2 size={16} />
-                  {quoteActionLoading ? 'Validation en cours...' : 'Accepter ce devis et débloquer le QR code'}
-                </button>
-              )
+                }}
+              >
+                <CheckCircle2 size={16} />
+                {quoteActionLoading ? 'Validation en cours...' : 'Accepter ce devis et débloquer le QR code'}
+              </button>
             )}
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
-            <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-              Devis en attente. Calculez l&apos;itinéraire ci-dessus ou générez le devis directement.
-            </p>
-            <button
-              type="button"
-              onClick={() => handleGenerateQuote()}
-              disabled={quoteActionLoading}
-              style={{
-                minHeight: '38px', padding: '0 1rem', borderRadius: '8px', border: 'none',
-                background: '#3b82f6', color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
-              }}
-            >
-              {quoteActionLoading ? 'Calcul...' : 'Calculer le devis du colis'}
-            </button>
+            {!hasAgency ? (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#fcd34d' }}>
+                Choisissez une agence pour voir le devis.
+              </p>
+            ) : isAgencyAccepted ? (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#86efac' }}>
+                Colis déjà validé et pris en charge par l&apos;agence.
+              </p>
+            ) : (
+              <>
+                <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  Devis en attente. Calculez l&apos;itinéraire ci-dessus ou générez le devis directement.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateQuote()}
+                  disabled={quoteActionLoading}
+                  style={{
+                    minHeight: '38px', padding: '0 1rem', borderRadius: '8px', border: 'none',
+                    background: '#3b82f6', color: '#fff', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
+                  }}
+                >
+                  {quoteActionLoading ? 'Calcul...' : 'Calculer le devis du colis'}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

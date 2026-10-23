@@ -33,28 +33,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Agence et montant requis.' }, { status: 400 });
     }
 
-    // Auto-expirer les demandes PENDING/SEEN de plus d'1 heure (déblocage automatique)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    await supabase
+    // Vérifier les demandes actives en cours (PENDING ou SEEN avec OTP valide)
+    const { data: existingRequests } = await supabase
       .from('vendor_payment_requests')
-      .update({ status: 'EXPIRED' })
+      .select('id, status, message, created_at')
       .eq('vendor_id', session.userId)
       .eq('agency_id', agencyId)
       .in('status', ['PENDING', 'SEEN'])
-      .lt('created_at', oneHourAgo);
+      .order('created_at', { ascending: false });
 
-    // Vérifier qu'il n'y a pas déjà une demande en cours (PENDING ou SEEN) pour cette agence
-    const { data: existing } = await supabase
-      .from('vendor_payment_requests')
-      .select('id')
-      .eq('vendor_id', session.userId)
-      .eq('agency_id', agencyId)
-      .in('status', ['PENDING', 'SEEN'])
-      .maybeSingle();
+    // Si une demande existe, vérifier si elle a expiré
+    let hasActivePending = false;
+    if (existingRequests && existingRequests.length > 0) {
+      for (const reqItem of existingRequests) {
+        let isExpired = false;
+        try {
+          if (reqItem.message) {
+            const parsed = JSON.parse(reqItem.message);
+            if (parsed.expiresAt && new Date(parsed.expiresAt) < new Date()) {
+              isExpired = true;
+            }
+          }
+        } catch {
+          // message standard
+        }
 
-    if (existing) {
+        // Si créée il y a plus de 30 minutes sans OTP
+        const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+        if (new Date(reqItem.created_at) < thirtyMinsAgo) {
+          isExpired = true;
+        }
+
+        if (isExpired) {
+          await supabase
+            .from('vendor_payment_requests')
+            .update({ status: 'EXPIRED' })
+            .eq('id', reqItem.id);
+        } else {
+          hasActivePending = true;
+        }
+      }
+    }
+
+    if (hasActivePending) {
       return NextResponse.json({
-        error: 'Vous avez déjà une demande en attente de traitement auprès de cette agence. Réessayez dans 1 heure ou attendez la réponse de votre agence.'
+        error: 'Une demande de versement est déjà en cours auprès de cette agence. Vous pouvez la suivre dans votre écran Virements.'
       }, { status: 409 });
     }
 
@@ -109,34 +132,99 @@ export async function GET() {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    const [{ data: requests, error }, { data: activeOtps }] = await Promise.all([
-      supabase
-        .from('vendor_payment_requests')
-        .select('id, agency_id, amount, status, message, reject_reason, created_at, resolved_at')
-        .eq('vendor_id', session.userId)
-        .order('created_at', { ascending: false })
-        .limit(30),
-      supabase
-        .from('payment_otps')
-        .select('id, agency_id, amount, expires_at, created_at')
-        .eq('vendor_id', session.userId)
-        .eq('used', false)
-        .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-    ]);
+    // Récupérer toutes les demandes (ne disparaissent jamais)
+    const { data: requests, error } = await supabase
+      .from('vendor_payment_requests')
+      .select(`
+        id, agency_id, amount, status, message, reject_reason, created_at, resolved_at,
+        agency:agencies!agency_id(
+          id,
+          profile:profiles!id(name, phone)
+        )
+      `)
+      .eq('vendor_id', session.userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
 
     if (error) {
       console.error('Vendor requests GET error:', error);
       return NextResponse.json({ error: 'Erreur lors du chargement.' }, { status: 500 });
     }
 
-    const otpMap = new Map((activeOtps || []).map(o => [o.agency_id, o]));
-    const enriched = (requests ?? []).map(r => ({
-      ...r,
-      activeOtp: otpMap.get(r.agency_id) || null
-    }));
+    const now = new Date();
 
-    return NextResponse.json({ requests: enriched, activeOtps: activeOtps ?? [] });
+    // Normalisation des statuts explicites demandés :
+    // 'en_attente' | 'qr_genere' | 'confirme' | 'expire' | 'annule'
+    const enriched = (requests ?? []).map(r => {
+      let explicitStatus: 'en_attente' | 'qr_genere' | 'confirme' | 'expire' | 'annule' = 'en_attente';
+      let code: string | null = null;
+      let expiresAt: string | null = null;
+
+      try {
+        if (r.message && r.message.startsWith('{')) {
+          const parsed = JSON.parse(r.message);
+          code = parsed.code || null;
+          expiresAt = parsed.expiresAt || null;
+        }
+      } catch {
+        // message texte brut
+      }
+
+      if (r.status === 'PAID') {
+        explicitStatus = 'confirme';
+      } else if (r.status === 'REJECTED') {
+        explicitStatus = 'annule';
+      } else if (r.status === 'EXPIRED') {
+        explicitStatus = 'expire';
+      } else if (r.status === 'SEEN') {
+        if (expiresAt && new Date(expiresAt) < now) {
+          explicitStatus = 'expire';
+        } else if (code) {
+          explicitStatus = 'qr_genere';
+        } else {
+          explicitStatus = 'en_attente';
+        }
+      } else {
+        explicitStatus = 'en_attente';
+      }
+
+      const agencyRaw = Array.isArray(r.agency) ? r.agency[0] : r.agency;
+      const agencyProfile = Array.isArray(agencyRaw?.profile) ? agencyRaw?.profile[0] : agencyRaw?.profile;
+      const agencyName = agencyProfile?.name || 'Agence partenaire';
+      const agencyPhone = agencyProfile?.phone || '';
+
+      const qrPayload = code ? JSON.stringify({
+        type: 'VENDOR_PAYOUT',
+        requestId: r.id,
+        agencyId: r.agency_id,
+        vendorId: session.userId,
+        amount: r.amount,
+        code,
+      }) : null;
+
+      const qrImageUrl = qrPayload
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(qrPayload)}`
+        : null;
+
+      return {
+        id: r.id,
+        agencyId: r.agency_id,
+        agencyName,
+        agencyPhone,
+        amount: r.amount,
+        status: explicitStatus,
+        rawStatus: r.status,
+        code,
+        qrPayload,
+        qrImageUrl,
+        expiresAt,
+        rejectReason: r.reject_reason,
+        createdAt: r.created_at,
+        resolvedAt: r.resolved_at,
+      };
+    });
+
+    return NextResponse.json({ requests: enriched });
   } catch (err) {
     console.error('[GET /api/vendor/payments/request]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });

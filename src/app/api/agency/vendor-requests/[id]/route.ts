@@ -19,14 +19,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    const { action, rejectReason, mobileMoneyRef } = await request.json();
+    const { action, rejectReason, mobileMoneyRef, otpCode } = await request.json();
     if (!['PAID', 'REJECTED'].includes(action)) {
       return NextResponse.json({ error: 'Action invalide.' }, { status: 400 });
     }
 
     const { data: req, error: fetchErr } = await supabase
       .from('vendor_payment_requests')
-      .select('id, agency_id, status, amount, vendor_id')
+      .select('id, agency_id, status, amount, vendor_id, message')
       .eq('id', id)
       .single();
 
@@ -38,6 +38,25 @@ export async function PATCH(
     }
     if (!['PENDING', 'SEEN'].includes(req.status)) {
       return NextResponse.json({ error: 'Cette demande a déjà été traitée.' }, { status: 409 });
+    }
+
+    // BUG 2 : Un virement n'est « effectué » que par confirmation explicite validée côté serveur, jamais par un délai.
+    if (action === 'PAID') {
+      let expectedCode: string | null = null;
+      try {
+        if (req.message && req.message.startsWith('{')) {
+          const parsed = JSON.parse(req.message);
+          expectedCode = parsed.code || null;
+        }
+      } catch {
+        // ignore
+      }
+
+      if (!otpCode || (expectedCode && String(otpCode).trim() !== expectedCode)) {
+        return NextResponse.json({
+          error: "Un virement n'est effectué que par validation explicite du code OTP/QR à 6 chiffres.",
+        }, { status: 400 });
+      }
     }
 
     // Récupérer le nom réel du vendeur

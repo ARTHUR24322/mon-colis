@@ -114,7 +114,7 @@ export async function POST(
     const body = await request.json();
     const { action, distanceKm: passedDistance } = body; // 'generate' ou 'accept'
 
-    // Récupérer le colis avec ses infos
+    // Récupérer le colis avec ses infos actuelles vérifiées en base
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
       .select(`
@@ -136,8 +136,29 @@ export async function POST(
       return NextResponse.json({ error: 'Ce colis ne vous appartient pas.' }, { status: 403 });
     }
 
-    // ── Générer un devis ─────────────────────────────────────────────────────
+    // PRINCIPE & BUG 1 : Ces deux routes ne fonctionnent que si le colis est en brouillon/créé
+    // ET qu'aucune agence n'a accepté (interdiction absolue de modifier un colis pris en charge ou livré)
+    const currentStatusNormalized = (pkg.status || '').toUpperCase();
+    const forbiddenStatuses = [
+      'ACCEPTED_BY_AGENCY', 'ACCEPTÉ', 'ASSIGNED_TO_DRIVER', 'IN_TRANSIT', 'EN TRANSIT',
+      'DEPOSITED_AT_DROP_POINT', 'AVAILABLE_AT_PICKUP_POINT', 'WAITING_FOR_AGENCY_PICKUP',
+      'REFUSED_BY_DROP_POINT', 'IN_DISPUTE', 'DELIVERED', 'LIVRÉ', 'CANCELLED', 'ANNULÉ'
+    ];
+    if (forbiddenStatuses.includes(currentStatusNormalized)) {
+      return NextResponse.json({
+        error: `Impossible de recalculer ou d'accepter le devis : le colis a déjà été pris en charge ou livré.`,
+      }, { status: 400 });
+    }
+
+    // ── Générer un devis (Recalculer) ─────────────────────────────────────────
     if (action === 'generate') {
+      // BUG 3 : Le devis n'est calculé qu'après le choix de l'agence
+      if (!pkg.agency_id) {
+        return NextResponse.json({
+          error: "Veuillez d'abord choisir une agence pour calculer le devis.",
+        }, { status: 400 });
+      }
+
       // Expirer les anciens devis PENDING
       await supabaseAdmin
         .from('package_quotes')
@@ -177,8 +198,6 @@ export async function POST(
       });
 
       const prixMarchandise = pkg.package_price || 0;
-      // !is_prepaid = l'agence/livreur collecte la marchandise (COD)
-      // paid_by_client = le livreur collecte les frais de livraison chez le client
       const partMarchandise = pkg.is_prepaid ? 0 : prixMarchandise;
       const partLivraison = pkg.paid_by_client !== false ? totalUsd : 0;
       const montantEncaisser = partMarchandise + partLivraison;
@@ -212,15 +231,20 @@ export async function POST(
         return NextResponse.json({ error: 'Erreur lors de la génération du devis.' }, { status: 500 });
       }
 
-      // Mettre le colis en statut QUOTE_PENDING
-      await supabaseAdmin
+      // BUG 1 : « Recalculer » ne modifie JAMAIS le statut, seulement le montant du devis.
+      // Mise à jour conditionnelle vérifiée en base.
+      const { error: updatePkgErr } = await supabaseAdmin
         .from('packages')
         .update({
-          status: 'QUOTE_PENDING',
           delivery_price: totalUsd,
           updated_at: new Date().toISOString()
         })
-        .eq('id', packageId);
+        .eq('id', packageId)
+        .in('status', ['CREATED', 'DRAFT', 'PENDING_AGENCY', 'QUOTE_PENDING']);
+
+      if (updatePkgErr) {
+        console.error('[POST quote/generate] pkg update error:', updatePkgErr);
+      }
 
       return NextResponse.json({ quote, action: 'generated' });
     }
@@ -258,19 +282,32 @@ export async function POST(
         .update({ status: 'ACCEPTED', accepted_at: now, accepted_by: session.userId })
         .eq('id', quoteId);
 
-      // Mettre à jour le colis avec le devis accepté
-      await supabaseAdmin
+      // Calcul du statut cible : si agence assignée -> PENDING_AGENCY, sinon conserve CREATED
+      const targetStatus = pkg.agency_id ? 'PENDING_AGENCY' : 'CREATED';
+
+      // BUG 1 : Mise à jour conditionnelle vérifiée en base.
+      // Uniquement si le colis est encore en CREATED/DRAFT/PENDING_AGENCY (pas livré, pas en transit)
+      const { data: updatedPackage, error: updateErr } = await supabaseAdmin
         .from('packages')
         .update({
           quote_id: quoteId,
           quote_accepted_at: now,
           delivery_price: quote.frais_livraison,
-          status: pkg.agency_id ? 'PENDING_AGENCY' : 'CREATED',
+          status: targetStatus,
           updated_at: now,
         })
-        .eq('id', packageId);
+        .eq('id', packageId)
+        .in('status', ['CREATED', 'DRAFT', 'PENDING_AGENCY', 'QUOTE_PENDING'])
+        .select('id, status')
+        .maybeSingle();
 
-      // Journal d'audit
+      if (updateErr || !updatedPackage) {
+        return NextResponse.json({
+          error: "Impossible d'accepter le devis : le colis a changé de statut en arrière-plan.",
+        }, { status: 409 });
+      }
+
+      // Journal d'audit obligatoire
       await supabaseAdmin.from('package_audit_logs').insert({
         package_id: packageId,
         package_code: packageId.slice(0, 8).toUpperCase(),
@@ -278,7 +315,7 @@ export async function POST(
         actor_name: session.name,
         actor_role: 'vendeur',
         from_status: pkg.status,
-        to_status: pkg.agency_id ? 'PENDING_AGENCY' : 'CREATED',
+        to_status: targetStatus,
         action: 'VENDOR_ACCEPTED_QUOTE',
         reason: `Devis accepté — Livraison: ${quote.frais_livraison} USD, Marchandise: ${quote.prix_marchandise} USD`,
         metadata: {

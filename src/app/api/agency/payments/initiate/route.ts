@@ -24,15 +24,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Vendeur et montant requis.' }, { status: 400 });
     }
 
-    // Si une demande de versement spécifique est liée, s'assurer qu'elle est en cours (SEEN)
-    if (requestId) {
-      await supabase
-        .from('vendor_payment_requests')
-        .update({ status: 'SEEN' })
-        .eq('id', requestId)
-        .eq('status', 'PENDING');
-    }
-
     // Invalider les anciens codes OTP non utilisés pour ce vendeur auprès de cette agence
     await supabase
       .from('payment_otps')
@@ -46,10 +37,49 @@ export async function POST(request: NextRequest) {
     const otpHash = await bcrypt.hash(otpPlain, 10);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
 
+    // Si une demande de versement spécifique est liée ou existe, enregistrer le code & expiration
+    let targetRequestId = requestId;
+    if (!targetRequestId) {
+      const { data: openReq } = await supabase
+        .from('vendor_payment_requests')
+        .select('id')
+        .eq('vendor_id', vendorId)
+        .eq('agency_id', session.agencyId)
+        .in('status', ['PENDING', 'SEEN'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (openReq) targetRequestId = openReq.id;
+    }
+
+    if (targetRequestId) {
+      await supabase
+        .from('vendor_payment_requests')
+        .update({
+          status: 'SEEN',
+          message: JSON.stringify({ code: otpPlain, expiresAt }),
+        })
+        .eq('id', targetRequestId);
+    } else {
+      // Si aucune demande existante, créer l'enregistrement pour qu'il apparaisse chez le vendeur
+      const { data: createdReq } = await supabase
+        .from('vendor_payment_requests')
+        .insert({
+          vendor_id: vendorId,
+          agency_id: session.agencyId,
+          amount,
+          status: 'SEEN',
+          message: JSON.stringify({ code: otpPlain, expiresAt }),
+        })
+        .select('id')
+        .maybeSingle();
+      if (createdReq) targetRequestId = createdReq.id;
+    }
+
     // Construire la note avec le requestId si présent
-    const formattedNotes = requestId
-      ? `REQUEST_ID:${requestId}${notes ? ' - ' + notes : ''}`
-      : (notes || null);
+    const formattedNotes = targetRequestId
+      ? `REQUEST_ID:${targetRequestId} OTP:${otpPlain}${notes ? ' - ' + notes : ''}`
+      : `OTP:${otpPlain}${notes ? ' - ' + notes : ''}`;
 
     // Créer l'entrée dans le ledger (statut PENDING)
     const { data: ledgerEntry, error: ledgerErr } = await supabase

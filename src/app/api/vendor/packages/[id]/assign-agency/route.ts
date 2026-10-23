@@ -42,10 +42,15 @@ export async function POST(
       return NextResponse.json({ error: 'Ce colis ne vous appartient pas.' }, { status: 403 });
     }
 
-    const allowedStatuses = ['CREATED', 'PENDING_AGENCY', 'REJECTED_BY_AGENCY'];
-    if (!allowedStatuses.includes(pkg.status)) {
+    // BUG 3 : Le blocage ne s'applique que si une agence a déjà accepté le colis.
+    // Sans agence ou tant qu'aucune agence n'a accepté, le choix et le changement d'agence sont libres.
+    const forbiddenAfterAcceptance = [
+      'ACCEPTED_BY_AGENCY', 'ACCEPTÉ', 'ASSIGNED_TO_DRIVER', 'IN_TRANSIT', 'EN TRANSIT',
+      'DEPOSITED_AT_DROP_POINT', 'AVAILABLE_AT_PICKUP_POINT', 'DELIVERED', 'LIVRÉ', 'CANCELLED', 'ANNULÉ'
+    ];
+    if (pkg.agency_id && forbiddenAfterAcceptance.includes(String(pkg.status).toUpperCase())) {
       return NextResponse.json({
-        error: `Impossible de changer d'agence : le colis est en statut "${pkg.status}". La modification n'est plus possible une fois le colis pris en charge.`,
+        error: "Impossible de changer d'agence : le colis a déjà été accepté ou pris en charge.",
       }, { status: 400 });
     }
 
