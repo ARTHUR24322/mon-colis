@@ -17,8 +17,11 @@ export default function PWAInstaller() {
 
   useEffect(() => {
     // Register service worker if supported
-    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
+    if ('serviceWorker' in navigator && (process.env.NODE_ENV === 'production' || window.location.hostname !== 'localhost')) {
+      navigator.serviceWorker.register('/sw.js').then((reg) => {
+        // Déclencher la mise à jour immédiate pour purger l'ancien cache moncolis-v1
+        reg.update().catch(() => {});
+      }).catch((err) => {
         console.log('SW registration skipped/failed:', err);
       });
     }

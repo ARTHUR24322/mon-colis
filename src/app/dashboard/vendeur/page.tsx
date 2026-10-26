@@ -6,7 +6,7 @@ import CommuneSelect from '@/components/CommuneSelect';
 import {
   Package, DollarSign, Users, User, ArrowRight, Truck, MapPin, Phone, Search,
   Share2, Copy, Check, Plus, X, AlertTriangle, Building2, CheckCircle2, ChevronRight,
-  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star
+  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star, KeyRound
 } from 'lucide-react';
 import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
@@ -114,6 +114,7 @@ export default function VendeurDashboard() {
   const [otpConfirmLoading, setOtpConfirmLoading] = useState(false);
   const [otpConfirmError, setOtpConfirmError] = useState<string | null>(null);
   const [otpConfirmSuccess, setOtpConfirmSuccess] = useState<string | null>(null);
+  const [showManualOtpModal, setShowManualOtpModal] = useState(false);
 
   // Demande de versement
   const [vendorRequestModal, setVendorRequestModal] = useState<{
@@ -188,6 +189,7 @@ export default function VendeurDashboard() {
         setOtpConfirmSuccess('✅ Versement confirmé avec succès ! L\'agence a bien transféré vos fonds.');
         setOtpConfirmInput('');
         await loadPendingPaymentOtps();
+        await loadPayoutRequests();
         await refreshColis();
         showToast('Versement confirmé !');
       } else {
@@ -460,10 +462,12 @@ export default function VendeurDashboard() {
     }
   };
 
+  const hasActivePaymentAction = pendingPaymentOtps.length > 0 || payoutRequests.some(r => r.status === 'qr_genere' || !!r.code || r.status === 'en_attente');
+
   const navItems: MobileNavItem[] = [
     { id: 'apercu', label: 'Accueil', icon: <Home size={20} /> },
     { id: 'historique', label: 'Colis', icon: <Package size={20} />, badge: colisEnCours.length || undefined },
-    { id: 'revenus', label: 'Revenus', icon: <DollarSign size={20} /> },
+    { id: 'revenus', label: 'Revenus', icon: <DollarSign size={20} />, badge: hasActivePaymentAction ? '!' : undefined },
     { id: 'clients', label: 'Clients', icon: <Users size={20} /> },
     { id: 'profil', label: 'Profil', icon: <User size={20} /> },
   ];
@@ -521,6 +525,126 @@ export default function VendeurDashboard() {
               )}
             </div>
           </div>
+
+          {/* BANDEAU ACTION REQUISE : Validation d'un versement en cours */}
+          {hasActivePaymentAction && (
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08))',
+              border: '2px solid rgba(245, 158, 11, 0.6)',
+              borderRadius: '16px',
+              padding: '1rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+              boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  ⚡ Versement en attente de validation
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('revenus')}
+                  style={{
+                    background: 'transparent', border: 'none', color: '#93c5fd', fontSize: '0.72rem',
+                    fontWeight: '700', cursor: 'pointer', textDecoration: 'underline'
+                  }}
+                >
+                  Détails & QR →
+                </button>
+              </div>
+
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#e2e8f0' }}>
+                {payoutRequests[0]?.agencyName
+                  ? <>L&apos;agence <strong style={{ color: '#fff' }}>{payoutRequests[0].agencyName}</strong> a préparé votre virement ({payoutRequests[0].amount.toLocaleString('fr-FR')} CDF). Entrez le code à 6 chiffres pour encaisser :</>
+                  : pendingPaymentOtps[0]
+                  ? <>L&apos;agence <strong style={{ color: '#fff' }}>{pendingPaymentOtps[0].agency?.profile?.name || 'partenaire'}</strong> a préparé votre versement ({pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF). Entrez le code à 6 chiffres reçu pour encaisser vos fonds :</>
+                  : <>L&apos;agence a préparé votre versement. Entrez le code à 6 chiffres reçu pour encaisser vos fonds :</>}
+              </p>
+
+              {payoutRequests[0]?.code && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Code secours :</span>
+                  <span style={{ fontSize: '1.05rem', fontWeight: '900', color: '#fbbf24', letterSpacing: '3px', fontFamily: 'monospace' }}>
+                    {payoutRequests[0].code}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (payoutRequests[0]?.code) setOtpConfirmInput(payoutRequests[0].code);
+                    }}
+                    style={{
+                      padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.4)',
+                      background: 'rgba(251,191,36,0.1)', color: '#fbbf24', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
+                    }}
+                  >
+                    Pré-remplir
+                  </button>
+                </div>
+              )}
+
+              <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {otpConfirmSuccess ? (
+                  <div style={{ padding: '0.5rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.78rem', fontWeight: '700', textAlign: 'center' }}>
+                    {otpConfirmSuccess}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="Code à 6 chiffres"
+                        value={otpConfirmInput}
+                        onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                        style={{
+                          flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.6)',
+                          border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
+                          textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
+                        style={{
+                          padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
+                          background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                          color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
+                          fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
+                        }}
+                      >
+                        {otpConfirmLoading ? '...' : 'Valider'}
+                      </button>
+                    </div>
+                    {otpConfirmError && (
+                      <div style={{ color: '#f87171', fontSize: '0.72rem' }}>{otpConfirmError}</div>
+                    )}
+                  </>
+                )}
+              </form>
+            </div>
+          )}
+
+          {/* Accès rapide saisie OTP si aucun bandeau actif mais code déjà transmis */}
+          {!hasActivePaymentAction && (
+            <div style={{
+              display: 'flex', justifyContent: 'center'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowManualOtpModal(true)}
+                style={{
+                  background: 'transparent', border: '1px dashed rgba(245,158,11,0.4)',
+                  borderRadius: '12px', padding: '0.5rem 0.85rem', color: '#fbbf24',
+                  fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '6px'
+                }}
+              >
+                <KeyRound size={13} /> Saisir un code OTP de versement reçu
+              </button>
+            </div>
+          )}
 
           {/* ACTION PRINCIPALE UNIQUE : Expédier un colis */}
           <button
@@ -800,6 +924,111 @@ export default function VendeurDashboard() {
           {/* ── SOUS-ONGLET 1 : ÉCRAN VIREMENTS VENDEUR ── */}
           {revenueSubTab === 'virements' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Carte OTP en attente si généré par l'agence sans demande vendeur explicite */}
+              {payoutRequests.length === 0 && pendingPaymentOtps.length > 0 && (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.06))',
+                  border: '2px solid rgba(245, 158, 11, 0.6)',
+                  borderRadius: '20px', padding: '1.25rem',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase' }}>
+                      ⚡ Versement en attente de votre validation
+                    </span>
+                    <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: '800', background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid #f59e0b' }}>
+                      Code OTP généré
+                    </span>
+                  </div>
+                  <div style={{ marginBottom: '0.85rem' }}>
+                    <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
+                      Agence : <strong style={{ color: '#fff' }}>{pendingPaymentOtps[0].agency?.profile?.name || 'Agence partenaire'}</strong>
+                    </div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fbbf24', marginTop: '2px' }}>
+                      {pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF
+                    </div>
+                  </div>
+                  <p style={{ fontSize: '0.78rem', color: '#cbd5e1', margin: '0 0 0.8rem' }}>
+                    L&apos;agence a préparé votre versement. Saisissez le code à 6 chiffres reçu pour encaisser vos fonds :
+                  </p>
+                  <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {otpConfirmSuccess ? (
+                      <div style={{ padding: '0.6rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.8rem', fontWeight: '700', textAlign: 'center' }}>
+                        {otpConfirmSuccess}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={6}
+                            placeholder="Code reçu (6 chiffres)"
+                            value={otpConfirmInput}
+                            onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                            style={{
+                              flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)',
+                              border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
+                              textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
+                            style={{
+                              padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
+                              background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                              color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
+                              fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
+                            }}
+                          >
+                            {otpConfirmLoading ? '...' : 'Valider'}
+                          </button>
+                        </div>
+                        {otpConfirmError && (
+                          <div style={{ color: '#f87171', fontSize: '0.72rem' }}>{otpConfirmError}</div>
+                        )}
+                      </>
+                    )}
+                  </form>
+                </div>
+              )}
+
+              {/* Bouton permanent de saisie manuelle si le code a été transmis par SMS/WhatsApp */}
+              <div style={{
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px dashed rgba(255,255,255,0.12)',
+                borderRadius: '16px',
+                padding: '0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                  🔑 L&apos;agence vous a transmis un code de versement ?
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualOtpModal(true)}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(245,158,11,0.5)',
+                    background: 'rgba(245,158,11,0.12)',
+                    color: '#fbbf24',
+                    fontWeight: '800',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <KeyRound size={13} /> Saisir le code OTP
+                </button>
+              </div>
+
               {/* Demande active la plus récente */}
               {payoutRequests.length > 0 && (() => {
                 const latest = payoutRequests[0];
@@ -942,15 +1171,15 @@ export default function VendeurDashboard() {
                       </div>
                     )}
 
-                    {/* Si en attente de l'agence */}
+                    {/* Si en attente de l'agence : avertissement mais champ de saisie disponible */}
                     {latest.status === 'en_attente' && (
                       <div style={{ textAlign: 'center', padding: '0.4rem 0', color: '#fcd34d', fontSize: '0.78rem' }}>
-                        ⏳ L'agence prépare votre virement. Dès qu'elle valide, le QR Code et le code de confirmation apparaîtront ici automatiquement.
+                        ⏳ L&apos;agence prépare votre virement. Si elle vous a déjà communiqué le code OTP, saisissez-le directement ci-dessous :
                       </div>
                     )}
 
-                    {/* Saisie de validation manuelle si code disponible */}
-                    {isQrReady && (
+                    {/* Saisie de validation OTP toujours accessible si non confirmé */}
+                    {!isConfirmed && (
                       <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
                         {otpConfirmSuccess ? (
                           <div style={{ padding: '0.6rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.8rem', fontWeight: '700', textAlign: 'center' }}>
@@ -958,24 +1187,26 @@ export default function VendeurDashboard() {
                           </div>
                         ) : (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (latest.code) setOtpConfirmInput(latest.code);
-                              }}
-                              style={{
-                                background: 'transparent', border: 'none', color: '#60a5fa',
-                                fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start'
-                              }}
-                            >
-                              Pré-remplir avec le code de secours
-                            </button>
+                            {latest.code && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (latest.code) setOtpConfirmInput(latest.code);
+                                }}
+                                style={{
+                                  background: 'transparent', border: 'none', color: '#60a5fa',
+                                  fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start'
+                                }}
+                              >
+                                Pré-remplir avec le code de secours ({latest.code})
+                              </button>
+                            )}
                             <div style={{ display: 'flex', gap: '6px' }}>
                               <input
                                 type="text"
                                 inputMode="numeric"
                                 maxLength={6}
-                                placeholder="Code reçu"
+                                placeholder="Code reçu (6 chiffres)"
                                 value={otpConfirmInput}
                                 onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
                                 style={{
@@ -994,7 +1225,7 @@ export default function VendeurDashboard() {
                                   fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
                                 }}
                               >
-                                {otpConfirmLoading ? '...' : 'Valider réception'}
+                                {otpConfirmLoading ? '...' : 'Valider'}
                               </button>
                             </div>
                             {otpConfirmError && (
@@ -1806,6 +2037,105 @@ export default function VendeurDashboard() {
                   {vendorRequestLoading ? 'Envoi...' : 'Transmettre'}
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ MODAL SAISIE MANUELLE CODE OTP VERSEMENT ══════════════ */}
+      {showManualOtpModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.85)',
+          backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0f172a', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '20px',
+            padding: '1.5rem', width: '100%', maxWidth: '380px', color: '#fff',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24' }}>
+                  <KeyRound size={18} />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>
+                  Valider un versement
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowManualOtpModal(false); setOtpConfirmError(null); setOtpConfirmSuccess(null); }}
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 1.2rem', fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
+              Entrez le code OTP à 6 chiffres généré par votre agence pour valider la réception et créditer vos fonds.
+            </p>
+
+            <form onSubmit={async (e) => {
+              await handleConfirmPaymentOtp(e);
+              if (!otpConfirmError) {
+                setTimeout(() => setShowManualOtpModal(false), 1500);
+              }
+            }}>
+              {otpConfirmSuccess ? (
+                <div style={{ padding: '0.75rem', borderRadius: '10px', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80', fontSize: '0.82rem', fontWeight: '700', textAlign: 'center', marginBottom: '1rem' }}>
+                  {otpConfirmSuccess}
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoFocus
+                      placeholder="• • • • • •"
+                      value={otpConfirmInput}
+                      onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                      style={{
+                        width: '100%', height: '52px', borderRadius: '12px', background: 'rgba(0,0,0,0.5)',
+                        border: '2px solid rgba(245,158,11,0.5)', color: '#fbbf24', fontSize: '1.6rem',
+                        textAlign: 'center', letterSpacing: '8px', fontWeight: '900', fontFamily: 'monospace'
+                      }}
+                    />
+                    {otpConfirmError && (
+                      <div style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '0.5rem', textAlign: 'center' }}>
+                        {otpConfirmError}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowManualOtpModal(false)}
+                      style={{
+                        flex: 1, height: '44px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
+                        background: 'transparent', color: '#94a3b8', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+                      }}
+                    >
+                      Fermer
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={otpConfirmLoading || otpConfirmInput.trim().length !== 6}
+                      style={{
+                        flex: 1.4, height: '44px', borderRadius: '10px', border: 'none',
+                        background: otpConfirmInput.trim().length === 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.1)',
+                        color: otpConfirmInput.trim().length === 6 ? '#000' : '#64748b', fontWeight: '900', fontSize: '0.88rem',
+                        cursor: otpConfirmInput.trim().length === 6 ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                      }}
+                    >
+                      {otpConfirmLoading ? 'Validation...' : 'Confirmer'}
+                    </button>
+                  </div>
+                </>
+              )}
             </form>
           </div>
         </div>

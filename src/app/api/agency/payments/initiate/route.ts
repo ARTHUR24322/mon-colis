@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
       .eq('agency_id', session.agencyId)
       .eq('used', false);
 
-    // Générer le code OTP à 6 chiffres
+    // Générer le code OTP à 6 chiffres (valable 60 min pour laisser le temps au vendeur)
     const otpPlain = crypto.randomInt(100000, 1000000).toString();
     const otpHash = await bcrypt.hash(otpPlain, 10);
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
 
     // Si une demande de versement spécifique est liée ou existe, enregistrer le code & expiration
     let targetRequestId = requestId;

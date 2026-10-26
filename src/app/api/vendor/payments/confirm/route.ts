@@ -23,13 +23,14 @@ export async function POST(request: NextRequest) {
 
     const cleanOtp = String(otpCode).trim();
 
-    // Chercher les OTPs valides pour ce vendeur (non utilisés et non expirés)
+    // Chercher les OTPs valides pour ce vendeur (non utilisés, avec 30 min de grâce après expiration formelle)
+    const graceCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const { data: otps, error: otpErr } = await supabase
       .from('payment_otps')
       .select('id, ledger_entry_id, agency_id, amount, otp_hash, expires_at')
       .eq('vendor_id', session.userId)
       .eq('used', false)
-      .gte('expires_at', new Date().toISOString())
+      .gte('expires_at', graceCutoff)
       .order('created_at', { ascending: false });
 
     if (otpErr) {

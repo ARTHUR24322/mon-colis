@@ -135,13 +135,7 @@ export async function GET() {
     // Récupérer toutes les demandes (ne disparaissent jamais)
     const { data: requests, error } = await supabase
       .from('vendor_payment_requests')
-      .select(`
-        id, agency_id, amount, status, message, reject_reason, created_at, resolved_at,
-        agency:agencies!agency_id(
-          id,
-          profile:profiles!id(name, phone)
-        )
-      `)
+      .select('id, agency_id, amount, status, message, reject_reason, created_at, resolved_at')
       .eq('vendor_id', session.userId)
       .order('created_at', { ascending: false })
       .limit(50);
@@ -149,6 +143,16 @@ export async function GET() {
     if (error) {
       console.error('Vendor requests GET error:', error);
       return NextResponse.json({ error: 'Erreur lors du chargement.' }, { status: 500 });
+    }
+
+    const agencyIds = [...new Set((requests ?? []).map(r => r.agency_id).filter(Boolean))];
+    const profileMap = new Map<string, { name: string; phone: string }>();
+    if (agencyIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, phone')
+        .in('id', agencyIds);
+      (profiles ?? []).forEach(p => profileMap.set(p.id, { name: p.name || 'Agence partenaire', phone: p.phone || '' }));
     }
 
     const now = new Date();
@@ -177,7 +181,8 @@ export async function GET() {
       } else if (r.status === 'EXPIRED') {
         explicitStatus = 'expire';
       } else if (r.status === 'SEEN') {
-        if (expiresAt && new Date(expiresAt) < now) {
+        const graceLimit = expiresAt ? new Date(new Date(expiresAt).getTime() + 30 * 60 * 1000) : null;
+        if (graceLimit && graceLimit < now) {
           explicitStatus = 'expire';
         } else if (code) {
           explicitStatus = 'qr_genere';
@@ -188,10 +193,9 @@ export async function GET() {
         explicitStatus = 'en_attente';
       }
 
-      const agencyRaw = Array.isArray(r.agency) ? r.agency[0] : r.agency;
-      const agencyProfile = Array.isArray(agencyRaw?.profile) ? agencyRaw?.profile[0] : agencyRaw?.profile;
-      const agencyName = agencyProfile?.name || 'Agence partenaire';
-      const agencyPhone = agencyProfile?.phone || '';
+      const agencyInfo = profileMap.get(r.agency_id);
+      const agencyName = agencyInfo?.name || 'Agence partenaire';
+      const agencyPhone = agencyInfo?.phone || '';
 
       const qrPayload = code ? JSON.stringify({
         type: 'VENDOR_PAYOUT',
