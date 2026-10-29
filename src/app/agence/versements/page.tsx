@@ -68,6 +68,24 @@ interface CashRequest {
   };
 }
 
+interface ClosedSessionReceipt {
+  id?: string;
+  reference: string;
+  openedAt: string;
+  closedAt: string;
+  openedBy?: string;
+  closedBy: string;
+  openingUSD: number;
+  openingCDF: number;
+  expectedUSD: number;
+  expectedCDF: number;
+  countedUSD: number;
+  countedCDF: number;
+  diffUSD: number;
+  diffCDF: number;
+  reason: string;
+}
+
 export default function AgencyVersementsPage() {
   const { user } = useAuth('agence');
   const { currency, formatPrice } = useCurrency();
@@ -101,6 +119,18 @@ export default function AgencyVersementsPage() {
     };
   });
 
+  // Historique permanent des sessions de caisse clôturées
+  const [sessionHistory, setSessionHistory] = useState<ClosedSessionReceipt[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mc_agency_cash_history');
+      if (saved) {
+        try { return JSON.parse(saved); } catch {}
+      }
+    }
+    return [];
+  });
+  const [viewingReceiptModal, setViewingReceiptModal] = useState<ClosedSessionReceipt | null>(null);
+
   // Modal Ouverture de Caisse
   const [openModalOpen, setOpenModalOpen] = useState(false);
   const [openFundUSD, setOpenFundUSD] = useState<string>('0');
@@ -112,7 +142,7 @@ export default function AgencyVersementsPage() {
   const [countedUSD, setCountedUSD] = useState<string>('');
   const [countedCDF, setCountedCDF] = useState<string>('');
   const [discrepancyReason, setDiscrepancyReason] = useState<string>('');
-  const [closedReceipt, setClosedReceipt] = useState<any | null>(null);
+  const [closedReceipt, setClosedReceipt] = useState<ClosedSessionReceipt | null>(null);
 
   // Modal Paiement Vendeur
   const [payVendorModal, setPayVendorModal] = useState<VendorBalance | null>(null);
@@ -124,13 +154,39 @@ export default function AgencyVersementsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resBalances, resRequests] = await Promise.all([
+      const [resBalances, resRequests, resSessions] = await Promise.all([
         fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [], history: [] }),
-        fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] })
+        fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] }),
+        fetch('/api/agency/cash-sessions').then(r => r.ok ? r.json() : { history: [], currentSession: null })
       ]);
       setVendorBalances(resBalances.balances || []);
       setVendorHistory(resBalances.history || []);
       setCashRequests(resRequests.requests || []);
+
+      // Synchroniser l'historique des sessions
+      const serverHistory: ClosedSessionReceipt[] = resSessions.history || [];
+      setSessionHistory(prev => {
+        const localList = [...prev];
+        const combined = [...serverHistory];
+        for (const item of localList) {
+          if (!combined.some(c => c.reference === item.reference || (c.id && item.id && c.id === item.id))) {
+            combined.push(item);
+          }
+        }
+        combined.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('mc_agency_cash_history', JSON.stringify(combined));
+        }
+        return combined;
+      });
+
+      // Si le serveur renvoie une session ouverte active, la synchroniser
+      if (resSessions.currentSession) {
+        setCashSession(resSessions.currentSession);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('mc_agency_cash_session', JSON.stringify(resSessions.currentSession));
+        }
+      }
     } catch {
       // Silencieux
     } finally {
@@ -149,13 +205,15 @@ export default function AgencyVersementsPage() {
   const diffCDF = parsedCountedCDF - cashSession.expectedCDF;
   const hasDiscrepancy = Math.abs(diffUSD) > 0.01 || Math.abs(diffCDF) > 500;
 
-  const handleCloseSession = (e: React.FormEvent) => {
+  const handleCloseSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (hasDiscrepancy && !discrepancyReason.trim()) return;
 
-    const receipt = {
+    const receipt: ClosedSessionReceipt = {
+      reference: `PV-${Date.now().toString(36).toUpperCase()}`,
       closedAt: new Date().toISOString(),
       openedAt: cashSession.openedAt,
+      openedBy: cashSession.openedBy || user?.name || 'Agent Caisse',
       closedBy: user?.name || 'Agent Caisse',
       openingUSD: cashSession.openingFundUSD,
       openingCDF: cashSession.openingFundCDF,
@@ -167,6 +225,15 @@ export default function AgencyVersementsPage() {
       diffCDF,
       reason: discrepancyReason.trim() || 'Aucun écart constaté.',
     };
+
+    // Mettre à jour l'historique local immédiatement
+    setSessionHistory(prev => {
+      const updated = [receipt, ...prev.filter(h => h.reference !== receipt.reference)];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('mc_agency_cash_history', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     setClosedReceipt(receipt);
     setCloseModalOpen(false);
@@ -180,6 +247,17 @@ export default function AgencyVersementsPage() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('mc_agency_cash_session', JSON.stringify(updated));
     }
+
+    // Persister vers le serveur API
+    try {
+      await fetch('/api/agency/cash-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'close', receipt }),
+      });
+    } catch (err) {
+      console.warn('Erreur synchronisation clôture session', err);
+    }
   };
 
   const handleOpenNewSession = () => {
@@ -189,7 +267,7 @@ export default function AgencyVersementsPage() {
     setOpenModalOpen(true);
   };
 
-  const handleConfirmOpenSession = (e: React.FormEvent) => {
+  const handleConfirmOpenSession = async (e: React.FormEvent) => {
     e.preventDefault();
     const usd = Math.max(0, parseFloat(openFundUSD) || 0);
     const cdf = Math.max(0, parseFloat(openFundCDF) || 0);
@@ -204,11 +282,37 @@ export default function AgencyVersementsPage() {
       expectedUSD: usd,
       expectedCDF: cdf,
     };
+
+    // Si un reçu de clôture était affiché, s'assurer qu'il est bien conservé dans l'historique
+    if (closedReceipt) {
+      setSessionHistory(prev => {
+        if (!prev.some(h => h.reference === closedReceipt.reference)) {
+          const updated = [closedReceipt, ...prev];
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('mc_agency_cash_history', JSON.stringify(updated));
+          }
+          return updated;
+        }
+        return prev;
+      });
+    }
+
     setCashSession(fresh);
     setClosedReceipt(null);
     setOpenModalOpen(false);
     if (typeof window !== 'undefined') {
       localStorage.setItem('mc_agency_cash_session', JSON.stringify(fresh));
+    }
+
+    // Persister ouverture vers le serveur
+    try {
+      await fetch('/api/agency/cash-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'open', session: fresh }),
+      });
+    } catch (err) {
+      console.warn('Erreur synchronisation ouverture session', err);
     }
   };
 
@@ -443,32 +547,55 @@ export default function AgencyVersementsPage() {
           </button>
         </div>
 
-        {/* CONTENU ONGLET 1 : RAPPROCHEMENT & REÇU DE SESSION */}
+        {/* CONTENU ONGLET 1 : RAPPROCHEMENT & REÇU DE SESSION & HISTORIQUE PERMANENT */}
         {activeTab === 'session' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {closedReceipt ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Si un reçu vient d'être généré lors d'une clôture récente */}
+            {closedReceipt && (
               <div style={{
                 backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
                 borderRadius: '16px', padding: '24px', boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
-                    Procès-Verbal de Clôture de Caisse
-                  </h3>
-                  <button
-                    onClick={() => window.print()}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--ag-border)',
-                      backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
-                      cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600'
-                    }}
-                  >
-                    <Printer size={15} /> Imprimer PV Clôture
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'var(--ag-brand-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ag-brand)' }}>
+                      <FileText size={20} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                        Procès-Verbal de Clôture de Caisse ({closedReceipt.reference})
+                      </h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                        Cette session est désormais archivée dans l'historique ci-dessous.
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => setViewingReceiptModal(closedReceipt)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '6px 14px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                        backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                        cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600'
+                      }}
+                    >
+                      <Printer size={15} /> Imprimer PV
+                    </button>
+                    <button
+                      onClick={() => setClosedReceipt(null)}
+                      style={{
+                        padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                        backgroundColor: 'transparent', color: 'var(--ag-text-secondary)',
+                        cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600'
+                      }}
+                    >
+                      Masquer
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                   <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
                     <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Clôturé par :</div>
                     <strong style={{ fontSize: '0.95rem' }}>{closedReceipt.closedBy}</strong>
@@ -496,17 +623,21 @@ export default function AgencyVersementsPage() {
                   <p style={{ margin: '4px 0 0' }}>{closedReceipt.reason}</p>
                 </div>
               </div>
-            ) : !cashSession.isOpen ? (
+            )}
+
+            {/* Carte de statut de la caisse active */}
+            {!cashSession.isOpen ? (
               <div style={{
                 backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-                borderRadius: '16px', padding: '36px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
+                borderRadius: '16px', padding: '32px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
               }}>
-                <Lock size={44} style={{ color: 'var(--ag-danger)', margin: '0 auto 12px' }} />
+                <Lock size={40} style={{ color: 'var(--ag-danger)', margin: '0 auto 12px' }} />
                 <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
                   Caisse Actuellement Clôturée
                 </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '520px', margin: '0 auto 20px' }}>
-                  Aucune session active en cours. Pour démarrer les encaissements guichet, valider les dépôts des livreurs et exécuter des versements vendeurs, ouvrez une session avec votre fond de caisse.
+                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '540px', margin: '0 auto 20px' }}>
+                  Aucune session active en cours. Toutes les sessions précédentes sont conservées dans l'historique ci-dessous.
+                  Pour démarrer une nouvelle journée ou une nouvelle relève, ouvrez une session avec votre fond de caisse.
                 </p>
                 {canManageCash && (
                   <button
@@ -518,22 +649,22 @@ export default function AgencyVersementsPage() {
                       display: 'inline-flex', alignItems: 'center', gap: '8px'
                     }}
                   >
-                    <Unlock size={16} /> Ouvrir une session de caisse
+                    <Unlock size={16} /> Ouvrir une nouvelle session de caisse
                   </button>
                 )}
               </div>
             ) : (
               <div style={{
                 backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
-                borderRadius: '16px', padding: '32px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
+                borderRadius: '16px', padding: '28px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
               }}>
-                <ShieldCheck size={40} style={{ color: 'var(--ag-brand)', margin: '0 auto 12px' }} />
+                <ShieldCheck size={40} style={{ color: 'var(--ag-brand)', margin: '0 auto 10px' }} />
                 <h3 style={{ fontSize: '1.2rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
-                  Session de Caisse en Cours
+                  Session de Caisse Active en Cours
                 </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '520px', margin: '0 auto 20px' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '540px', margin: '0 auto 18px' }}>
+                  Ouverte par <strong>{cashSession.openedBy || 'Agent Caisse'}</strong> le {new Date(cashSession.openedAt).toLocaleDateString('fr-FR')} à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}.
                   Tous les encaissements guichet et dépôts livreurs sont comptabilisés en direct.
-                  À la fin de journée, effectuez le billetage pour vérifier les espèces physiques.
                 </p>
                 {canManageCash && (
                   <button
@@ -549,11 +680,110 @@ export default function AgencyVersementsPage() {
                       fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer'
                     }}
                   >
-                    Effectuer le comptage de caisse
+                    Clôturer la caisse & Billetage
                   </button>
                 )}
               </div>
             )}
+
+            {/* ─── TABLEAU HISTORIQUE PERMANENT DES SESSIONS DE CAISSE ─────── */}
+            <div style={{
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '14px', boxShadow: 'var(--ag-card-shadow)', overflow: 'hidden'
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--ag-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                    Historique Permanent des Sessions & Procès-Verbaux de Clôture ({sessionHistory.length})
+                  </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                    Toutes vos anciennes sessions, montants de départ, comptages de caisse et écarts restent conservés et consultables.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="agency-table" style={{ minWidth: '850px' }}>
+                  <thead>
+                    <tr>
+                      <th>Réf. PV</th>
+                      <th>Ouverture / Clôture</th>
+                      <th>Caissier(s)</th>
+                      <th>Fond Initial</th>
+                      <th>Attendu</th>
+                      <th>Compté (Billetage)</th>
+                      <th>Écart</th>
+                      <th>Observations</th>
+                      <th style={{ textAlign: 'right' }}>Procès-Verbal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessionHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--ag-text-muted)' }}>
+                          Aucune session clôturée enregistrée pour l'instant. Dès que vous clôturez une session, elle restera archivée ici en permanence.
+                        </td>
+                      </tr>
+                    ) : (
+                      sessionHistory.map(item => {
+                        const isPerfect = Math.abs(item.diffUSD) < 0.01 && Math.abs(item.diffCDF) < 500;
+                        return (
+                          <tr key={item.reference || item.id}>
+                            <td style={{ fontWeight: '800', fontFamily: 'monospace', color: 'var(--ag-brand)', fontSize: '0.85rem' }}>
+                              {item.reference}
+                            </td>
+                            <td style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', whiteSpace: 'nowrap' }}>
+                              <div>🟢 Ouv: {new Date(item.openedAt).toLocaleDateString('fr-FR')} {new Date(item.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                              <div>🔴 Clôt: {new Date(item.closedAt).toLocaleDateString('fr-FR')} {new Date(item.closedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                            </td>
+                            <td style={{ fontSize: '0.82rem', fontWeight: '600' }}>
+                              {item.closedBy || item.openedBy || 'Agent Caisse'}
+                            </td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                              <div>${Number(item.openingUSD || 0).toFixed(2)}</div>
+                              <div>{Number(item.openingCDF || 0).toLocaleString('fr-FR')} FC</div>
+                            </td>
+                            <td style={{ fontSize: '0.8rem', fontWeight: '600' }}>
+                              <div>${Number(item.expectedUSD || 0).toFixed(2)}</div>
+                              <div>{Number(item.expectedCDF || 0).toLocaleString('fr-FR')} FC</div>
+                            </td>
+                            <td style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                              <div>${Number(item.countedUSD || 0).toFixed(2)}</div>
+                              <div>{Number(item.countedCDF || 0).toLocaleString('fr-FR')} FC</div>
+                            </td>
+                            <td>
+                              <span className="agency-badge" style={{
+                                backgroundColor: isPerfect ? 'var(--ag-success-bg)' : 'var(--ag-danger-bg)',
+                                color: isPerfect ? 'var(--ag-success)' : 'var(--ag-danger)',
+                                fontSize: '0.72rem', whiteSpace: 'nowrap'
+                              }}>
+                                {isPerfect ? '✅ 0.00 (Conforme)' : `⚠ USD ${item.diffUSD > 0 ? '+' : ''}${item.diffUSD.toFixed(2)} | CDF ${item.diffCDF > 0 ? '+' : ''}${item.diffCDF}`}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {item.reason || 'Aucun écart.'}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <button
+                                onClick={() => setViewingReceiptModal(item)}
+                                style={{
+                                  padding: '5px 12px', borderRadius: '6px', border: '1px solid var(--ag-border)',
+                                  backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                                  fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer',
+                                  display: 'inline-flex', alignItems: 'center', gap: '4px'
+                                }}
+                              >
+                                <FileText size={12} /> Voir PV
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1198,6 +1428,166 @@ export default function AgencyVersementsPage() {
                 style={{
                   flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
                   backgroundColor: 'var(--ag-brand)', color: '#fff', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL VISUALISATION & IMPRESSION PV DE CLÔTURE DE CAISSE ────── */}
+      {viewingReceiptModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 120, backgroundColor: 'var(--ag-modal-overlay)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '16px', padding: '28px', width: '100%', maxWidth: '580px',
+            boxShadow: 'var(--ag-card-shadow-hover)', maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--ag-border)', paddingBottom: '14px', marginBottom: '18px' }}>
+              <div>
+                <div style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'var(--ag-brand-subtle)', color: 'var(--ag-brand)', fontSize: '0.72rem', fontWeight: '800', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                  DOCUMENT OFFICIEL CERTIFIÉ
+                </div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: 'var(--ag-text-primary)' }}>
+                  Procès-Verbal de Clôture de Caisse
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--ag-text-muted)', fontFamily: 'monospace' }}>
+                  Réf. {viewingReceiptModal.reference}
+                </span>
+              </div>
+              <button
+                onClick={() => setViewingReceiptModal(null)}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--ag-text-muted)',
+                  cursor: 'pointer', padding: '4px'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Détails Horodatage & Caissiers */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px', backgroundColor: 'var(--ag-surface-hover)', padding: '14px', borderRadius: '10px' }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Ouverture</span>
+                <div style={{ fontSize: '0.82rem', fontWeight: '700', marginTop: '2px' }}>
+                  {new Date(viewingReceiptModal.openedAt).toLocaleDateString('fr-FR')} à {new Date(viewingReceiptModal.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-secondary)' }}>
+                  Par: <strong>{viewingReceiptModal.openedBy || 'Agent Caisse'}</strong>
+                </div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Clôture</span>
+                <div style={{ fontSize: '0.82rem', fontWeight: '700', marginTop: '2px' }}>
+                  {new Date(viewingReceiptModal.closedAt).toLocaleDateString('fr-FR')} à {new Date(viewingReceiptModal.closedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-secondary)' }}>
+                  Par: <strong>{viewingReceiptModal.closedBy || 'Agent Caisse'}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Comparatif Chiffré Billetage USD & CDF */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '18px' }}>
+              {/* Colonne USD */}
+              <div style={{ border: '1px solid var(--ag-border)', borderRadius: '10px', padding: '14px', backgroundColor: 'rgba(16,185,129,0.03)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Devise USD ($)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.82rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Fond initial :</span>
+                    <strong>${Number(viewingReceiptModal.openingUSD || 0).toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Montant attendu :</span>
+                    <strong>${Number(viewingReceiptModal.expectedUSD || 0).toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--ag-border)', paddingTop: '4px' }}>
+                    <span style={{ color: 'var(--ag-text-primary)', fontWeight: '700' }}>Compté physique :</span>
+                    <strong style={{ fontSize: '0.95rem' }}>${Number(viewingReceiptModal.countedUSD || 0).toFixed(2)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Écart :</span>
+                    <span style={{
+                      fontWeight: '800',
+                      color: Math.abs(viewingReceiptModal.diffUSD) < 0.01 ? 'var(--ag-success)' : 'var(--ag-danger)'
+                    }}>
+                      {Math.abs(viewingReceiptModal.diffUSD) < 0.01 ? '0.00 (Conforme)' : `${viewingReceiptModal.diffUSD > 0 ? '+' : ''}$${viewingReceiptModal.diffUSD.toFixed(2)}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Colonne CDF */}
+              <div style={{ border: '1px solid var(--ag-border)', borderRadius: '10px', padding: '14px', backgroundColor: 'rgba(245,158,11,0.03)' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Devise CDF (FC)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.82rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Fond initial :</span>
+                    <strong>{Number(viewingReceiptModal.openingCDF || 0).toLocaleString('fr-FR')} FC</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Montant attendu :</span>
+                    <strong>{Number(viewingReceiptModal.expectedCDF || 0).toLocaleString('fr-FR')} FC</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--ag-border)', paddingTop: '4px' }}>
+                    <span style={{ color: 'var(--ag-text-primary)', fontWeight: '700' }}>Compté physique :</span>
+                    <strong style={{ fontSize: '0.95rem' }}>{Number(viewingReceiptModal.countedCDF || 0).toLocaleString('fr-FR')} FC</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                    <span style={{ color: 'var(--ag-text-muted)' }}>Écart :</span>
+                    <span style={{
+                      fontWeight: '800',
+                      color: Math.abs(viewingReceiptModal.diffCDF) < 500 ? 'var(--ag-success)' : 'var(--ag-danger)'
+                    }}>
+                      {Math.abs(viewingReceiptModal.diffCDF) < 500 ? '0 FC (Conforme)' : `${viewingReceiptModal.diffCDF > 0 ? '+' : ''}${viewingReceiptModal.diffCDF} FC`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Observations / Justification */}
+            <div style={{
+              backgroundColor: 'var(--ag-surface-hover)', borderRadius: '8px',
+              padding: '12px 14px', marginBottom: '20px', border: '1px solid var(--ag-border)'
+            }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700', display: 'block', marginBottom: '2px' }}>
+                Observations & Justification des écarts
+              </span>
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                {viewingReceiptModal.reason || 'Aucune observation particulière. Caisse parfaitement balancée.'}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => window.print()}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-brand)', color: '#fff',
+                  fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                }}
+              >
+                <Printer size={16} /> Imprimer ce Procès-Verbal
+              </button>
+              <button
+                onClick={() => setViewingReceiptModal(null)}
+                style={{
+                  padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-secondary)',
+                  fontWeight: '700', cursor: 'pointer'
                 }}
               >
                 Fermer
