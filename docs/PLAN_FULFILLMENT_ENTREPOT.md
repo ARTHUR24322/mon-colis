@@ -105,23 +105,24 @@
 ## 4. 🚀 Plan de Mise en Œuvre (Par Étapes)
 
 ### Phase 1 : Catalogue Stock & Dépôt
-- [ ] Création du modèle de données (migrations SQL pour le stock et les espaces).
-- [ ] Interface Vendeur : Enregistrement de ses produits et demande de dépôt.
-- [ ] Interface Agence : Validation de l'entrée en stock et attribution de l'emplacement.
+- [x] Création du modèle de données (migration SQL [migration_fulfillment_warehouse.sql](../migrations/migration_fulfillment_warehouse.sql)).
+- [x] Interface Vendeur : Enregistrement de ses produits, gestion du stock et bons de dépôt avec QR Code ([VendorWarehouseTab.tsx](../src/components/vendor/VendorWarehouseTab.tsx)).
+- [x] Interface Agence : Validation de l'entrée en stock, scan QR et attribution de l'emplacement ([/agence/entrepot](../src/app/agence/entrepot/page.tsx)).
 
 ### Phase 2 : Commande & Décrémentation Automatique
-- [ ] Dans le formulaire de création de colis côté Vendeur : option "Expédier depuis mon stock en agence".
-- [ ] Sélection des articles stockés et calcul automatique du colis.
-- [ ] Réservation et décrémentation automatique du stock dès que la livraison démarre.
+- [x] Dans le formulaire de création de colis côté Vendeur : option "Expédier depuis mon stock en agence" (`WAREHOUSE_FULFILLMENT`).
+- [x] Sélection des articles stockés, calcul automatique du prix/poids et assignation directe de l'agence hébergeant le stock.
+- [x] Réservation et décrémentation automatique du stock via l'API `/api/vendor/warehouse/dispatch`.
 
 ### Phase 3 : Picking & Expédition Agence
-- [ ] Vue "Préparation de commandes" dédiée pour l'agence (bons de préparation avec emplacement physique).
-- [ ] Validation par scan QR Code pour confirmer la sortie d'entrepôt.
-- [ ] Remise directe au livreur sans étape de ramassage.
+- [x] Vue "Préparation de commandes" dédiée pour l'agence (bons de préparation avec emplacement physique) ([/agence/entrepot](../src/app/agence/entrepot/page.tsx)).
+- [x] Validation par scan QR Code pour confirmer la sortie d'entrepôt et décrémentation directe.
+- [x] Remise directe au livreur sans étape de ramassage (statut `COLIS_RECUPERE_PAR_LIVREUR`).
 
 ### Phase 4 : Monétisation & Facturation
-- [ ] Gestion des abonnements mensuels de stockage.
-- [ ] Prélèvement ou versement automatique des frais de garde à l'agence.
+- [x] Gestion des abonnements mensuels de stockage et souscription vendeur ([/api/vendor/warehouse/subscriptions](../src/app/api/vendor/warehouse/subscriptions/route.ts), modal de location dans [VendorWarehouseTab.tsx](../src/components/vendor/VendorWarehouseTab.tsx)).
+- [x] Suivi des revenus récurrents et locataires côté agence ([/api/agency/warehouse/subscriptions](../src/app/api/agency/warehouse/subscriptions/route.ts), tableau de bord dans [/agence/entrepot](../src/app/agence/entrepot/page.tsx)).
+- [x] Gestion des retours colis directement réintégrés en stock rayon en agence ([/api/agency/warehouse/returns](../src/app/api/agency/warehouse/returns/route.ts)).
 
 ---
 

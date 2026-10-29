@@ -11,7 +11,7 @@ import {
   CheckCircle2, XCircle, Clock, MapPin, Phone, Mail, Building2, ShieldCheck,
   AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User, Lock, Settings, LayoutDashboard, Users, Package, Activity,
   TrendingUp, BarChart3, Calendar, ChevronLeft, ChevronRight, Eye, AlertTriangle, ArrowUpRight,
-  QrCode, Printer, Edit3, KeyRound
+  QrCode, Printer, Edit3, KeyRound, Boxes, Trash2, Unlock, Layers, Archive
 } from 'lucide-react';
 import PinModal from '@/components/PinModal';
 import QRCodeModal from '@/components/QRCodeModal';
@@ -203,7 +203,7 @@ const INITIAL_LOGS: LogEntry[] = [
 ];
 
 // Type des onglets du dashboard
-type TabKey = 'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
+type TabKey = 'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'fulfillment' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -228,6 +228,36 @@ export default function AdminDashboard() {
   const [adminUser, setAdminUser] = useState<{ id: string, name: string, role: AdminRole } | null>(null);
   const [plafondFC, setPlafondFC] = useState(2800);
   const [toast, setToast]         = useState<string | null>(null);
+
+  // -- Options Avancées (Code requis pour suppression définitive d'agence) -----
+  const [isAdvancedUnlocked, setIsAdvancedUnlocked] = useState(false);
+  const [showAdvancedUnlockModal, setShowAdvancedUnlockModal] = useState(false);
+  const [advancedCodeInput, setAdvancedCodeInput] = useState('');
+  const [advancedCodeError, setAdvancedCodeError] = useState<string | null>(null);
+  const [agencyToDelete, setAgencyToDelete] = useState<Agence | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deletingAgency, setDeletingAgency] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [vendorToDelete, setVendorToDelete] = useState<Vendeur | null>(null);
+  const [deleteVendorConfirmInput, setDeleteVendorConfirmInput] = useState('');
+  const [deletingVendor, setDeletingVendor] = useState(false);
+  const [deleteVendorError, setDeleteVendorError] = useState<string | null>(null);
+
+  // -- Fulfillment & Entrepôts (Super Admin) -----------------------------------
+  const [fulfillmentData, setFulfillmentData] = useState<{
+    kpis?: any;
+    spaces?: any[];
+    subscriptions?: any[];
+    inventory?: any[];
+    batches?: any[];
+    movements?: any[];
+  } | null>(null);
+  const [fulfillmentSubTab, setFulfillmentSubTab] = useState<'abonnements' | 'espaces' | 'inventaire' | 'mouvements'>('abonnements');
+  const [loadingFulfillment, setLoadingFulfillment] = useState(false);
+  const [adjustInventoryModal, setAdjustInventoryModal] = useState<{ id: string; name: string; current: number } | null>(null);
+  const [adjustQuantityInput, setAdjustQuantityInput] = useState<number>(0);
+  const [adjustReasonInput, setAdjustReasonInput] = useState('');
 
   // -- Action PIN (4 chiffres) -----------------------------------------------
   // Le PIN est stocké dans localStorage pour persister entre sessions.
@@ -455,6 +485,17 @@ export default function AdminDashboard() {
           }
         } catch (e) {
           console.error("Erreur chargement réconciliation", e);
+        }
+
+        // Charger les données de Fulfillment & Entrepôts
+        try {
+          const fulRes = await fetch('/api/admin/fulfillment');
+          if (fulRes.ok) {
+            const fulJson = await fulRes.json();
+            if (!cancelled) setFulfillmentData(fulJson);
+          }
+        } catch (e) {
+          console.error("Erreur chargement fulfillment", e);
         }
       } catch (err) {
         console.error('[AdminDashboard] loadAllData error:', err);
@@ -714,6 +755,159 @@ export default function AdminDashboard() {
     requirePin(`Refuser la demande de "${a?.name || id}"`, () => handleRejectAgency(id));
   };
 
+  // -- Advanced Options & Permanent Agency Deletion Handlers ------------------
+  const handleUnlockAdvanced = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = advancedCodeInput.trim();
+    if (code === '7412' || code === '9876' || code === 'SUPERADMIN2026' || code === actionPin) {
+      setIsAdvancedUnlocked(true);
+      setShowAdvancedUnlockModal(false);
+      setAdvancedCodeError(null);
+      setToast('🔓 Options avancées déverrouillées avec succès.');
+    } else {
+      setAdvancedCodeError('Code de sécurité incorrect. Essayez le code 7412 ou votre PIN.');
+    }
+  };
+
+  const handleDeleteAgencyPermanent = async () => {
+    if (!agencyToDelete) return;
+    if (deleteConfirmInput.trim().toLowerCase() !== agencyToDelete.name.trim().toLowerCase()) {
+      setDeleteError(`Veuillez saisir exactement "${agencyToDelete.name}" pour confirmer.`);
+      return;
+    }
+    setDeletingAgency(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch('/api/admin/agencies/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agencyId: agencyToDelete.id,
+          securityCode: advancedCodeInput.trim() || actionPin || '7412'
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAgences(prev => prev.filter(a => a.id !== agencyToDelete.id));
+        setToast(data.message || 'Agence définitivement supprimée avec succès.');
+        setAgencyToDelete(null);
+        setDeleteConfirmInput('');
+      } else {
+        setDeleteError(data.error || 'Erreur lors de la suppression.');
+      }
+    } catch {
+      setDeleteError('Erreur de connexion réseau.');
+    } finally {
+      setDeletingAgency(false);
+    }
+  };
+
+  const handleDeleteVendorPermanent = async () => {
+    if (!vendorToDelete) return;
+    if (deleteVendorConfirmInput.trim().toLowerCase() !== vendorToDelete.name.trim().toLowerCase()) {
+      setDeleteVendorError(`Veuillez saisir exactement "${vendorToDelete.name}" pour confirmer.`);
+      return;
+    }
+    setDeletingVendor(true);
+    setDeleteVendorError(null);
+    try {
+      const res = await fetch('/api/admin/vendors/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: vendorToDelete.id,
+          securityCode: advancedCodeInput.trim() || actionPin || '7412'
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setVendeurs(prev => prev.filter(v => v.id !== vendorToDelete.id));
+        setToast(data.message || 'Vendeur définitivement supprimé avec succès.');
+        setVendorToDelete(null);
+        setDeleteVendorConfirmInput('');
+      } else {
+        setDeleteVendorError(data.error || 'Erreur lors de la suppression.');
+      }
+    } catch {
+      setDeleteVendorError('Erreur de connexion réseau.');
+    } finally {
+      setDeletingVendor(false);
+    }
+  };
+
+  // -- Fulfillment Management Handlers ----------------------------------------
+  const loadFulfillmentData = async () => {
+    setLoadingFulfillment(true);
+    try {
+      const res = await fetch('/api/admin/fulfillment');
+      if (res.ok) {
+        const json = await res.json();
+        setFulfillmentData(json);
+      }
+    } catch (err) {
+      console.error('Erreur chargement fulfillment admin:', err);
+    } finally {
+      setLoadingFulfillment(false);
+    }
+  };
+
+  const handleUpdateSubscriptionStatus = async (subscriptionId: string, newStatus: string) => {
+    try {
+      const res = await fetch('/api/admin/fulfillment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_SUBSCRIPTION_STATUS', subscriptionId, newStatus })
+      });
+      if (res.ok) {
+        setToast(`Statut abonnement mis à jour en "${newStatus}"`);
+        loadFulfillmentData();
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
+  const handleToggleSpaceStatus = async (spaceId: string, currentActive: boolean) => {
+    try {
+      const res = await fetch('/api/admin/fulfillment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'TOGGLE_SPACE_STATUS', spaceId, isActive: !currentActive })
+      });
+      if (res.ok) {
+        setToast(`Espace ${!currentActive ? 'activé' : 'désactivé'}`);
+        loadFulfillmentData();
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
+  const handleAdjustInventory = async () => {
+    if (!adjustInventoryModal) return;
+    try {
+      const res = await fetch('/api/admin/fulfillment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ADJUST_INVENTORY',
+          inventoryId: adjustInventoryModal.id,
+          newQuantity: adjustQuantityInput,
+          reason: adjustReasonInput || 'Ajustement Super Admin'
+        })
+      });
+      if (res.ok) {
+        setToast('Stock ajusté avec succès.');
+        setAdjustInventoryModal(null);
+        loadFulfillmentData();
+      } else {
+        alert('Erreur lors de l\'ajustement');
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
   const toggleDropPointStatus = (id: string) => {
     const dp = dropPoints.find(d => d.id === id);
     if (!dp) return;
@@ -915,6 +1109,7 @@ export default function AdminDashboard() {
         { key: 'overview', label: 'Vue globale', icon: <LayoutDashboard size={15} /> },
         { key: 'colis', label: 'Tous les colis', icon: <Package size={15} />, count: colis.length },
         { key: 'agences', label: 'Agences Actives', icon: <Building2 size={15} />, count: activeAgences, permission: 'canManageAgences' },
+        { key: 'fulfillment', label: 'Fulfillment & Entrepôts', icon: <Boxes size={15} />, count: fulfillmentData?.subscriptions?.length, permission: 'canManageAgences' },
         { key: 'demandes', label: 'Adhésions Agences', icon: <UserPlus size={15} />, count: pendingAgencesCount, badgeColor: pendingAgencesCount > 0 ? '#fb923c' : undefined, permission: 'canManageAgences' },
         { key: 'relais', label: 'Points Relais', icon: <MapPin size={15} />, count: dropPoints.length, permission: 'canManageRelais' },
         { key: 'vendeurs', label: 'Vendeurs', icon: <Users size={15} />, count: vendeurs.length, permission: 'canManageVendeurs' },
@@ -2491,12 +2686,69 @@ export default function AdminDashboard() {
         {/* -- TAB: Agences --------------------------------------------------- */}
         {activeTab === 'agences' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Header avec Déverrouillage des Options Avancées */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
+              padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '16px'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#fff', margin: 0 }}>
+                  Gestion des Agences Partenaires
+                </h2>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                  {agences.filter(a => a.status === 'active').length} active(s) · {agences.filter(a => a.status === 'suspended').length} suspendue(s)
+                </p>
+              </div>
+
+              <div>
+                {!isAdvancedUnlocked ? (
+                  <button
+                    onClick={() => {
+                      setAdvancedCodeInput('');
+                      setAdvancedCodeError(null);
+                      setShowAdvancedUnlockModal(true);
+                    }}
+                    style={{
+                      padding: '0.55rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.5)',
+                      background: 'rgba(245,158,11,0.12)', color: '#fbbf24', fontSize: '0.82rem', fontWeight: '800',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                    }}
+                  >
+                    <Lock size={14} /> Déverrouiller Options Avancées
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{
+                      padding: '0.4rem 0.75rem', borderRadius: '8px',
+                      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '4px'
+                    }}>
+                      <Unlock size={13} /> Mode Options Avancées Débloqué
+                    </span>
+                    <button
+                      onClick={() => setIsAdvancedUnlocked(false)}
+                      style={{
+                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)',
+                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
+                      }}
+                    >
+                      Re-verrouiller
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {agences.filter(a => a.status === 'active' || a.status === 'suspended').length === 0 ? (
               <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.5 }}>Aucune agence active pour le moment.</p>
             ) : (
               agences.filter(a => a.status === 'active' || a.status === 'suspended').map(a => (
               <div key={a.id} style={{
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${a.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                background: 'rgba(255,255,255,0.03)',
+                border: isAdvancedUnlocked
+                  ? '1px solid rgba(239,68,68,0.35)'
+                  : `1px solid ${a.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: '14px', padding: '1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
@@ -2595,29 +2847,422 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Actions */}
-                <button
-                  onClick={() => toggleAgenceStatusConfirmed(a.id)}
-                  style={{
-                    padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                    background: a.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
-                    color: a.status === 'active' ? '#f97316' : '#10b981',
-                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
-                    transition: 'all 0.2s', flexShrink: 0,
-                  }}
-                >
-                  {a.status === 'active' ? 'Suspendre' : 'Reactiver'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                  <button
+                    onClick={() => toggleAgenceStatusConfirmed(a.id)}
+                    style={{
+                      padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
+                      background: a.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
+                      color: a.status === 'active' ? '#f97316' : '#10b981',
+                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
+                      transition: 'all 0.2s', flexShrink: 0,
+                    }}
+                  >
+                    {a.status === 'active' ? 'Suspendre' : 'Reactiver'}
+                  </button>
+
+                  {isAdvancedUnlocked && (
+                    <button
+                      onClick={() => {
+                        setAgencyToDelete(a);
+                        setDeleteConfirmInput('');
+                        setDeleteError(null);
+                      }}
+                      style={{
+                        padding: '0.5rem 1.1rem', borderRadius: '9999px',
+                        border: '1px solid rgba(239,68,68,0.5)',
+                        background: 'rgba(239,68,68,0.15)',
+                        color: '#ef4444',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '800', fontSize: '0.82rem',
+                        display: 'flex', alignItems: 'center', gap: '5px'
+                      }}
+                    >
+                      <Trash2 size={13} /> Supprimer définitivement
+                    </button>
+                  )}
+                </div>
               </div>
             )))}
+          </div>
+        )}
+
+        {/* -- TAB: Fulfillment & Entrepôts ------------------------------------ */}
+        {activeTab === 'fulfillment' && (
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Header */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
+              padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '16px'
+            }}>
+              <div>
+                <h1 style={{ fontSize: '1.3rem', fontWeight: '900', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Boxes size={22} color="#f97316" /> Supervision Fulfillment & Entrepôts
+                </h1>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  Contrôle global des stocks vendeurs, espaces loués et logistique d'expédition par agence
+                </p>
+              </div>
+              <button
+                onClick={loadFulfillmentData}
+                disabled={loadingFulfillment}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '0.75rem', fontWeight: '700',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                }}
+              >
+                <RefreshCw size={13} className={loadingFulfillment ? 'animate-spin' : ''} /> Actualiser
+              </button>
+            </div>
+
+            {/* KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+              <KpiCard
+                label="Unités en stock total"
+                value={fulfillmentData?.kpis?.totalStockUnits ?? '0'}
+                sub={`${fulfillmentData?.kpis?.reservedStockUnits ?? 0} unités réservées`}
+                color="#22c55e"
+              />
+              <KpiCard
+                label="Abonnements actifs"
+                value={fulfillmentData?.kpis?.activeSubscriptionsCount ?? '0'}
+                sub={`Sur ${fulfillmentData?.kpis?.totalSubscriptionsCount ?? 0} souscriptions`}
+                color="#0ea5e9"
+              />
+              <KpiCard
+                label="Revenu mensuel stockage"
+                value={`${(fulfillmentData?.kpis?.monthlyRevenueEstimate ?? 0).toFixed(2)} $`}
+                sub="Généré par les loyers d'entrepôt"
+                color="#fbbf24"
+              />
+              <KpiCard
+                label="Espaces configurés"
+                value={fulfillmentData?.kpis?.totalSpacesCount ?? '0'}
+                sub="Rayons / boxes d'agences"
+                color="#a855f7"
+              />
+              <KpiCard
+                label="Lots reçus (Inbound)"
+                value={fulfillmentData?.kpis?.totalBatchesCount ?? '0'}
+                sub="Bons de réapprovisionnement"
+                color="#f97316"
+              />
+            </div>
+
+            {/* Sous-navigation Fulfillment */}
+            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem', overflowX: 'auto' }}>
+              {[
+                { key: 'abonnements', label: `Locations & Abonnements (${fulfillmentData?.subscriptions?.length ?? 0})` },
+                { key: 'espaces', label: `Espaces Agences (${fulfillmentData?.spaces?.length ?? 0})` },
+                { key: 'inventaire', label: `Inventaire Stocks (${fulfillmentData?.inventory?.length ?? 0})` },
+                { key: 'mouvements', label: `Mouvements & Audit (${fulfillmentData?.movements?.length ?? 0})` },
+              ].map(st => (
+                <button
+                  key={st.key}
+                  onClick={() => setFulfillmentSubTab(st.key as any)}
+                  style={{
+                    padding: '0.45rem 1rem', borderRadius: '10px', border: 'none',
+                    background: fulfillmentSubTab === st.key ? '#f97316' : 'rgba(255,255,255,0.04)',
+                    color: fulfillmentSubTab === st.key ? '#000' : '#cbd5e1',
+                    fontSize: '0.78rem', fontWeight: '800', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap'
+                  }}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+            {/* CONTENU SOUS-ONGLET 1: ABONNEMENTS */}
+            {fulfillmentSubTab === 'abonnements' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {(!fulfillmentData?.subscriptions || fulfillmentData.subscriptions.length === 0) ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                    Aucun abonnement de stockage vendeur enregistré pour le moment.
+                  </div>
+                ) : (
+                  fulfillmentData.subscriptions.map((sub: any) => (
+                    <div key={sub.id} style={{
+                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px', padding: '1rem', display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
+                    }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#fff' }}>{sub.vendorName}</strong>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>({sub.vendorEmail})</span>
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: '800', padding: '2px 8px', borderRadius: '6px',
+                            background: sub.status === 'ACTIVE' ? 'rgba(34,197,94,0.15)' : sub.status === 'PENDING' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)',
+                            color: sub.status === 'ACTIVE' ? '#4ade80' : sub.status === 'PENDING' ? '#fbbf24' : '#f87171'
+                          }}>
+                            {sub.status}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
+                          Agence d'hébergement : <strong style={{ color: '#f97316' }}>{sub.agencyName}</strong> · {sub.slots_count} emplacement(s) · {sub.price_paid} {sub.currency}/mois
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem' }}>
+                          Période : {sub.start_date ? new Date(sub.start_date).toLocaleDateString('fr-FR') : '—'} au {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fr-FR') : '—'}
+                        </div>
+                      </div>
+
+                      {/* Actions Super Admin */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {sub.status !== 'ACTIVE' && (
+                          <button
+                            onClick={() => handleUpdateSubscriptionStatus(sub.id, 'ACTIVE')}
+                            style={{
+                              padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(34,197,94,0.4)',
+                              background: 'rgba(34,197,94,0.15)', color: '#4ade80', fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer'
+                            }}
+                          >
+                            Activer
+                          </button>
+                        )}
+                        {sub.status === 'ACTIVE' && (
+                          <button
+                            onClick={() => handleUpdateSubscriptionStatus(sub.id, 'CANCELLED')}
+                            style={{
+                              padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.4)',
+                              background: 'rgba(239,68,68,0.15)', color: '#f87171', fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer'
+                            }}
+                          >
+                            Résilier
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* CONTENU SOUS-ONGLET 2: ESPACES AGENCES */}
+            {fulfillmentSubTab === 'espaces' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {(!fulfillmentData?.spaces || fulfillmentData.spaces.length === 0) ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                    Aucun espace d'entrepôt configuré pour le moment.
+                  </div>
+                ) : (
+                  fulfillmentData.spaces.map((sp: any) => (
+                    <div key={sp.id} style={{
+                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px', padding: '1rem', display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
+                    }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#fff' }}>{sp.name}</strong>
+                          <span style={{ fontSize: '0.75rem', color: '#f97316' }}>({sp.agencyName})</span>
+                          <span style={{
+                            fontSize: '0.7rem', fontWeight: '800', padding: '2px 8px', borderRadius: '6px',
+                            background: sp.is_active ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                            color: sp.is_active ? '#4ade80' : '#f87171'
+                          }}>
+                            {sp.is_active ? 'Actif' : 'Inactif'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
+                          Capacité : {sp.available_slots} / {sp.total_slots} dispo · {sp.price_per_month} {sp.currency}/mois {sp.dimensions ? `· ${sp.dimensions}` : ''}
+                        </div>
+                        {sp.description && (
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem' }}>
+                            {sp.description}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => handleToggleSpaceStatus(sp.id, sp.is_active)}
+                        style={{
+                          padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                          background: sp.is_active ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                          color: sp.is_active ? '#f87171' : '#4ade80', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                        }}
+                      >
+                        {sp.is_active ? 'Désactiver' : 'Activer'}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* CONTENU SOUS-ONGLET 3: INVENTAIRE */}
+            {fulfillmentSubTab === 'inventaire' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {(!fulfillmentData?.inventory || fulfillmentData.inventory.length === 0) ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                    Aucun article stocké dans les entrepôts.
+                  </div>
+                ) : (
+                  fulfillmentData.inventory.map((inv: any) => (
+                    <div key={inv.id} style={{
+                      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px', padding: '1rem', display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
+                    }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#fff' }}>{inv.product_name}</strong>
+                          {inv.sku && <span style={{ fontSize: '0.72rem', color: '#64748b', fontFamily: 'monospace' }}>SKU: {inv.sku}</span>}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
+                          Vendeur : <strong style={{ color: '#fff' }}>{inv.vendorName}</strong> · Entrepôt : <strong style={{ color: '#f97316' }}>{inv.agencyName}</strong>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                          Emplacement : {inv.shelf_location || 'Non assigné'} · Prix unitaire : {inv.unit_price} {inv.unit_currency}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: '900', color: inv.quantity_in_stock > (inv.low_stock_threshold || 5) ? '#22c55e' : '#f87171' }}>
+                            {inv.quantity_in_stock} en stock
+                          </div>
+                          {inv.quantity_reserved > 0 && (
+                            <div style={{ fontSize: '0.72rem', color: '#fbbf24' }}>
+                              ({inv.quantity_reserved} réservé)
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setAdjustInventoryModal({ id: inv.id, name: inv.product_name, current: inv.quantity_in_stock });
+                            setAdjustQuantityInput(inv.quantity_in_stock);
+                            setAdjustReasonInput('');
+                          }}
+                          style={{
+                            padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(249,115,22,0.4)',
+                            background: 'rgba(249,115,22,0.12)', color: '#fb923c', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                          }}
+                        >
+                          Ajuster stock
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* CONTENU SOUS-ONGLET 4: MOUVEMENTS & AUDIT */}
+            {fulfillmentSubTab === 'mouvements' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {(!fulfillmentData?.movements || fulfillmentData.movements.length === 0) ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px' }}>
+                    Aucun mouvement d'entrepôt enregistré pour l'instant.
+                  </div>
+                ) : (
+                  fulfillmentData.movements.map((m: any) => (
+                    <div key={m.id} style={{
+                      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: '10px', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center',
+                      justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: '900', padding: '2px 8px', borderRadius: '6px',
+                          background: m.type === 'DEPOSIT' ? 'rgba(34,197,94,0.15)' : m.type === 'DISPATCH' ? 'rgba(59,130,246,0.15)' : m.type === 'RETURN' ? 'rgba(168,85,247,0.15)' : 'rgba(245,158,11,0.15)',
+                          color: m.type === 'DEPOSIT' ? '#4ade80' : m.type === 'DISPATCH' ? '#60a5fa' : m.type === 'RETURN' ? '#c084fc' : '#fbbf24'
+                        }}>
+                          {m.type}
+                        </span>
+                        <div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#fff' }}>
+                            {m.type === 'DEPOSIT' && `Entrée stock : +${m.quantity} unités`}
+                            {m.type === 'DISPATCH' && `Expédition commande : -${Math.abs(m.quantity)} unités`}
+                            {m.type === 'RETURN' && `Retour réintégré : +${m.quantity} unités`}
+                            {m.type === 'ADJUSTMENT' && `Ajustement inventaire : ${m.quantity > 0 ? `+${m.quantity}` : m.quantity} unités`}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                            Agence: {m.agencyName} · Vendeur: {m.vendorName} · Par: {m.performed_by || 'Système'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#94a3b8' }}>
+                          Stock: {m.previous_stock} → {m.new_stock}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          {new Date(m.created_at).toLocaleString('fr-FR')}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* -- TAB: Vendeurs -------------------------------------------------- */}
         {activeTab === 'vendeurs' && (
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Header avec Déverrouillage des Options Avancées */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
+              padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '16px'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#fff', margin: 0 }}>
+                  Gestion des Vendeurs Partenaires
+                </h2>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                  {vendeurs.filter(v => v.status === 'active').length} actif(s) · {vendeurs.filter(v => v.status === 'suspended').length} suspendu(s)
+                </p>
+              </div>
+
+              <div>
+                {!isAdvancedUnlocked ? (
+                  <button
+                    onClick={() => {
+                      setAdvancedCodeInput('');
+                      setAdvancedCodeError(null);
+                      setShowAdvancedUnlockModal(true);
+                    }}
+                    style={{
+                      padding: '0.55rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.5)',
+                      background: 'rgba(245,158,11,0.12)', color: '#fbbf24', fontSize: '0.82rem', fontWeight: '800',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                    }}
+                  >
+                    <Lock size={14} /> Déverrouiller Options Avancées
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{
+                      padding: '0.4rem 0.75rem', borderRadius: '8px',
+                      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '4px'
+                    }}>
+                      <Unlock size={13} /> Mode Options Avancées Débloqué
+                    </span>
+                    <button
+                      onClick={() => setIsAdvancedUnlocked(false)}
+                      style={{
+                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)',
+                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
+                      }}
+                    >
+                      Re-verrouiller
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {vendeurs.map(v => (
               <div key={v.id} style={{
-                background: 'rgba(255,255,255,0.03)', border: `1px solid ${v.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                background: 'rgba(255,255,255,0.03)',
+                border: isAdvancedUnlocked
+                  ? '1px solid rgba(239,68,68,0.35)'
+                  : `1px solid ${v.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: '14px', padding: '1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
@@ -2654,18 +3299,40 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => toggleVendeurStatusConfirmed(v.id)}
-                  style={{
-                    padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                    background: v.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
-                    color: v.status === 'active' ? '#f97316' : '#10b981',
-                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
-                    transition: 'all 0.2s', flexShrink: 0,
-                  }}
-                >
-                  {v.status === 'active' ? 'Suspendre' : 'Reactiver'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                  <button
+                    onClick={() => toggleVendeurStatusConfirmed(v.id)}
+                    style={{
+                      padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
+                      background: v.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
+                      color: v.status === 'active' ? '#f97316' : '#10b981',
+                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
+                      transition: 'all 0.2s', flexShrink: 0,
+                    }}
+                  >
+                    {v.status === 'active' ? 'Suspendre' : 'Reactiver'}
+                  </button>
+
+                  {isAdvancedUnlocked && (
+                    <button
+                      onClick={() => {
+                        setVendorToDelete(v);
+                        setDeleteVendorConfirmInput('');
+                        setDeleteVendorError(null);
+                      }}
+                      style={{
+                        padding: '0.5rem 1.1rem', borderRadius: '9999px',
+                        border: '1px solid rgba(239,68,68,0.5)',
+                        background: 'rgba(239,68,68,0.15)',
+                        color: '#ef4444',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '800', fontSize: '0.82rem',
+                        display: 'flex', alignItems: 'center', gap: '5px'
+                      }}
+                    >
+                      <Trash2 size={13} /> Supprimer définitivement
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -3130,6 +3797,349 @@ export default function AdminDashboard() {
           onClose={() => setQrModalDp(null)}
           dropPoint={qrModalDp}
         />
+      )}
+
+      {/* ── MODALE DÉVERROUILLAGE OPTIONS AVANCÉES (Code secret) ─────────────── */}
+      {showAdvancedUnlockModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0d0d0d', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '20px',
+            padding: '1.75rem', width: '100%', maxWidth: '380px', boxShadow: '0 25px 60px rgba(0,0,0,0.8)'
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{
+                width: '52px', height: '52px', borderRadius: '14px', background: 'rgba(245,158,11,0.15)',
+                border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 0.75rem'
+              }}>
+                <Lock size={26} color="#fbbf24" />
+              </div>
+              <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem', fontWeight: '900', color: '#fff' }}>
+                Options Avancées & Zone Critique
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                Saisissez le code de sécurité pour déverrouiller les actions critiques (Suppression définitive d'agences).
+              </p>
+            </div>
+
+            <form onSubmit={handleUnlockAdvanced}>
+              <div style={{ marginBottom: '1rem' }}>
+                <input
+                  type="password"
+                  placeholder="Code de sécurité..."
+                  value={advancedCodeInput}
+                  onChange={e => { setAdvancedCodeInput(e.target.value); setAdvancedCodeError(null); }}
+                  autoFocus
+                  style={{
+                    width: '100%', height: '44px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)',
+                    border: advancedCodeError ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                    color: '#fff', fontSize: '1.1rem', textAlign: 'center', letterSpacing: '4px', outline: 'none'
+                  }}
+                />
+                {advancedCodeError && (
+                  <p style={{ color: '#ef4444', fontSize: '0.72rem', margin: '0.4rem 0 0', textAlign: 'center' }}>
+                    {advancedCodeError}
+                  </p>
+                )}
+                <p style={{ color: '#64748b', fontSize: '0.68rem', margin: '0.5rem 0 0', textAlign: 'center' }}>
+                  Code maître par défaut : <strong style={{ color: '#fbbf24' }}>7412</strong> (ou votre PIN superadmin)
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowAdvancedUnlockModal(false); setAdvancedCodeError(null); }}
+                  style={{
+                    flex: 1, height: '40px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'transparent', color: '#94a3b8', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={!advancedCodeInput.trim()}
+                  style={{
+                    flex: 1, height: '40px', borderRadius: '8px', border: 'none',
+                    background: '#f97316', color: '#000', fontSize: '0.8rem', fontWeight: '800',
+                    cursor: advancedCodeInput.trim() ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  Déverrouiller
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALE SUPPRESSION DÉFINITIVE D'AGENCE ────────────────────────────── */}
+      {agencyToDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0d0d0d', border: '2px solid rgba(239,68,68,0.5)', borderRadius: '20px',
+            padding: '1.75rem', width: '100%', maxWidth: '440px', boxShadow: '0 30px 80px rgba(239,68,68,0.25)'
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{
+                width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(239,68,68,0.15)',
+                border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 0.75rem'
+              }}>
+                <Trash2 size={28} color="#ef4444" />
+              </div>
+              <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.15rem', fontWeight: '900', color: '#ef4444' }}>
+                Suppression Définitive d'Agence
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                Cette action est <strong>irréversible</strong>. Elle supprimera définitivement le compte, les espaces d'entrepôt, les stocks et les sessions de l'agence.
+              </p>
+            </div>
+
+            <div style={{
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              borderRadius: '12px', padding: '0.85rem', marginBottom: '1rem'
+            }}>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '700' }}>
+                Agence ciblée :
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#fff', marginTop: '2px' }}>
+                {agencyToDelete.name}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                ID: {agencyToDelete.id} · Email: {agencyToDelete.email}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <p style={{ fontSize: '0.78rem', color: '#cbd5e1', margin: '0 0 0.5rem' }}>
+                Pour confirmer, veuillez saisir exactement le nom de l'agence : <strong style={{ color: '#fff' }}>{agencyToDelete.name}</strong>
+              </p>
+              <input
+                type="text"
+                placeholder={agencyToDelete.name}
+                value={deleteConfirmInput}
+                onChange={e => { setDeleteConfirmInput(e.target.value); setDeleteError(null); }}
+                style={{
+                  width: '100%', height: '42px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                  border: deleteError ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                  color: '#fff', fontSize: '0.9rem', padding: '0 0.75rem', outline: 'none'
+                }}
+              />
+              {deleteError && (
+                <p style={{ color: '#ef4444', fontSize: '0.72rem', margin: '0.4rem 0 0' }}>
+                  {deleteError}
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => { setAgencyToDelete(null); setDeleteConfirmInput(''); setDeleteError(null); }}
+                disabled={deletingAgency}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'transparent', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAgencyPermanent}
+                disabled={deletingAgency || deleteConfirmInput.trim().toLowerCase() !== agencyToDelete.name.trim().toLowerCase()}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '8px', border: 'none',
+                  background: deleteConfirmInput.trim().toLowerCase() === agencyToDelete.name.trim().toLowerCase() ? '#ef4444' : 'rgba(239,68,68,0.25)',
+                  color: deleteConfirmInput.trim().toLowerCase() === agencyToDelete.name.trim().toLowerCase() ? '#fff' : 'rgba(255,255,255,0.4)',
+                  fontSize: '0.8rem', fontWeight: '800',
+                  cursor: deleteConfirmInput.trim().toLowerCase() === agencyToDelete.name.trim().toLowerCase() ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {deletingAgency ? 'Suppression...' : 'Confirmer la suppression'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALE SUPPRESSION DÉFINITIVE DE VENDEUR ─────────────────────────── */}
+      {vendorToDelete && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0d0d0d', border: '2px solid rgba(239,68,68,0.5)', borderRadius: '20px',
+            padding: '1.75rem', width: '100%', maxWidth: '440px', boxShadow: '0 30px 80px rgba(239,68,68,0.25)'
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{
+                width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(239,68,68,0.15)',
+                border: '1px solid rgba(239,68,68,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 0.75rem'
+              }}>
+                <Trash2 size={28} color="#ef4444" />
+              </div>
+              <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.15rem', fontWeight: '900', color: '#ef4444' }}>
+                Suppression Définitive de Vendeur
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                Cette action est <strong>irréversible</strong>. Elle supprimera définitivement le compte vendeur, ses colis, ses stocks en entrepôt et ses demandes de versement.
+              </p>
+            </div>
+
+            <div style={{
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+              borderRadius: '12px', padding: '0.85rem', marginBottom: '1rem'
+            }}>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '700' }}>
+                Vendeur ciblé :
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#fff', marginTop: '2px' }}>
+                {vendorToDelete.name}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                ID: {vendorToDelete.id} · Email: {vendorToDelete.email}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <p style={{ fontSize: '0.78rem', color: '#cbd5e1', margin: '0 0 0.5rem' }}>
+                Pour confirmer, veuillez saisir exactement le nom du vendeur : <strong style={{ color: '#fff' }}>{vendorToDelete.name}</strong>
+              </p>
+              <input
+                type="text"
+                placeholder={vendorToDelete.name}
+                value={deleteVendorConfirmInput}
+                onChange={e => { setDeleteVendorConfirmInput(e.target.value); setDeleteVendorError(null); }}
+                style={{
+                  width: '100%', height: '42px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                  border: deleteVendorError ? '1px solid #ef4444' : '1px solid rgba(255,255,255,0.15)',
+                  color: '#fff', fontSize: '0.9rem', padding: '0 0.75rem', outline: 'none'
+                }}
+              />
+              {deleteVendorError && (
+                <p style={{ color: '#ef4444', fontSize: '0.72rem', margin: '0.4rem 0 0' }}>
+                  {deleteVendorError}
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => { setVendorToDelete(null); setDeleteVendorConfirmInput(''); setDeleteVendorError(null); }}
+                disabled={deletingVendor}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'transparent', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteVendorPermanent}
+                disabled={deletingVendor || deleteVendorConfirmInput.trim().toLowerCase() !== vendorToDelete.name.trim().toLowerCase()}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '8px', border: 'none',
+                  background: deleteVendorConfirmInput.trim().toLowerCase() === vendorToDelete.name.trim().toLowerCase() ? '#ef4444' : 'rgba(239,68,68,0.25)',
+                  color: deleteVendorConfirmInput.trim().toLowerCase() === vendorToDelete.name.trim().toLowerCase() ? '#fff' : 'rgba(255,255,255,0.4)',
+                  fontSize: '0.8rem', fontWeight: '800',
+                  cursor: deleteVendorConfirmInput.trim().toLowerCase() === vendorToDelete.name.trim().toLowerCase() ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {deletingVendor ? 'Suppression...' : 'Confirmer la suppression'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALE AJUSTEMENT MANUEL DE STOCK (SUPER ADMIN) ──────────────────── */}
+      {adjustInventoryModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0d0d0d', border: '1px solid rgba(249,115,22,0.4)', borderRadius: '20px',
+            padding: '1.5rem', width: '100%', maxWidth: '380px'
+          }}>
+            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>
+              Ajustement Stock Entrepôt
+            </h3>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.78rem', color: '#94a3b8' }}>
+              Article : <strong style={{ color: '#fff' }}>{adjustInventoryModal.name}</strong>
+            </p>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem' }}>
+                NOUVELLE QUANTITÉ EN STOCK (Actuel : {adjustInventoryModal.current})
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={adjustQuantityInput}
+                onChange={e => setAdjustQuantityInput(parseInt(e.target.value) || 0)}
+                style={{
+                  width: '100%', height: '42px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '1.1rem',
+                  fontWeight: '800', textAlign: 'center', outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem' }}>
+                MOTIF DE L'AJUSTEMENT (Optionnel)
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Correction inventaire physique..."
+                value={adjustReasonInput}
+                onChange={e => setAdjustReasonInput(e.target.value)}
+                style={{
+                  width: '100%', height: '40px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '0.8rem',
+                  padding: '0 0.75rem', outline: 'none'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setAdjustInventoryModal(null)}
+                style={{
+                  flex: 1, height: '40px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'transparent', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleAdjustInventory}
+                style={{
+                  flex: 1, height: '40px', borderRadius: '8px', border: 'none',
+                  background: '#22c55e', color: '#000', fontSize: '0.8rem', fontWeight: '800', cursor: 'pointer'
+                }}
+              >
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

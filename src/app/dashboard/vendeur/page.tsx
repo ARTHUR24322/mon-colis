@@ -7,7 +7,7 @@ import {
   Package, DollarSign, Users, User, ArrowRight, Truck, MapPin, Phone, Search,
   Share2, Copy, Check, Plus, X, AlertTriangle, Building2, CheckCircle2, ChevronRight,
   ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star, KeyRound,
-  Trash2
+  Trash2, Boxes
 } from 'lucide-react';
 import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
@@ -16,6 +16,7 @@ import CurrencyToggle from '@/components/CurrencyToggle';
 import { useTheme } from '@/components/ThemeContext';
 import ThemeToggle from '@/components/ThemeToggle';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import VendorWarehouseTab from '@/components/vendor/VendorWarehouseTab';
 
 // Composants du Design System Mobile
 import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottomNav';
@@ -24,7 +25,7 @@ import MobilePackageDetailSheet from '@/components/mobile/MobilePackageDetailShe
 import { MOBILE_THEME } from '@/components/mobile/MobileDesignTokens';
 
 type Colis = ColisItem;
-type Tab = 'apercu' | 'historique' | 'revenus' | 'clients' | 'profil';
+type Tab = 'apercu' | 'historique' | 'stock' | 'revenus' | 'clients' | 'profil';
 
 export function getVendorBadge(livres: number) {
   if (livres >= 100) return { icon: '💎', label: 'Vendeur Elite', color: '#a855f7' };
@@ -64,11 +65,16 @@ export default function VendeurDashboard() {
   const [poids, setPoids] = useState('1.5');
   const [paidByClient, setPaidByClient] = useState(true);
   const [isPrepaid, setIsPrepaid] = useState(false);
-  const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE'>('DIRECT');
+  const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'WAREHOUSE_FULFILLMENT'>('DIRECT');
   const [originDropPointId, setOriginDropPointId] = useState('');
   const [selectedAgencyId, setSelectedAgencyId] = useState<string | null>(null);
   const [agenciesForCommune, setAgenciesForCommune] = useState<any[]>([]);
   const [loadingAgenciesForCommune, setLoadingAgenciesForCommune] = useState(false);
+
+  // Articles en stock entrepôt (Fulfillment Phase 2)
+  const [warehouseStockItems, setWarehouseStockItems] = useState<any[]>([]);
+  const [selectedInventoryId, setSelectedInventoryId] = useState('');
+  const [selectedInventoryQty, setSelectedInventoryQty] = useState(1);
 
   // Drop points disponibles pour le premier kilomètre
   const [dropPoints, setDropPoints] = useState<DropPoint[]>([]);
@@ -209,11 +215,23 @@ export default function VendeurDashboard() {
     }
   };
 
+  const loadWarehouseStockItems = async () => {
+    if (!user?.id) return;
+    try {
+      const res = await fetch(`/api/vendor/warehouse/inventory?vendorId=${user.id}`);
+      if (res.ok) {
+        const d = await res.json();
+        setWarehouseStockItems(d.items || []);
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (user?.id) {
       refreshColis();
       loadPendingPaymentOtps();
       loadPayoutRequests();
+      loadWarehouseStockItems();
       dataService.getAgencies().then(list => {
         const map: Record<string, number> = {};
         list.forEach(ag => { if (ag.id && ag.tauxConversionFC) map[ag.id] = ag.tauxConversionFC; });
@@ -389,6 +407,8 @@ export default function VendeurDashboard() {
         deliveryMode,
         originDropPointId: deliveryMode === 'DROP_POINT_FIRST_MILE' ? originDropPointId : undefined,
         agencyId: selectedAgencyId || undefined,
+        warehouseInventoryId: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? selectedInventoryId : undefined,
+        warehouseQuantity: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? selectedInventoryQty : undefined,
       });
 
       // BUG 3 : Le devis n'est calculé qu'après le choix de l'agence
@@ -405,6 +425,7 @@ export default function VendeurDashboard() {
       }
 
       await refreshColis();
+      await loadWarehouseStockItems();
       setShowModal(false);
       showToast('Colis expédié avec succès !');
 
@@ -422,6 +443,8 @@ export default function VendeurDashboard() {
       setPaidByClient(true);
       setDeliveryMode('DIRECT');
       setSelectedAgencyId(null);
+      setSelectedInventoryId('');
+      setSelectedInventoryQty(1);
       setActiveTab('apercu');
     } catch {
       showToast('Erreur lors de la création du colis.');
@@ -498,8 +521,8 @@ export default function VendeurDashboard() {
   const navItems: MobileNavItem[] = [
     { id: 'apercu', label: 'Accueil', icon: <Home size={20} /> },
     { id: 'historique', label: 'Colis', icon: <Package size={20} />, badge: colisEnCours.length || undefined },
+    { id: 'stock', label: 'Entrepôt', icon: <Boxes size={20} /> },
     { id: 'revenus', label: 'Revenus', icon: <DollarSign size={20} />, badge: hasActivePaymentAction ? '!' : undefined },
-    { id: 'clients', label: 'Clients', icon: <Users size={20} /> },
     { id: 'profil', label: 'Profil', icon: <User size={20} /> },
   ];
 
@@ -558,123 +581,59 @@ export default function VendeurDashboard() {
             </div>
           </div>
 
-          {/* BANDEAU ACTION REQUISE : Validation d'un versement en cours */}
+          {/* BANDEAU ACTION REQUISE : Notification de versement en cours (la validation se fait en Finance) */}
           {hasActivePaymentAction && (
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08))',
-              border: '2px solid rgba(245, 158, 11, 0.6)',
-              borderRadius: '16px',
-              padding: '1rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.6rem',
-              boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  ⚡ Versement en attente de validation
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('revenus')}
-                  style={{
-                    background: 'transparent', border: 'none', color: '#93c5fd', fontSize: '0.72rem',
-                    fontWeight: '700', cursor: 'pointer', textDecoration: 'underline'
-                  }}
-                >
-                  Détails & QR →
-                </button>
-              </div>
-
-              <p style={{ margin: 0, fontSize: '0.78rem', color: '#e2e8f0' }}>
-                {payoutRequests[0]?.agencyName
-                  ? <>L&apos;agence <strong style={{ color: '#fff' }}>{payoutRequests[0].agencyName}</strong> a préparé votre virement ({payoutRequests[0].amount.toLocaleString('fr-FR')} CDF). Entrez le code à 6 chiffres pour encaisser :</>
-                  : pendingPaymentOtps[0]
-                  ? <>L&apos;agence <strong style={{ color: '#fff' }}>{pendingPaymentOtps[0].agency?.profile?.name || 'partenaire'}</strong> a préparé votre versement ({pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF). Entrez le code à 6 chiffres reçu pour encaisser vos fonds :</>
-                  : <>L&apos;agence a préparé votre versement. Entrez le code à 6 chiffres reçu pour encaisser vos fonds :</>}
-              </p>
-
-              {payoutRequests[0]?.code && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Code secours :</span>
-                  <span style={{ fontSize: '1.05rem', fontWeight: '900', color: '#fbbf24', letterSpacing: '3px', fontFamily: 'monospace' }}>
-                    {payoutRequests[0].code}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (payoutRequests[0]?.code) setOtpConfirmInput(payoutRequests[0].code);
-                    }}
-                    style={{
-                      padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.4)',
-                      background: 'rgba(251,191,36,0.1)', color: '#fbbf24', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
-                    }}
-                  >
-                    Pré-remplir
-                  </button>
+            <div 
+              onClick={() => setActiveTab('revenus')}
+              style={{
+                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08))',
+                border: '2px solid rgba(245, 158, 11, 0.6)',
+                borderRadius: '16px',
+                padding: '0.9rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '38px', height: '38px', borderRadius: '10px',
+                  background: 'rgba(245, 158, 11, 0.2)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0
+                }}>
+                  ⚡
                 </div>
-              )}
-
-              <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                {otpConfirmSuccess ? (
-                  <div style={{ padding: '0.5rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.78rem', fontWeight: '700', textAlign: 'center' }}>
-                    {otpConfirmSuccess}
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase' }}>
+                    Versement prêt à encaisser
                   </div>
-                ) : (
-                  <>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="Code à 6 chiffres"
-                        value={otpConfirmInput}
-                        onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
-                        style={{
-                          flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.6)',
-                          border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
-                          textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
-                        }}
-                      />
-                      <button
-                        type="submit"
-                        disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
-                        style={{
-                          padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
-                          background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                          color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
-                          fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
-                        }}
-                      >
-                        {otpConfirmLoading ? '...' : 'Valider'}
-                      </button>
-                    </div>
-                    {otpConfirmError && (
-                      <div style={{ color: '#f87171', fontSize: '0.72rem' }}>{otpConfirmError}</div>
-                    )}
-                  </>
-                )}
-              </form>
-            </div>
-          )}
-
-          {/* Accès rapide saisie OTP si aucun bandeau actif mais code déjà transmis */}
-          {!hasActivePaymentAction && (
-            <div style={{
-              display: 'flex', justifyContent: 'center'
-            }}>
-              <button
-                type="button"
-                onClick={() => setShowManualOtpModal(true)}
-                style={{
-                  background: 'transparent', border: '1px dashed rgba(245,158,11,0.4)',
-                  borderRadius: '12px', padding: '0.5rem 0.85rem', color: '#fbbf24',
-                  fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '6px'
-                }}
-              >
-                <KeyRound size={13} /> Saisir un code OTP de versement reçu
-              </button>
+                  <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '2px' }}>
+                    {payoutRequests[0]?.agencyName
+                      ? `L'agence ${payoutRequests[0].agencyName} a préparé votre versement (${payoutRequests[0].amount.toLocaleString('fr-FR')} CDF).`
+                      : pendingPaymentOtps[0]
+                      ? `L'agence ${pendingPaymentOtps[0].agency?.profile?.name || 'partenaire'} a préparé votre versement (${pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF).`
+                      : "Un versement est en attente de confirmation."}
+                  </div>
+                </div>
+              </div>
+              <span style={{
+                padding: '0.4rem 0.85rem',
+                borderRadius: '8px',
+                background: '#fbbf24',
+                color: '#000',
+                fontWeight: '800',
+                fontSize: '0.75rem',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                Encaisser en Finance →
+              </span>
             </div>
           )}
 
@@ -703,6 +662,51 @@ export default function VendeurDashboard() {
             <Plus size={22} strokeWidth={2.5} />
             <span>Expédier un colis</span>
           </button>
+
+          {/* BANDEAU ENTREPÔT & STOCK (FULFILLMENT) */}
+          <div
+            onClick={() => setActiveTab('stock')}
+            style={{
+              background: isDark
+                ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(249, 115, 22, 0.05))'
+                : 'linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(249, 115, 22, 0.03))',
+              border: '1px solid rgba(249, 115, 22, 0.35)',
+              borderRadius: '16px',
+              padding: '0.9rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(249, 115, 22, 0.12)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '12px',
+                background: 'rgba(249, 115, 22, 0.2)', color: '#f97316',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}>
+                <Boxes size={22} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontWeight: '800', fontSize: '0.92rem', color: isDark ? '#fff' : '#0f172a' }}>
+                    Entrepôt & Stock Agence
+                  </span>
+                  <span style={{
+                    fontSize: '0.62rem', fontWeight: '800', padding: '0.12rem 0.4rem',
+                    background: '#f97316', color: '#fff', borderRadius: '6px'
+                  }}>
+                    Fulfillment
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '0.1rem' }}>
+                  Gérer vos stocks et créer vos bons de dépôt QR
+                </div>
+              </div>
+            </div>
+            <ChevronRight size={18} color="#f97316" />
+          </div>
 
           {/* 3 CHIFFRES CLÉS MAXIMUM */}
           <div style={{
@@ -898,20 +902,47 @@ export default function VendeurDashboard() {
       {/* ══════════════ 3. REVENUS & VIREMENTS (DÉDIÉ) ══════════════ */}
       {activeTab === 'revenus' && (
         <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
               Finance & Virements
             </h1>
-            <button
-              onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
-              style={{
-                padding: '0.35rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
-                background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', fontSize: '0.72rem', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '4px'
-              }}
-            >
-              <RefreshCw size={12} /> Actualiser
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (agencesFinances.length === 1) {
+                    setVendorRequestModal({
+                      agencyId: agencesFinances[0].agencyId,
+                      agencyName: agencesFinances[0].agencyName,
+                      agencyPhone: agencesFinances[0].phone || '',
+                      amountUsd: agencesFinances[0].duAuVendeur,
+                    });
+                  } else if (agencesFinances.length > 1) {
+                    setRevenueSubTab('soldes');
+                    showToast('Sélectionnez l\'agence souhaitée pour demander votre versement');
+                  } else {
+                    showToast('Aucun solde disponible à verser pour l\'instant.');
+                  }
+                }}
+                style={{
+                  padding: '0.4rem 0.85rem', borderRadius: '8px', border: 'none',
+                  background: '#22c55e', color: '#000', fontSize: '0.75rem', fontWeight: '800',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'
+                }}
+              >
+                💸 Demander un versement
+              </button>
+              <button
+                onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
+                style={{
+                  padding: '0.4rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', fontSize: '0.72rem', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px'
+                }}
+              >
+                <RefreshCw size={12} /> Actualiser
+              </button>
+            </div>
           </div>
 
           {/* Sélecteur de sous-onglets : Virements vs Soldes */}
@@ -1517,6 +1548,16 @@ export default function VendeurDashboard() {
         </div>
       )}
 
+      {/* ══════════════ 3. STOCK & ENTREPÔT (FULFILLMENT) ══════════════ */}
+      {activeTab === 'stock' && (
+        <div style={{ padding: '1rem' }}>
+          <VendorWarehouseTab
+            vendorId={user?.id}
+            isDark={isDark}
+          />
+        </div>
+      )}
+
       {/* ══════════════ 4. CLIENTS ══════════════ */}
       {activeTab === 'clients' && (
         <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -1846,40 +1887,155 @@ export default function VendeurDashboard() {
                 </p>
               </div>
 
-              {/* Mode d'expédition : Direct ou Premier Kilomètre au relais */}
+              {/* Mode d'expédition : Direct, Premier Kilomètre au relais, ou Stock Entrepôt */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                  Option de dépôt :
+                  Option de départ :
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
                   <button
                     type="button"
-                    onClick={() => setDeliveryMode('DIRECT')}
+                    onClick={() => {
+                      setDeliveryMode('DIRECT');
+                      setSelectedAgencyId(null);
+                    }}
                     style={{
-                      minHeight: '42px', borderRadius: '10px',
+                      minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
                       border: deliveryMode === 'DIRECT' ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
                       background: deliveryMode === 'DIRECT' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
                       color: deliveryMode === 'DIRECT' ? '#4ade80' : '#94a3b8',
-                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer'
+                      fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
                     }}
                   >
-                    Ramassage chez moi
+                    🏠 Ramassage
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDeliveryMode('DROP_POINT_FIRST_MILE')}
+                    onClick={() => {
+                      setDeliveryMode('DROP_POINT_FIRST_MILE');
+                      setSelectedAgencyId(null);
+                    }}
                     style={{
-                      minHeight: '42px', borderRadius: '10px',
+                      minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
                       border: deliveryMode === 'DROP_POINT_FIRST_MILE' ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
                       background: deliveryMode === 'DROP_POINT_FIRST_MILE' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
                       color: deliveryMode === 'DROP_POINT_FIRST_MILE' ? '#4ade80' : '#94a3b8',
-                      fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer'
+                      fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
                     }}
                   >
-                    Je dépose au relais
+                    📍 Relais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeliveryMode('WAREHOUSE_FULFILLMENT');
+                      loadWarehouseStockItems();
+                    }}
+                    style={{
+                      minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
+                      border: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '2px solid #f97316' : '1px solid rgba(255,255,255,0.1)',
+                      background: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? 'rgba(249,115,22,0.18)' : 'rgba(255,255,255,0.04)',
+                      color: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '#f97316' : '#94a3b8',
+                      fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
+                    }}
+                  >
+                    📦 Stock Agence
                   </button>
                 </div>
               </div>
+
+              {/* Sélection du produit en stock si WAREHOUSE_FULFILLMENT */}
+              {deliveryMode === 'WAREHOUSE_FULFILLMENT' && (
+                <div style={{
+                  background: 'rgba(249, 115, 22, 0.08)',
+                  border: '1px solid rgba(249, 115, 22, 0.3)',
+                  borderRadius: '12px',
+                  padding: '0.85rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem'
+                }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#f97316', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Boxes size={16} />
+                    <span>Sélectionner le produit stocké en agence :</span>
+                  </div>
+
+                  {warehouseStockItems.length === 0 ? (
+                    <div style={{ fontSize: '0.75rem', color: '#f87171' }}>
+                      Vous n'avez aucun produit enregistré en stock entrepôt. Ajoutez d'abord vos articles dans l'onglet Entrepôt.
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <select
+                          value={selectedInventoryId}
+                          onChange={e => {
+                            const invId = e.target.value;
+                            setSelectedInventoryId(invId);
+                            const item = warehouseStockItems.find(it => it.id === invId);
+                            if (item) {
+                              const qty = selectedInventoryQty || 1;
+                              setPrixColis(String(item.unitPrice * qty));
+                              if (item.weightKg) setPoids(String(item.weightKg * qty));
+                              setSelectedAgencyId(item.agencyId);
+                            }
+                          }}
+                          style={{
+                            width: '100%', minHeight: '44px', borderRadius: '10px',
+                            background: '#1e293b', border: '1px solid rgba(249, 115, 22, 0.4)',
+                            padding: '0 0.75rem', color: '#fff', fontSize: '0.85rem'
+                          }}
+                        >
+                          <option value="">-- Choisir un produit stocké --</option>
+                          {warehouseStockItems.map(it => (
+                            <option key={it.id} value={it.id}>
+                              {it.productName} ({it.quantityAvailable} dispo — {it.agencyName})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedInventoryId && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.5rem', alignItems: 'center' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block' }}>Quantité :</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max={warehouseStockItems.find(it => it.id === selectedInventoryId)?.quantityAvailable || 1}
+                              value={selectedInventoryQty}
+                              onChange={e => {
+                                const q = Math.max(1, parseInt(e.target.value, 10) || 1);
+                                setSelectedInventoryQty(q);
+                                const item = warehouseStockItems.find(it => it.id === selectedInventoryId);
+                                if (item) {
+                                  setPrixColis(String(item.unitPrice * q));
+                                  if (item.weightKg) setPoids(String(item.weightKg * q));
+                                }
+                              }}
+                              style={{
+                                width: '100%', minHeight: '38px', borderRadius: '8px',
+                                background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
+                                color: '#fff', textAlign: 'center', fontWeight: '800'
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                            Agence d'expédition : <br />
+                            <strong style={{ color: '#f97316' }}>
+                              {warehouseStockItems.find(it => it.id === selectedInventoryId)?.agencyName}
+                            </strong>
+                            <div style={{ color: '#4ade80', fontSize: '0.68rem', marginTop: '0.1rem' }}>
+                              ⚡ Expédition directe sans ramassage
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {deliveryMode === 'DROP_POINT_FIRST_MILE' && dropPoints.length > 0 && (
                 <div>

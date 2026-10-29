@@ -27,7 +27,8 @@ import {
   Check,
   ShieldCheck,
   X,
-  ExternalLink
+  ExternalLink,
+  Boxes
 } from 'lucide-react';
 import { AGENCY_ROLE_LABELS, normalizeAgencyRole, hasAgencyPermission, AgencyRole } from '@/lib/agencyPermissions';
 import './../../app/agence/agency.css';
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Tableau de bord', href: '/agence/dashboard', icon: LayoutDashboard },
   { label: 'Gestion Colis', href: '/agence/colis', icon: Package, permission: 'canViewPackages' },
   { label: 'Réception & Scan', href: '/agence/reception', icon: QrCode, permission: 'canScanPackages' },
+  { label: 'Entrepôt & Stock', href: '/agence/entrepot', icon: Boxes, permission: 'canScanPackages' },
   { label: 'Flotte Livreurs', href: '/agence/livreurs', icon: Truck, permission: 'canManageDrivers' },
   { label: 'Versements & Caisse', href: '/agence/versements', icon: Wallet, permission: 'canViewFinances' },
   { label: 'Équipe & Accès', href: '/agence/equipe', icon: Users, permission: 'canManageTeam' },

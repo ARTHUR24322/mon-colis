@@ -76,11 +76,13 @@ export interface ColisItem {
   deliveryPrice: number;
   vendorPaid: boolean;
   // Point Relais / Dépôt fields
-  deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE';
+  deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE' | 'WAREHOUSE_FULFILLMENT';
   originDropPointId?: string | null;
   originDropPoint?: DropPoint | null;
   destDropPointId?: string | null;
   destDropPoint?: DropPoint | null;
+  warehouseInventoryId?: string | null;
+  warehouseQuantity?: number | null;
   inaccessibilityNote?: string | null;
   reroutedAt?: string | null;
 }
@@ -122,11 +124,110 @@ export interface AgencyInfo {
   tauxConversionFC?: number;
 }
 
+// ─── Fulfillment & Entrepôt Types ──────────────────────────────────────────
+export interface AgencyStorageSpace {
+  id: string;
+  agencyId: string;
+  name: string;
+  description?: string;
+  totalSlots: number;
+  availableSlots: number;
+  pricePerMonth: number;
+  currency: 'USD' | 'CDF';
+  maxWeightPerSlot?: number;
+  dimensions?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface VendorStorageSubscription {
+  id: string;
+  vendorId: string;
+  agencyId: string;
+  storageSpaceId: string;
+  slotsCount: number;
+  pricePaid: number;
+  currency: 'USD' | 'CDF';
+  status: 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'CANCELLED';
+  startDate?: string;
+  endDate?: string;
+  autoRenew: boolean;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface WarehouseInventoryItem {
+  id: string;
+  vendorId: string;
+  agencyId: string;
+  storageSpaceId?: string;
+  subscriptionId?: string;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  photoUrl?: string;
+  category?: string;
+  unitPrice: number;
+  unitCurrency: 'USD' | 'CDF';
+  quantityInStock: number;
+  quantityReserved: number;
+  shelfLocation?: string;
+  lowStockThreshold: number;
+  weightKg?: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface WarehouseStockMovement {
+  id: string;
+  inventoryId: string;
+  agencyId: string;
+  vendorId: string;
+  type: 'DEPOSIT' | 'DISPATCH' | 'RETURN' | 'ADJUSTMENT' | 'TRANSFER';
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  packageId?: string;
+  inboundBatchId?: string;
+  reference?: string;
+  performedBy?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface WarehouseInboundBatch {
+  id: string;
+  batchNumber: string;
+  vendorId: string;
+  agencyId: string;
+  storageSpaceId?: string;
+  status: 'DRAFT' | 'PENDING' | 'RECEIVED' | 'REJECTED' | 'CANCELLED';
+  items: Array<{
+    productName: string;
+    sku?: string;
+    expectedQuantity: number;
+    receivedQuantity?: number;
+    unitPrice?: number;
+    shelfLocation?: string;
+  }>;
+  qrToken?: string;
+  totalItemsCount: number;
+  receivedItemsCount?: number;
+  depositedAt?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  rejectionReason?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 export const DEFAULT_AGENCIES: AgencyInfo[] = [];
 
 // In-memory overlay cache for packages and agencies metadata (e.g. drop points, approval statuses)
 const packageMetaCache = new Map<string, {
-  deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE';
+  deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE' | 'WAREHOUSE_FULFILLMENT';
   originDropPointId?: string | null;
   destDropPointId?: string | null;
   inaccessibilityNote?: string | null;
@@ -489,9 +590,11 @@ class DataService {
     vendeurId: string;
     paidByClient: boolean;
     isPrepaid: boolean;
-    deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE';
+    deliveryMode?: 'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'DROP_POINT_LAST_MILE' | 'WAREHOUSE_FULFILLMENT';
     originDropPointId?: string;
     agencyId?: string;
+    warehouseInventoryId?: string;
+    warehouseQuantity?: number;
   }): Promise<ColisItem> {
     const trackCode = 'MC-' + secureRandomInt(100000, 1000000).toString();
     const otp = secureRandomInt(100000, 1000000).toString();
@@ -509,7 +612,9 @@ class DataService {
     }
 
     let initialStatus = 'CREATED';
-    if (p.agencyId) {
+    if (p.deliveryMode === 'WAREHOUSE_FULFILLMENT') {
+      initialStatus = 'ACCEPTED_BY_AGENCY';
+    } else if (p.agencyId) {
       initialStatus = 'PENDING_AGENCY';
     } else if (p.deliveryMode === 'DROP_POINT_FIRST_MILE') {
       initialStatus = 'DEPOSITED_AT_DROP_POINT';
@@ -536,12 +641,34 @@ class DataService {
     const { data, error } = await supabase.from('packages').insert(insertData).select().single();
     if (error) throw error;
 
+    // Si expédié depuis le stock entrepôt, réserver l'inventaire
+    if (p.deliveryMode === 'WAREHOUSE_FULFILLMENT' && p.warehouseInventoryId && data?.id) {
+      try {
+        await fetch('/api/vendor/warehouse/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            inventoryId: p.warehouseInventoryId,
+            quantity: p.warehouseQuantity || 1,
+            packageId: data.id,
+            action: 'reserve'
+          })
+        });
+      } catch (dispErr) {
+        console.warn('Warehouse dispatch reservation warning:', dispErr);
+      }
+    }
+
     // Cache drop point metadata
     if (p.deliveryMode || p.originDropPointId) {
       packageMetaCache.set(data.id, {
         deliveryMode: p.deliveryMode || 'DIRECT',
         originDropPointId: p.originDropPointId || null,
-        customStatus: p.deliveryMode === 'DROP_POINT_FIRST_MILE' ? 'Déposé en point relais' : undefined,
+        customStatus: p.deliveryMode === 'DROP_POINT_FIRST_MILE'
+          ? 'Déposé en point relais'
+          : p.deliveryMode === 'WAREHOUSE_FULFILLMENT'
+          ? 'Accepté'
+          : undefined,
       });
     }
 
