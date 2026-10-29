@@ -11,7 +11,8 @@ CREATE INDEX IF NOT EXISTS idx_financial_audits_duplicate_detection
   WHERE status = 'COMPLETED';
 
 -- 2. VUE : doublons potentiels (même acteur, même montant, dans les 2 heures)
-CREATE OR REPLACE VIEW financial_audit_duplicates AS
+CREATE OR REPLACE VIEW financial_audit_duplicates 
+WITH (security_invoker = true) AS
 SELECT
   fa1.id          AS audit_id,
   fa1.actor_name,
@@ -84,7 +85,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_packages_short_code
   WHERE short_code IS NOT NULL;
 
 -- 4. VUE : colis livrés orphelins (sans agence) pour réconciliation
-CREATE OR REPLACE VIEW orphan_delivered_packages AS
+CREATE OR REPLACE VIEW orphan_delivered_packages 
+WITH (security_invoker = true) AS
 SELECT
   p.id,
   COALESCE(p.short_code, p.tracking_code, 'MC-' || UPPER(LEFT(p.id::TEXT, 8))) AS package_code,
