@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { CurrencyProvider } from "@/components/CurrencyContext";
+import { ThemeProvider } from "@/components/ThemeContext";
 import PWAInstaller from "@/components/PWAInstaller";
 
 export const viewport: Viewport = {
@@ -34,17 +35,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
+    <html lang="fr" data-theme="dark">
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body>
-        <CurrencyProvider>
-          <PWAInstaller />
-          {children}
-        </CurrencyProvider>
+        <ThemeProvider>
+          <CurrencyProvider>
+            <PWAInstaller />
+            {children}
+          </CurrencyProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

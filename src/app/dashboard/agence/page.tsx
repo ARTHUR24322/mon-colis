@@ -7,6 +7,7 @@ import QRScanner from '@/components/QRScanner';
 import { COMMUNES_KINSHASA } from '@/lib/constants';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
+import ThemeToggle from '@/components/ThemeToggle';
 
 // --- Types -----------------------------------------------------------------
 type KmStatus = 'idle' | 'loading' | 'calculated' | 'done' | 'error';
@@ -891,6 +892,9 @@ export default function AgenceDashboard() {
 
         {/* Actions bas de sidebar */}
         <div style={{ padding: '1rem 0.75rem', borderTop: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.25rem' }}>
+            <ThemeToggle showLabel />
+          </div>
           <button 
             onClick={logout} 
             className="btn btn-outline" 
@@ -1706,7 +1710,10 @@ export default function AgenceDashboard() {
                       <button
                         className="btn btn-primary"
                         style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000', display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: '700' }}
-                        onClick={() => setOtpPaymentModal({ vendorId: v.id, vendorName: v.name, amount: Math.round(v.soldeNet * globalSettings.tauxConversionFC) })}
+                        onClick={() => {
+                          const rate = globalSettings.tauxConversionFC || exchangeRate || 2400;
+                          setOtpPaymentModal({ vendorId: v.id, vendorName: v.name, amount: Math.round(v.soldeNet * rate) });
+                        }}
                       >
                         <KeyRound size={14} /> Payer via OTP
                       </button>
@@ -2469,6 +2476,7 @@ export default function AgenceDashboard() {
                       body: JSON.stringify({
                         vendorId: otpPaymentModal!.vendorId,
                         amount: otpPaymentModal!.amount,
+                        currency: 'CDF', // montant déjà en CDF, pas de reconversion
                         requestId: otpPaymentModal!.requestId,
                       }),
                     });

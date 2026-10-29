@@ -24,6 +24,8 @@ interface ColisRow {
   status: string;
   prixColis: number;
   prixLivraison: number | null;
+  weight?: number;
+  distanceKm?: number;
   driverId?: string | null;
   driverName: string | null;
   driverPhone?: string | null;
@@ -72,6 +74,13 @@ export default function AgencyColisPage() {
   const [colis, setColis] = useState<ColisRow[]>([]);
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [agencySettings, setAgencySettings] = useState<{
+    communePrices: { commune: string; price: number }[];
+    pricePerKm: number;
+    pricePerKg: number;
+    tauxConversionFC: number | null;
+    deviseGrille: 'FC' | 'USD';
+  } | null>(null);
 
   // Filtres
   const [search, setSearch] = useState('');
@@ -137,10 +146,119 @@ export default function AgencyColisPage() {
     }
   };
 
+  const fetchAgencySettings = async () => {
+    try {
+      const res = await fetch('/api/agency/settings', { credentials: 'same-origin' });
+      if (res.ok) {
+        const data = await res.json();
+        setAgencySettings(data);
+      }
+    } catch {
+      // Silencieux
+    }
+  };
+
   useEffect(() => {
     fetchColis();
     fetchDrivers();
+    fetchAgencySettings();
   }, []);
+
+  // Synchroniser la distance OSM dès que selectedColis change
+  useEffect(() => {
+    if (selectedColis) {
+      if (selectedColis.distanceKm && selectedColis.distanceKm > 0) {
+        setOsmDistance({ km: selectedColis.distanceKm, loading: false, error: null });
+      } else {
+        setOsmDistance(null);
+      }
+    } else {
+      setOsmDistance(null);
+    }
+  }, [selectedColis?.id, selectedColis?.distanceKm]);
+
+  // Recalcul dynamique et transparent du devis agence (Trajet + Poids + Commune)
+  const recalculatedQuote = useMemo(() => {
+    if (!selectedColis) return null;
+    const rate = agencySettings?.tauxConversionFC || exchangeRate || 2400;
+    const devise = agencySettings?.deviseGrille || 'FC';
+    const communePrices = agencySettings?.communePrices || [];
+    const pricePerKm = agencySettings?.pricePerKm ?? 0;
+    const pricePerKg = agencySettings?.pricePerKg ?? 0;
+
+    const currentKm = (osmDistance && osmDistance.km > 0)
+      ? osmDistance.km
+      : (selectedColis.distanceKm || 0);
+
+    const poids = selectedColis.weight || 1;
+    const communeEntry = communePrices.find(
+      cp => cp.commune?.toLowerCase() === selectedColis.clientCommune?.toLowerCase()
+    );
+    const rawCommune = communeEntry?.price ?? 0;
+    const rawDistance = Math.round(currentKm * pricePerKm * 100) / 100;
+    const rawPoids = Math.round(poids * pricePerKg * 100) / 100;
+    const rawTotal = Math.round((rawCommune + rawDistance + rawPoids) * 100) / 100;
+
+    const isFC = devise === 'FC' || rawTotal > 50 || rawCommune > 50;
+
+    let finalLivraisonUsd = 0;
+    let finalLivraisonFc = 0;
+    let communePartUsd = 0;
+    let distancePartUsd = 0;
+    let poidsPartUsd = 0;
+
+    if (rawTotal > 0) {
+      if (isFC) {
+        finalLivraisonFc = Math.round(rawTotal);
+        finalLivraisonUsd = parseFloat((rawTotal / rate).toFixed(2));
+        communePartUsd = parseFloat((rawCommune / rate).toFixed(2));
+        distancePartUsd = parseFloat((rawDistance / rate).toFixed(2));
+        poidsPartUsd = parseFloat((rawPoids / rate).toFixed(2));
+      } else {
+        finalLivraisonUsd = parseFloat(rawTotal.toFixed(2));
+        finalLivraisonFc = Math.round(finalLivraisonUsd * rate);
+        communePartUsd = rawCommune;
+        distancePartUsd = rawDistance;
+        poidsPartUsd = rawPoids;
+      }
+    } else {
+      const rawLiv = selectedColis.prixLivraison ?? 0;
+      finalLivraisonUsd = rawLiv > 50 ? parseFloat((rawLiv / rate).toFixed(2)) : rawLiv;
+      finalLivraisonFc = Math.round(finalLivraisonUsd * rate);
+    }
+
+    const marchandiseUsd = selectedColis.prixColis || 0;
+    const marchandiseFc = Math.round(marchandiseUsd * rate);
+
+    const codUsd = selectedColis.isPrepaid
+      ? 0
+      : selectedColis.paidByClient
+        ? parseFloat((marchandiseUsd + finalLivraisonUsd).toFixed(2))
+        : marchandiseUsd;
+    const codFc = Math.round(codUsd * rate);
+
+    return {
+      km: currentKm,
+      poids,
+      rawCommune,
+      rawDistance,
+      rawPoids,
+      pricePerKm,
+      pricePerKg,
+      devise,
+      rate,
+      communePartUsd,
+      distancePartUsd,
+      poidsPartUsd,
+      finalLivraisonUsd,
+      finalLivraisonFc,
+      marchandiseUsd,
+      marchandiseFc,
+      codUsd,
+      codFc,
+      hasCalculatedRoute: currentKm > 0,
+    };
+  }, [selectedColis, osmDistance, agencySettings, exchangeRate]);
 
   // Extraire les communes uniques pour le filtre
   const communes = useMemo(() => {
@@ -729,42 +847,66 @@ export default function AgencyColisPage() {
                 </button>
               </div>
 
-              {/* Détail Financier */}
+              {/* Détail Financier & Décomposition Devis avec Trajet */}
               {(() => {
-                const currentRate = exchangeRate || 2400;
-                const rawLivraison = selectedColis.prixLivraison ?? 0;
-                // Si l'ancien prix était en FC brut (> 50), on le normalise
-                const safeLivraisonUsd = rawLivraison > 50 ? parseFloat((rawLivraison / currentRate).toFixed(2)) : rawLivraison;
-                const safeLivraisonFc = Math.round(safeLivraisonUsd * currentRate);
-
-                const rawMarchandise = selectedColis.prixColis || 0;
-                const safeMarchandiseUsd = rawMarchandise;
-                const safeMarchandiseFc = Math.round(safeMarchandiseUsd * currentRate);
-
-                const totalCodUsd = selectedColis.isPrepaid
-                  ? 0
-                  : selectedColis.paidByClient
-                    ? parseFloat((safeMarchandiseUsd + safeLivraisonUsd).toFixed(2))
-                    : safeMarchandiseUsd;
-                const totalCodFc = Math.round(totalCodUsd * currentRate);
+                const q = recalculatedQuote;
+                const safeLivraisonUsd = q ? q.finalLivraisonUsd : ((selectedColis.prixLivraison ?? 0) > 50 ? parseFloat(((selectedColis.prixLivraison ?? 0) / (exchangeRate || 2400)).toFixed(2)) : (selectedColis.prixLivraison ?? 0));
+                const safeLivraisonFc = q ? q.finalLivraisonFc : Math.round(safeLivraisonUsd * (exchangeRate || 2400));
+                const safeMarchandiseUsd = q ? q.marchandiseUsd : (selectedColis.prixColis || 0);
+                const safeMarchandiseFc = q ? q.marchandiseFc : Math.round(safeMarchandiseUsd * (exchangeRate || 2400));
+                const totalCodUsd = q ? q.codUsd : (selectedColis.isPrepaid ? 0 : (selectedColis.paidByClient ? parseFloat((safeMarchandiseUsd + safeLivraisonUsd).toFixed(2)) : safeMarchandiseUsd));
+                const totalCodFc = q ? q.codFc : Math.round(totalCodUsd * (exchangeRate || 2400));
 
                 return (
                   <div style={{
                     backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
                     borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
                   }}>
-                    <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
-                      Détail financier
-                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: 'var(--ag-text-muted)' }}>
+                        Devis & Détail financier
+                      </span>
+                      {q?.hasCalculatedRoute && (
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: '800', color: '#10b981',
+                          backgroundColor: 'rgba(16,185,129,0.12)', padding: '2px 8px', borderRadius: '12px'
+                        }}>
+                          ✓ Trajet {q.km} km inclus
+                        </span>
+                      )}
+                    </div>
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                       <span style={{ color: 'var(--ag-text-secondary)' }}>Prix marchandise :</span>
                       <strong style={{ color: 'var(--ag-text-primary)' }}>
                         ${safeMarchandiseUsd.toFixed(2)} <span style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', fontWeight: '600' }}>({safeMarchandiseFc.toLocaleString('fr-FR')} Fc)</span>
                       </strong>
                     </div>
+
+                    {/* Décomposition du devis de livraison si trajet ou tarifs configurés */}
+                    {q && (
+                      <div style={{
+                        backgroundColor: 'var(--ag-surface-hover)', borderRadius: '8px', padding: '10px 12px',
+                        display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.78rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ag-text-secondary)' }}>
+                          <span>Base commune ({selectedColis.clientCommune}) :</span>
+                          <span style={{ fontWeight: '600' }}>{q.rawCommune.toLocaleString('fr-FR')} {q.devise}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: q.km > 0 ? '#60a5fa' : 'var(--ag-text-muted)' }}>
+                          <span>Trajet kilométrique ({q.km > 0 ? `${q.km} km` : '0 km'} × {q.pricePerKm} {q.devise}/km) :</span>
+                          <span style={{ fontWeight: '700' }}>{q.rawDistance.toLocaleString('fr-FR')} {q.devise}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ag-text-secondary)' }}>
+                          <span>Poids colis ({q.poids} kg × {q.pricePerKg} {q.devise}/kg) :</span>
+                          <span style={{ fontWeight: '600' }}>{q.rawPoids.toLocaleString('fr-FR')} {q.devise}</span>
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                      <span style={{ color: 'var(--ag-text-secondary)' }}>Frais livraison :</span>
-                      <strong style={{ color: 'var(--ag-brand)' }}>
+                      <span style={{ color: 'var(--ag-text-secondary)', fontWeight: '600' }}>Frais livraison totaux :</span>
+                      <strong style={{ color: 'var(--ag-brand)', fontSize: '0.95rem' }}>
                         {safeLivraisonUsd > 0 ? (
                           <>
                             ${safeLivraisonUsd.toFixed(2)} <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: '700' }}>({safeLivraisonFc.toLocaleString('fr-FR')} Fc)</span>
@@ -772,6 +914,7 @@ export default function AgencyColisPage() {
                         ) : 'Inclus / Fixe'}
                       </strong>
                     </div>
+
                     {/* Qui paie les frais de livraison */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
                       <span style={{ color: 'var(--ag-text-secondary)' }}>Frais à la charge de :</span>
@@ -784,7 +927,9 @@ export default function AgencyColisPage() {
                         {selectedColis.paidByClient ? '🛒 Client (COD)' : '🏪 Vendeur (déduit)'}
                       </span>
                     </div>
+
                     <div style={{ height: '1px', backgroundColor: 'var(--ag-border)' }} />
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
                       <span style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>Montant à encaisser (COD) :</span>
                       <strong style={{ fontWeight: '900', color: selectedColis.isPrepaid ? 'var(--ag-success)' : 'var(--ag-brand)' }}>
@@ -797,6 +942,7 @@ export default function AgencyColisPage() {
                         )}
                       </strong>
                     </div>
+
                     {!selectedColis.paidByClient && safeLivraisonUsd > 0 && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
                         ⚠️ Les frais de ${safeLivraisonUsd.toFixed(2)} ({safeLivraisonFc.toLocaleString('fr-FR')} Fc) seront déduits du reversement vendeur.
@@ -900,7 +1046,9 @@ export default function AgencyColisPage() {
               {['PENDING_AGENCY', 'QUOTE_PENDING', 'CREATED'].includes(selectedColis.status) && canEdit && (
                 <>
                   <button
-                    onClick={() => handleAction(selectedColis.id, 'accept')}
+                    onClick={() => handleAction(selectedColis.id, 'accept', {
+                      distanceKm: recalculatedQuote?.km || osmDistance?.km || selectedColis.distanceKm || 0
+                    })}
                     disabled={actionLoading}
                     style={{
                       flex: 1, height: '42px', borderRadius: '8px', border: 'none',

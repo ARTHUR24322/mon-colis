@@ -14,6 +14,7 @@ import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermission
 interface CashSession {
   isOpen: boolean;
   openedAt: string;
+  openedBy?: string;
   openingFundUSD: number;
   openingFundCDF: number;
   expectedUSD: number;
@@ -92,12 +93,19 @@ export default function AgencyVersementsPage() {
     return {
       isOpen: true,
       openedAt: new Date().toISOString(),
+      openedBy: 'Agent Caisse',
       openingFundUSD: 100,
       openingFundCDF: 150000,
       expectedUSD: 240,
       expectedCDF: 380000,
     };
   });
+
+  // Modal Ouverture de Caisse
+  const [openModalOpen, setOpenModalOpen] = useState(false);
+  const [openFundUSD, setOpenFundUSD] = useState<string>('0');
+  const [openFundCDF, setOpenFundCDF] = useState<string>('0');
+  const [openAgentName, setOpenAgentName] = useState<string>('');
 
   // Modal Clôture de Caisse
   const [closeModalOpen, setCloseModalOpen] = useState(false);
@@ -175,16 +183,30 @@ export default function AgencyVersementsPage() {
   };
 
   const handleOpenNewSession = () => {
-    const fresh = {
+    setOpenFundUSD(String(cashSession.openingFundUSD || 0));
+    setOpenFundCDF(String(cashSession.openingFundCDF || 0));
+    setOpenAgentName(user?.name || '');
+    setOpenModalOpen(true);
+  };
+
+  const handleConfirmOpenSession = (e: React.FormEvent) => {
+    e.preventDefault();
+    const usd = Math.max(0, parseFloat(openFundUSD) || 0);
+    const cdf = Math.max(0, parseFloat(openFundCDF) || 0);
+    const agent = openAgentName.trim() || user?.name || 'Agent Caisse';
+
+    const fresh: CashSession = {
       isOpen: true,
       openedAt: new Date().toISOString(),
-      openingFundUSD: 100,
-      openingFundCDF: 150000,
-      expectedUSD: 100,
-      expectedCDF: 150000,
+      openedBy: agent,
+      openingFundUSD: usd,
+      openingFundCDF: cdf,
+      expectedUSD: usd,
+      expectedCDF: cdf,
     };
     setCashSession(fresh);
     setClosedReceipt(null);
+    setOpenModalOpen(false);
     if (typeof window !== 'undefined') {
       localStorage.setItem('mc_agency_cash_session', JSON.stringify(fresh));
     }
@@ -193,6 +215,12 @@ export default function AgencyVersementsPage() {
   const handleExecuteVendorPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payVendorModal || !payAmount) return;
+
+    if (payMethod === 'CASH' && !cashSession.isOpen) {
+      alert('Veuillez d\'abord ouvrir une session de caisse pour effectuer un paiement en espèces.');
+      return;
+    }
+
     setPaying(true);
 
     try {
@@ -202,14 +230,31 @@ export default function AgencyVersementsPage() {
         body: JSON.stringify({
           vendorId: payVendorModal.vendor_id,
           amount: parseFloat(payAmount),
+          currency: 'USD',
           channel: payMethod,
         }),
       });
       const data = await res.json();
       if (res.ok) {
+        // Si paiement en espèces CASH, déduire immédiatement de la caisse active
+        if (payMethod === 'CASH' && cashSession.isOpen) {
+          const paidUsd = parseFloat(payAmount) || 0;
+          const paidCdf = Math.round(paidUsd * 2400);
+          const updated = {
+            ...cashSession,
+            expectedUSD: Math.max(0, parseFloat((cashSession.expectedUSD - paidUsd).toFixed(2))),
+            expectedCDF: Math.max(0, cashSession.expectedCDF - paidCdf),
+          };
+          setCashSession(updated);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('mc_agency_cash_session', JSON.stringify(updated));
+          }
+        }
+
         setPaymentSuccessReceipt({
           vendorName: payVendorModal.vendor?.name || 'Vendeur',
           amount: parseFloat(payAmount),
+          currency: 'USD',
           method: payMethod,
           date: new Date().toISOString(),
           reference: data.entryId || Math.random().toString(36).slice(-8).toUpperCase(),
@@ -450,6 +495,32 @@ export default function AgencyVersementsPage() {
                   <strong>Justification des écarts / Observations :</strong>
                   <p style={{ margin: '4px 0 0' }}>{closedReceipt.reason}</p>
                 </div>
+              </div>
+            ) : !cashSession.isOpen ? (
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '16px', padding: '36px', textAlign: 'center', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <Lock size={44} style={{ color: 'var(--ag-danger)', margin: '0 auto 12px' }} />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
+                  Caisse Actuellement Clôturée
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', maxWidth: '520px', margin: '0 auto 20px' }}>
+                  Aucune session active en cours. Pour démarrer les encaissements guichet, valider les dépôts des livreurs et exécuter des versements vendeurs, ouvrez une session avec votre fond de caisse.
+                </p>
+                {canManageCash && (
+                  <button
+                    onClick={handleOpenNewSession}
+                    style={{
+                      padding: '12px 28px', borderRadius: '8px', border: 'none',
+                      backgroundColor: 'var(--ag-success)', color: '#000',
+                      fontWeight: '800', fontSize: '0.9rem', cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: '8px'
+                    }}
+                  >
+                    <Unlock size={16} /> Ouvrir une session de caisse
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{
@@ -744,6 +815,119 @@ export default function AgencyVersementsPage() {
         )}
       </div>
 
+      {/* ─── MODAL OUVERTURE DE CAISSE ─────────────────────────────────────── */}
+      {openModalOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 110, backgroundColor: 'var(--ag-modal-overlay)',
+          backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+            borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '480px',
+            boxShadow: 'var(--ag-card-shadow-hover)', animation: 'agFadeIn 0.15s ease'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+              <div style={{
+                width: '36px', height: '36px', borderRadius: '10px',
+                backgroundColor: 'rgba(16,185,129,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--ag-success)'
+              }}>
+                <Unlock size={20} />
+              </div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: 'var(--ag-text-primary)' }}>
+                Ouvrir une Session de Caisse
+              </h3>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', margin: '0 0 18px' }}>
+              Enregistrez le fond de caisse physique de départ pour démarrer la journée en toute conformité :
+            </p>
+
+            <form onSubmit={handleConfirmOpenSession} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
+                  💵 Fond de caisse initial en Dollars USD ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={openFundUSD}
+                  onChange={e => setOpenFundUSD(e.target.value)}
+                  placeholder="Ex : 50.00"
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '1rem', fontWeight: '800', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
+                  💴 Fond de caisse initial en Francs Congolais CDF (FC)
+                </label>
+                <input
+                  type="number"
+                  step="500"
+                  min="0"
+                  required
+                  value={openFundCDF}
+                  onChange={e => setOpenFundCDF(e.target.value)}
+                  placeholder="Ex : 150000"
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '1rem', fontWeight: '800', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
+                  👤 Responsable de Caisse / Caissier
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={openAgentName}
+                  onChange={e => setOpenAgentName(e.target.value)}
+                  placeholder="Nom de l'agent caissier"
+                  style={{
+                    width: '100%', height: '42px', borderRadius: '8px',
+                    border: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface-hover)',
+                    color: 'var(--ag-text-primary)', padding: '0 12px', fontSize: '0.9rem', fontWeight: '600', boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setOpenModalOpen(false)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                    backgroundColor: 'transparent', color: 'var(--ag-text-secondary)', fontWeight: '600', cursor: 'pointer'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '8px 20px', borderRadius: '8px', border: 'none',
+                    backgroundColor: 'var(--ag-success)', color: '#000', fontWeight: '800', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  <Unlock size={15} /> Valider l&apos;ouverture
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ─── MODAL CLÔTURE DE CAISSE (BILLETAGE) ─────────────────────────── */}
       {closeModalOpen && (
         <div style={{
@@ -875,7 +1059,7 @@ export default function AgencyVersementsPage() {
             <form onSubmit={handleExecuteVendorPayment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px' }}>
-                  Montant à verser ({currency}) *
+                  Montant à verser ($ USD) *
                 </label>
                 <input
                   type="number"

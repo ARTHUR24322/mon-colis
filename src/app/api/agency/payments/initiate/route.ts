@@ -18,10 +18,51 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { vendorId, amount, notes, requestId } = body;
+    const { vendorId, amount: inputAmount, notes, requestId, currency: inputCurrency } = body;
 
-    if (!vendorId || !amount || amount <= 0) {
+    if (!vendorId || !inputAmount || Number(inputAmount) <= 0) {
       return NextResponse.json({ error: 'Vendeur et montant requis.' }, { status: 400 });
+    }
+
+    // Déterminer le taux de conversion réel
+    let effectiveRate = 2400;
+    try {
+      const { data: ag } = await supabase
+        .from('agencies')
+        .select('taux_fc')
+        .eq('id', session.agencyId)
+        .maybeSingle();
+
+      if (ag?.taux_fc) {
+        effectiveRate = Number(ag.taux_fc);
+      } else {
+        const { data: sys } = await supabase
+          .from('system_settings')
+          .select('exchange_rate')
+          .eq('id', 'global')
+          .maybeSingle();
+        if (sys?.exchange_rate) effectiveRate = Number(sys.exchange_rate);
+      }
+    } catch {}
+
+    // Conversion : uniquement si la devise est explicitement 'USD', ou si le montant est clairement
+    // une valeur en dollars (< 10 sans devise précisée). Si currency === 'CDF' ou si le montant
+    // est déjà en FC (>= 500), on ne reconvertit PAS pour éviter la double conversion.
+    let amount = Number(inputAmount);
+    if (inputCurrency === 'CDF') {
+      // Montant déjà en CDF : pas de conversion
+      amount = Math.round(amount);
+    } else if (inputCurrency === 'USD') {
+      // Montant en USD explicite : convertir en CDF
+      amount = Math.round(amount * effectiveRate);
+    } else {
+      // Pas de devise précisée : heuristique de sécurité
+      // Si le montant est clairement un montant USD (< 100), convertir. Sinon (>= 100), déjà en CDF.
+      if (amount < 100) {
+        amount = Math.round(amount * effectiveRate);
+      } else {
+        amount = Math.round(amount);
+      }
     }
 
     // Invalider les anciens codes OTP non utilisés pour ce vendeur auprès de cette agence

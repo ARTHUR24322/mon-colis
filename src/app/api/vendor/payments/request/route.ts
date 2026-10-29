@@ -19,19 +19,66 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const agencyId = body.agencyId || body.agency_id;
-    let rawAmount = Number(body.amount);
-    if (body.amountUsd && (!rawAmount || rawAmount < 500)) {
-      rawAmount = Math.round(Number(body.amountUsd) * 2800);
-    } else if (rawAmount && rawAmount < 500) {
-      // Si le montant a été passé en USD (ex: 20 USD), on le convertit en CDF
-      rawAmount = Math.round(rawAmount * 2800);
+
+    if (!agencyId) {
+      return NextResponse.json({ error: 'Agence requise.' }, { status: 400 });
+    }
+
+    // Récupérer le taux réel de l'agence ou du système
+    let effectiveRate = 2400;
+    try {
+      const { data: ag } = await supabase
+        .from('agencies')
+        .select('taux_fc')
+        .eq('id', agencyId)
+        .maybeSingle();
+
+      if (ag?.taux_fc) {
+        effectiveRate = Number(ag.taux_fc);
+      } else {
+        const { data: sys } = await supabase
+          .from('system_settings')
+          .select('exchange_rate')
+          .eq('id', 'global')
+          .maybeSingle();
+        if (sys?.exchange_rate) effectiveRate = Number(sys.exchange_rate);
+      }
+    } catch {}
+
+    // Le frontend calcule toujours amountInCdf = amountUsd * rate et l'envoie dans `amount`.
+    // Si `amountUsd` est présent et valide, on recalcule pour garantir la cohérence.
+    // Si seul `amount` est fourni (déjà en CDF), on l'utilise directement sans reconversion.
+    let rawAmount: number;
+    if (body.amountUsd && Number(body.amountUsd) > 0) {
+      rawAmount = Math.round(Number(body.amountUsd) * effectiveRate);
+    } else if (body.amount && Number(body.amount) > 0) {
+      rawAmount = Math.round(Number(body.amount)); // déjà en CDF
+    } else {
+      rawAmount = 0;
     }
     const amount = Math.round(rawAmount);
     const message = body.message;
 
-    if (!agencyId || !amount || amount <= 0) {
-      return NextResponse.json({ error: 'Agence et montant requis.' }, { status: 400 });
+    if (!amount || amount <= 0) {
+      return NextResponse.json({ error: 'Montant invalide.' }, { status: 400 });
     }
+
+    // Si on refait une demande expirée spécifique, supprimer l'ancienne pour qu'elle disparaisse
+    if (body.previousRequestId) {
+      await supabase
+        .from('vendor_payment_requests')
+        .delete()
+        .eq('id', body.previousRequestId)
+        .eq('vendor_id', session.userId);
+    }
+
+    // Nettoyer également les anciennes demandes déjà expirées pour cette agence
+    await supabase
+      .from('vendor_payment_requests')
+      .delete()
+      .eq('vendor_id', session.userId)
+      .eq('agency_id', agencyId)
+      .eq('status', 'EXPIRED');
 
     // Vérifier les demandes actives en cours (PENDING ou SEEN avec OTP valide)
     const { data: existingRequests } = await supabase
@@ -231,6 +278,37 @@ export async function GET() {
     return NextResponse.json({ requests: enriched });
   } catch (err) {
     console.error('[GET /api/vendor/payments/request]', err);
+    return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session || session.role !== 'vendeur') {
+      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'ID requis.' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('vendor_payment_requests')
+      .delete()
+      .eq('id', id)
+      .eq('vendor_id', session.userId);
+
+    if (error) {
+      console.error('[DELETE /api/vendor/payments/request] Erreur:', error);
+      return NextResponse.json({ error: 'Erreur lors de la suppression.' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/vendor/payments/request]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });
   }
 }

@@ -67,10 +67,11 @@ export async function POST(
       return NextResponse.json({ error: 'Corps de requête invalide.' }, { status: 400 });
     }
 
-    const { action, reason, driverId } = body as {
+    const { action, reason, driverId, distanceKm: passedDistance } = body as {
       action?: string;
       reason?: string;
       driverId?: string;
+      distanceKm?: number;
     };
 
     const targetAgencyId = session.agencyId || session.userId;
@@ -93,7 +94,7 @@ export async function POST(
     // ── Récupération du colis ─────────────────────────────────────────────────
     const { data: pkg, error: pkgErr } = await supabaseAdmin
       .from('packages')
-      .select('id, tracking_code, status, vendeur_id, agency_id, driver_id, client_commune, client_address, origin_drop_point_id, weight, delivery_price, package_price, paid_by_client')
+      .select('id, tracking_code, status, vendeur_id, agency_id, driver_id, client_commune, client_address, origin_drop_point_id, weight, distance_km, delivery_price, package_price, paid_by_client')
       .eq('id', packageId)
       .maybeSingle();
 
@@ -155,7 +156,9 @@ export async function POST(
         newDeliveryPrice = parseFloat((newDeliveryPrice / tauxChange).toFixed(2));
       }
 
-      let realDistanceKm = 0;
+      let realDistanceKm = (typeof passedDistance === 'number' && passedDistance > 0)
+        ? passedDistance
+        : (Number(pkg.distance_km) > 0 ? Number(pkg.distance_km) : 0);
 
       if (agencyData) {
         const communePrices: { commune: string; price: number }[] =
@@ -164,27 +167,28 @@ export async function POST(
         const pricePerKg = agencyData.price_per_kg || 0;
         const poids = pkg.weight || 1;
 
-        // ── Calcul de la distance réelle via OpenStreetMap Nominatim ──────────
-        try {
-          const agencyAddress = (agencyData as { address?: string }).address
-            || `Kinshasa, République Démocratique du Congo`;
-          // Adresse cliente : on préfère l'adresse complète, sinon la commune seule
-          const clientDest = (pkg as { client_address?: string }).client_address
-            ? `${(pkg as { client_address?: string }).client_address}, ${pkg.client_commune || ''}, Kinshasa`
-            : `${pkg.client_commune || 'Kinshasa'}, Kinshasa`;
+        // ── Calcul de la distance de secours si non transmise ──────────
+        if (realDistanceKm <= 0) {
+          try {
+            const agencyAddress = (agencyData as { address?: string }).address
+              || `Kinshasa, République Démocratique du Congo`;
+            const clientDest = (pkg as { client_address?: string }).client_address
+              ? `${(pkg as { client_address?: string }).client_address}, ${pkg.client_commune || ''}, Kinshasa`
+              : `${pkg.client_commune || 'Kinshasa'}, Kinshasa`;
 
-          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-          const distRes = await fetch(
-            `${baseUrl}/api/distance?from=${encodeURIComponent(agencyAddress)}&to=${encodeURIComponent(clientDest)}`
-          );
-          if (distRes.ok) {
-            const distData = await distRes.json();
-            if (distData.distanceKm && distData.distanceKm > 0) {
-              realDistanceKm = distData.distanceKm;
+            const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+            const distRes = await fetch(
+              `${baseUrl}/api/distance?from=${encodeURIComponent(agencyAddress)}&to=${encodeURIComponent(clientDest)}`
+            );
+            if (distRes.ok) {
+              const distData = await distRes.json();
+              if (distData.distanceKm && distData.distanceKm > 0) {
+                realDistanceKm = distData.distanceKm;
+              }
             }
+          } catch (distErr) {
+            console.warn('[Agency Accept] Distance OSM indisponible, distance = 0 km:', distErr);
           }
-        } catch (distErr) {
-          console.warn('[Agency Accept] Distance OSM indisponible, distance = 0 km:', distErr);
         }
 
         const calculated = calcDeliveryPrice({
@@ -237,6 +241,7 @@ export async function POST(
           status: 'ACCEPTED',
           accepted_at: now,
           agency_id: targetAgencyId,
+          distance_km: realDistanceKm,
           ...(newDeliveryPrice !== null ? {
             frais_livraison: newDeliveryPrice,
             montant_encaisser: quoteMontantEncaisser,

@@ -6,12 +6,16 @@ import CommuneSelect from '@/components/CommuneSelect';
 import {
   Package, DollarSign, Users, User, ArrowRight, Truck, MapPin, Phone, Search,
   Share2, Copy, Check, Plus, X, AlertTriangle, Building2, CheckCircle2, ChevronRight,
-  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star, KeyRound
+  ChevronDown, ChevronUp, LogOut, ShieldAlert, Clock, RefreshCw, Home, Star, KeyRound,
+  Trash2
 } from 'lucide-react';
 import { dataService, ColisItem, DEFAULT_AGENCIES, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
 import CurrencyToggle from '@/components/CurrencyToggle';
+import { useTheme } from '@/components/ThemeContext';
+import ThemeToggle from '@/components/ThemeToggle';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 
 // Composants du Design System Mobile
 import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottomNav';
@@ -32,7 +36,9 @@ export function getVendorBadge(livres: number) {
 export default function VendeurDashboard() {
   const { user, loading: authLoading, logout } = useAuth('vendeur');
   const { formatPrice, exchangeRate } = useCurrency();
+  const { theme, isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('apercu');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [colis, setColis] = useState<Colis[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -121,7 +127,8 @@ export default function VendeurDashboard() {
     agencyId: string;
     agencyName: string;
     agencyPhone: string;
-    amount: number;
+    amountUsd: number;
+    previousRequestId?: string;
   } | null>(null);
   const [vendorRequestMessage, setVendorRequestMessage] = useState('');
   const [vendorRequestLoading, setVendorRequestLoading] = useState(false);
@@ -430,7 +437,8 @@ export default function VendeurDashboard() {
     setVendorRequestLoading(true);
 
     try {
-      const amountInCdf = Math.round(vendorRequestModal.amount * (exchangeRate || 2800));
+      const rate = agencyRatesMap[vendorRequestModal.agencyId] || exchangeRate || 2400;
+      const amountInCdf = Math.round(vendorRequestModal.amountUsd * rate);
       const res = await fetch('/api/vendor/payments/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -438,7 +446,8 @@ export default function VendeurDashboard() {
           agencyId: vendorRequestModal.agencyId,
           agency_id: vendorRequestModal.agencyId,
           amount: amountInCdf,
-          amountUsd: vendorRequestModal.amount,
+          amountUsd: vendorRequestModal.amountUsd,
+          previousRequestId: vendorRequestModal.previousRequestId,
           message: vendorRequestMessage.trim() || undefined,
         }),
       });
@@ -447,11 +456,16 @@ export default function VendeurDashboard() {
 
       if (res.ok) {
         setVendorRequestSuccess('Demande de versement transmise à l\'agence.');
+        // Supprimer immédiatement l'ancienne requête expirée du state local pour qu'elle disparaisse
+        if (vendorRequestModal.previousRequestId) {
+          setPayoutRequests(prev => prev.filter(r => r.id !== vendorRequestModal.previousRequestId));
+        }
+        await loadPayoutRequests();
         setTimeout(() => {
           setVendorRequestModal(null);
           setVendorRequestSuccess(null);
           setVendorRequestMessage('');
-        }, 2000);
+        }, 1500);
       } else {
         showToast(data.error || 'Impossible d\'envoyer la demande.');
       }
@@ -459,6 +473,23 @@ export default function VendeurDashboard() {
       showToast('Erreur réseau.');
     } finally {
       setVendorRequestLoading(false);
+    }
+  };
+
+  // Supprimer une demande expirée pour la faire disparaître
+  const handleDeleteExpiredRequest = async (requestId: string) => {
+    try {
+      const res = await fetch(`/api/vendor/payments/request?id=${requestId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setPayoutRequests(prev => prev.filter(r => r.id !== requestId));
+        showToast('Demande expirée supprimée.');
+      } else {
+        showToast('Erreur lors de la suppression.');
+      }
+    } catch {
+      showToast('Erreur réseau.');
     }
   };
 
@@ -477,8 +508,8 @@ export default function VendeurDashboard() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: MOBILE_THEME.bg.canvas,
-      color: '#fff',
+      background: isDark ? MOBILE_THEME.bg.canvas : '#f8fafc',
+      color: isDark ? '#fff' : '#0f172a',
       paddingBottom: '80px',
       maxWidth: '430px',
       margin: '0 auto',
@@ -505,14 +536,15 @@ export default function VendeurDashboard() {
           {/* Header Vendeur */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Espace Vendeur
               </div>
-              <h1 style={{ margin: '0.1rem 0 0', fontSize: '1.25rem', fontWeight: '900', color: '#fff' }}>
+              <h1 style={{ margin: '0.1rem 0 0', fontSize: '1.25rem', fontWeight: '900', color: isDark ? '#fff' : '#0f172a' }}>
                 Bonjour, {user?.name || 'Vendeur'}
               </h1>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <ThemeToggle />
               <CurrencyToggle />
               {vendorBadge && (
                 <span style={{
@@ -1145,29 +1177,49 @@ export default function VendeurDashboard() {
                       </div>
                     )}
 
-                    {/* Si expirée : afficher « Expiré » avec « Refaire la demande » */}
+                    {/* Si expirée : afficher « Expiré » avec « Refaire la demande » et « Supprimer » */}
                     {isExpired && (
                       <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
                         <p style={{ margin: '0 0 0.6rem', fontSize: '0.78rem', color: '#f87171' }}>
                           Le délai de validité de ce versement a expiré avant confirmation. Les fonds sont restés sur votre solde.
                         </p>
-                        <button
-                          type="button"
-                          onClick={() => setVendorRequestModal({
-                            agencyId: latest.agencyId,
-                            agencyName: latest.agencyName,
-                            agencyPhone: latest.agencyPhone,
-                            amount: latest.amount,
-                          })}
-                          style={{
-                            width: '100%', minHeight: '44px', borderRadius: '10px', border: 'none',
-                            background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
-                            fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
-                          }}
-                        >
-                          <RefreshCw size={15} /> Refaire la demande de versement
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const rate = agencyRatesMap[latest.agencyId] || exchangeRate || 2400;
+                              const parsedUsd = latest.amount >= 500 ? Math.round((latest.amount / rate) * 100) / 100 : latest.amount;
+                              setVendorRequestModal({
+                                agencyId: latest.agencyId,
+                                agencyName: latest.agencyName,
+                                agencyPhone: latest.agencyPhone,
+                                amountUsd: parsedUsd,
+                                previousRequestId: latest.id,
+                              });
+                            }}
+                            style={{
+                              flex: 1, minHeight: '44px', borderRadius: '10px', border: 'none',
+                              background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
+                              fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                            }}
+                          >
+                            <RefreshCw size={15} /> Refaire la demande
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExpiredRequest(latest.id)}
+                            title="Supprimer cette demande expirée pour la faire disparaître"
+                            style={{
+                              minHeight: '44px', padding: '0 12px', borderRadius: '10px',
+                              border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)',
+                              color: '#f87171', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px'
+                            }}
+                          >
+                            <Trash2 size={15} /> Supprimer
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -1289,21 +1341,39 @@ export default function VendeurDashboard() {
                             </span>
 
                             {isExpired && (
-                              <button
-                                type="button"
-                                onClick={() => setVendorRequestModal({
-                                  agencyId: req.agencyId,
-                                  agencyName: req.agencyName,
-                                  agencyPhone: req.agencyPhone,
-                                  amount: req.amount,
-                                })}
-                                style={{
-                                  padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.4)',
-                                  background: 'rgba(245,158,11,0.1)', color: '#fcd34d', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
-                                }}
-                              >
-                                Refaire
-                              </button>
+                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const rate = agencyRatesMap[req.agencyId] || exchangeRate || 2400;
+                                    const parsedUsd = req.amount >= 500 ? Math.round((req.amount / rate) * 100) / 100 : req.amount;
+                                    setVendorRequestModal({
+                                      agencyId: req.agencyId,
+                                      agencyName: req.agencyName,
+                                      agencyPhone: req.agencyPhone,
+                                      amountUsd: parsedUsd,
+                                      previousRequestId: req.id,
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.4)',
+                                    background: 'rgba(245,158,11,0.1)', color: '#fcd34d', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
+                                  }}
+                                >
+                                  Refaire
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteExpiredRequest(req.id)}
+                                  title="Supprimer cette demande expirée pour la faire disparaître"
+                                  style={{
+                                    padding: '3px 6px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.3)',
+                                    background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.68rem', cursor: 'pointer'
+                                  }}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1375,7 +1445,7 @@ export default function VendeurDashboard() {
                             agencyId: ag.agencyId,
                             agencyName: ag.agencyName,
                             agencyPhone: ag.phone || '',
-                            amount: ag.duAuVendeur,
+                            amountUsd: ag.duAuVendeur,
                           })}
                           style={{
                             padding: '0.5rem 0.85rem', borderRadius: '10px', border: 'none',
@@ -1495,25 +1565,27 @@ export default function VendeurDashboard() {
       {/* ══════════════ 5. PROFIL ══════════════ */}
       {activeTab === 'profil' && (
         <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: isDark ? '#fff' : '#0f172a' }}>
             Mon Profil Vendeur
           </h1>
 
           <div style={{
-            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.8rem'
+            background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.8rem',
+            boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.04)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <div style={{
                 width: '48px', height: '48px', borderRadius: '50%',
-                background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80',
+                background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '1.2rem'
               }}>
                 {(user?.name || 'V')[0].toUpperCase()}
               </div>
               <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>{user?.name}</div>
-                <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{user?.email || user?.phone}</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: isDark ? '#fff' : '#0f172a' }}>{user?.name}</div>
+                <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>{user?.email || user?.phone}</div>
               </div>
             </div>
 
@@ -1527,6 +1599,56 @@ export default function VendeurDashboard() {
                 {vendorBadge.icon} Rang : {vendorBadge.label} ({colisLivres.length} colis livrés)
               </div>
             )}
+          </div>
+
+          {/* Préférences & Sécurité */}
+          <div style={{
+            background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
+            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem',
+            boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.04)'
+          }}>
+            <h2 style={{ fontSize: '0.82rem', fontWeight: '800', textTransform: 'uppercase', color: isDark ? '#94a3b8' : '#64748b', margin: 0, letterSpacing: '0.05em' }}>
+              Préférences & Sécurité
+            </h2>
+
+            {/* Thème clair / sombre */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: isDark ? '#fff' : '#0f172a' }}>Thème de l&apos;application</div>
+                <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>Actuellement en mode {isDark ? 'sombre' : 'clair'}</div>
+              </div>
+              <ThemeToggle showLabel />
+            </div>
+
+            <div style={{ height: '1px', background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }} />
+
+            {/* Modifier le mot de passe */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: isDark ? '#fff' : '#0f172a' }}>Mot de passe</div>
+                <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>Modifier votre mot de passe de connexion</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPasswordModal(true)}
+                style={{
+                  padding: '0.45rem 0.9rem',
+                  borderRadius: '10px',
+                  border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  color: isDark ? '#fff' : '#0f172a',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <KeyRound size={14} /> Modifier
+              </button>
+            </div>
           </div>
 
           <button
@@ -1978,20 +2100,31 @@ export default function VendeurDashboard() {
           backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
         }}>
           <div style={{
-            background: '#0f172a', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '20px',
-            padding: '1.5rem', width: '100%', maxWidth: '380px', color: '#fff'
+            background: isDark ? '#0f172a' : '#ffffff',
+            border: isDark ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(0,0,0,0.12)',
+            borderRadius: '20px',
+            padding: '1.5rem', width: '100%', maxWidth: '380px',
+            color: isDark ? '#fff' : '#0f172a',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
           }}>
             <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.15rem', fontWeight: '800' }}>
               Demander mon versement
             </h3>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>
               À l'agence <strong>{vendorRequestModal.agencyName}</strong>
             </p>
 
-            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700' }}>MONTANT DÛ</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#4ade80' }}>
-                {formatPrice(vendorRequestModal.amount)}
+            <div style={{
+              background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+              border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+              padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '0.72rem', color: isDark ? '#64748b' : '#94a3b8', fontWeight: '700' }}>MONTANT DÛ</div>
+              <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#22c55e' }}>
+                {formatPrice(vendorRequestModal.amountUsd)}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                ≈ {Math.round(vendorRequestModal.amountUsd * (agencyRatesMap[vendorRequestModal.agencyId] || exchangeRate || 2400)).toLocaleString('fr-FR')} CDF
               </div>
             </div>
 
@@ -2140,6 +2273,12 @@ export default function VendeurDashboard() {
           </div>
         </div>
       )}
+
+      {/* ══════════════ MODAL CHANGEMENT DE MOT DE PASSE ══════════════ */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
 
       {/* ══════════════ PANNEAU COULISSANT DÉTAILS COLIS ══════════════ */}
       <MobilePackageDetailSheet
