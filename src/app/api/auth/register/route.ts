@@ -9,9 +9,19 @@ import { createToken, setSessionCookie, UserRole } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
 import bcrypt from 'bcryptjs';
 import { dataService } from '@/lib/data-service';
+import { rateLimit } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting : 3 inscriptions max par IP par 10 minutes
+    const rl = rateLimit(request, { max: 3, windowMs: 10 * 60_000, blockDurationMs: 30 * 60_000 });
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'Trop de tentatives d\'inscription. Réessayez dans 30 minutes.' },
+        { status: 429, headers: { 'Retry-After': '1800' } }
+      );
+    }
+
     const body = await request.json();
     const { name, email, password, phone, address, role, coverageZones, fleetSize, maxWeightKg } = body as {
       name: string;

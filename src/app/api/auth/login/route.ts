@@ -15,9 +15,19 @@ import { createToken, setSessionCookie, UserRole } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
 import bcrypt from 'bcryptjs';
 import { logLoginAttempt } from '@/utils/loginLogger';
+import { rateLimit } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
+    // -- Double protection brute-force (5 tentatives / 60s par IP)
+    const rl = rateLimit(request, { max: 5, windowMs: 60_000, blockDurationMs: 15 * 60_000 });
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: rl.message || 'Trop de tentatives. Réessayez dans 15 minutes.' },
+        { status: 429, headers: { 'Retry-After': '900' } }
+      );
+    }
+
     const body = await request.json();
     const { role } = body as { role: string };
 
