@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
+import { fulfillmentService } from '@/lib/fulfillment-service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Calcul du prix de livraison
@@ -67,11 +68,12 @@ export async function POST(
       return NextResponse.json({ error: 'Corps de requête invalide.' }, { status: 400 });
     }
 
-    const { action, reason, driverId, distanceKm: passedDistance } = body as {
+    const { action, reason, driverId, distanceKm: passedDistance, idempotencyKey } = body as {
       action?: string;
       reason?: string;
       driverId?: string;
       distanceKm?: number;
+      idempotencyKey?: string;
     };
 
     const targetAgencyId = session.agencyId || session.userId;
@@ -332,80 +334,27 @@ export async function POST(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // ACTION : ASSIGNATION LIVREUR
+    // ACTION : ASSIGNATION / REMISE LIVREUR (Point d'entrée unifié et idempotent - Bug 2.3)
     // ═══════════════════════════════════════════════════════════════════════════
     if (action === 'assign_driver') {
-      // Vérifier que le colis est dans un état assignable
-      const assignableStatuses = ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP'];
-      if (!assignableStatuses.includes(pkg.status)) {
-        return NextResponse.json(
-          { error: `Le colis doit d'abord être accepté par l'agence avant l'assignation (statut actuel : ${pkg.status}).` },
-          { status: 400 }
-        );
-      }
-
-      // Vérifier que le livreur appartient bien à cette agence
-      const { data: driver } = await supabaseAdmin
-        .from('drivers')
-        .select('id, agency_id, profile:profiles(name)')
-        .eq('id', driverId as string)
-        .eq('agency_id', targetAgencyId)
-        .maybeSingle();
-
-      if (!driver) {
-        return NextResponse.json(
-          { error: 'Livreur introuvable ou non affilié à votre agence.' },
-          { status: 400 }
-        );
-      }
-
-      const driverProfile = Array.isArray(driver.profile) ? driver.profile[0] : driver.profile;
-      const driverName = (driverProfile as { name?: string })?.name || 'Livreur';
-
-      // Si le colis provient d'un point relais et qu'il n'est pas encore
-      // récupéré par l'agence, on assigne sans changer le statut de pickup
-      const isAtRelay =
-        !!pkg.origin_drop_point_id && pkg.status === 'WAITING_FOR_AGENCY_PICKUP';
-      const newStatus = isAtRelay ? 'WAITING_FOR_AGENCY_PICKUP' : 'ASSIGNED_TO_DRIVER';
-
-      const { error: updErr } = await supabaseAdmin
-        .from('packages')
-        .update({
-          driver_id: driverId as string,
-          agency_id: targetAgencyId,
-          status: newStatus,
-          updated_at: now,
-        })
-        .eq('id', packageId);
-
-      if (updErr) {
-        console.error('[Agency Assign Driver]', updErr);
-        return NextResponse.json({ error: 'Erreur lors de l\'assignation du livreur.' }, { status: 500 });
-      }
-
-      // Audit
-      await supabaseAdmin.from('package_audit_logs').insert({
-        package_id: packageId,
-        action: 'DRIVER_ASSIGNED',
-        actor_id: session.userId,
-        actor_role: 'agence',
-        actor_name: agencyName,
-        details: `Colis assigné au livreur ${driverName} par l'agence ${agencyName}. Destination : ${pkg.client_commune || 'N/A'}.`,
-      }).select().maybeSingle();
-
-      // Notification livreur
-      await supabaseAdmin.from('notifications').insert({
-        user_id: driverId as string,
-        title: 'Nouvelle course assignée',
-        message: `Vous avez été assigné au colis ${trackingLabel} → ${pkg.client_commune || 'Kinshasa'}.`,
-        type: 'PACKAGE_STATUS',
-        data: { package_id: packageId, status: 'ASSIGNED_TO_DRIVER' },
+      const handoverResult = await fulfillmentService.executePackageHandover({
+        packageId,
+        driverId: driverId as string,
+        agencyId: targetAgencyId,
+        actorId: session.userId,
+        actorName: agencyName,
+        actorRole: 'agence',
+        idempotencyKey: idempotencyKey || `assign-${packageId}-${driverId}`,
       });
+
+      if (!handoverResult.success) {
+        return NextResponse.json({ error: handoverResult.error }, { status: 400 });
+      }
 
       return NextResponse.json({
         success: true,
-        message: `Colis assigné à ${driverName} avec succès.`,
-        driverName,
+        message: handoverResult.message || `Colis assigné avec succès.`,
+        driverName: handoverResult.driver_name,
       });
     }
 

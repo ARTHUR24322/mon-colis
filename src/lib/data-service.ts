@@ -410,7 +410,7 @@ export function mapPackage(p: any): ColisItem {
     livreur: p.driver?.profile?.name || null,
     livreurPhone: p.driver?.phone || null,
     driverId: p.driver_id,
-    otp: p.validation_code,
+    otp: '', // SÉCURITÉ : Ne jamais exposer le code OTP de validation au vendeur ou aux tiers
     date: p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : '—',
     confirmed: false,
     deliveredAt: null,

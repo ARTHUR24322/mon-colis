@@ -14,6 +14,8 @@
 import { cookies } from 'next/headers';
 import { NextRequest } from 'next/server';
 import { AdminRole } from '@/lib/adminPermissions';
+import fs from 'fs';
+import path from 'path';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -220,4 +222,25 @@ export async function clearAdminOtpMeta(): Promise<void> {
     maxAge:   0,
     expires:  new Date(0),
   });
+}
+
+/**
+ * Récupère le code de sécurité critique ADVANCED_ADMIN_PIN.
+ * Seul le Super Admin général peut l'utiliser.
+ * Ne retourne JAMAIS de code par défaut (aucun fallback en dur).
+ */
+export function getAdvancedAdminPin(): string | null {
+  if (process.env.ADVANCED_ADMIN_PIN) {
+    const val = process.env.ADVANCED_ADMIN_PIN.trim();
+    if (val) return val;
+  }
+  try {
+    const envPath = path.join(process.cwd(), '.env.local');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      const match = content.match(/^ADVANCED_ADMIN_PIN=["']?([^"'\r\n]+)["']?$/m);
+      if (match && match[1]?.trim()) return match[1].trim();
+    }
+  } catch {}
+  return null;
 }

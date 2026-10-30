@@ -19,6 +19,7 @@ export function safeFormatDate(
 
     if (includeTime) {
       return d.toLocaleDateString('fr-FR', {
+        timeZone: 'Africa/Kinshasa',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -28,6 +29,7 @@ export function safeFormatDate(
     }
 
     return d.toLocaleDateString('fr-FR', {
+      timeZone: 'Africa/Kinshasa',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -43,6 +45,7 @@ export function safeFormatTime(dateInput: any, fallback: string = '—'): string
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return fallback;
     return d.toLocaleTimeString('fr-FR', {
+      timeZone: 'Africa/Kinshasa',
       hour: '2-digit',
       minute: '2-digit',
     });

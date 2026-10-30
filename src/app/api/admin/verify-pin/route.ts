@@ -1,50 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdminSession } from '@/lib/adminSession';
-import fs from 'fs';
-import path from 'path';
-
-function getPin(): string | null {
-  if (process.env.ADVANCED_ADMIN_PIN) {
-    return process.env.ADVANCED_ADMIN_PIN;
-  }
-  try {
-    const envPath = path.join(process.cwd(), '.env.local');
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf8');
-      const match = content.match(/^ADVANCED_ADMIN_PIN=["']?(\d{4})["']?$/m);
-      if (match) return match[1];
-    }
-  } catch {}
-
-  // En production, refuser le code par défaut 0000 pour éviter toute brèche
-  if (process.env.NODE_ENV === 'production') {
-    return null;
-  }
-  return '0000'; // Fallback uniquement en développement local
-}
+import { requireAdminSession, getAdvancedAdminPin } from '@/lib/adminSession';
 
 export async function POST(req: NextRequest) {
   try {
     const admin = await requireAdminSession();
     if (!admin) {
-      return NextResponse.json({ success: false, error: 'Session admin requise' }, { status: 401 });
+      return NextResponse.json({ success: false, error: 'Session admin requise.' }, { status: 401 });
+    }
+
+    // Seul le Super Admin général est autorisé à déverrouiller la zone critique
+    if (admin.role !== 'superadmin') {
+      return NextResponse.json({
+        success: false,
+        error: 'Action réservée exclusivement au Super Admin général.'
+      }, { status: 403 });
     }
 
     const { pin } = await req.json();
-    if (!pin || !/^\d{4}$/.test(pin)) {
-      return NextResponse.json({ success: false, error: 'Code PIN invalide (4 chiffres requis).' }, { status: 400 });
+    if (!pin || typeof pin !== 'string') {
+      return NextResponse.json({ success: false, error: 'Code de sécurité requis.' }, { status: 400 });
     }
 
-    const correctPin = getPin();
+    const correctPin = getAdvancedAdminPin();
     if (!correctPin) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'ADVANCED_ADMIN_PIN non configuré sur le serveur de production.' 
+      return NextResponse.json({
+        success: false,
+        error: 'ADVANCED_ADMIN_PIN non configuré dans l\'environnement serveur.'
       }, { status: 500 });
     }
 
-    if (pin !== correctPin) {
-      return NextResponse.json({ success: false, error: 'Code PIN incorrect.' }, { status: 401 });
+    if (pin.trim() !== correctPin.trim()) {
+      return NextResponse.json({ success: false, error: 'Code de sécurité incorrect.' }, { status: 401 });
     }
 
     return NextResponse.json({ success: true });

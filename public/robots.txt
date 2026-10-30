@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /admin-x9k2/
+Disallow: /api/
+Allow: /
+

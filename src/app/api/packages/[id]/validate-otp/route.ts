@@ -9,6 +9,7 @@ import { dataService } from '@/lib/data-service';
 import { supabase } from '@/utils/supabase/client';
 import { getSession } from '@/lib/session-server';
 import { logPackageAudit } from '@/lib/package-state-machine';
+import { fulfillmentService } from '@/lib/fulfillment-service';
 import { z } from 'zod';
 
 const validateOtpSchema = z.object({
@@ -65,6 +66,13 @@ export async function POST(
 
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 });
+    }
+
+    // 2b. RÈGLE STRICTE FULFILLMENT : Décrémentation physique du stock UNIQUEMENT sur validation réussie de l'OTP
+    try {
+      await fulfillmentService.handleOtpValidationStockDeduction(colisId);
+    } catch (stockErr) {
+      console.warn('[validate-otp] Décrémentation stock fulfillment:', stockErr);
     }
 
     // 3. Journaliser dans package_audit_logs

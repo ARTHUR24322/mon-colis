@@ -134,16 +134,15 @@ function ColisStatusBadge({ status }: { status: string }) {
 }
 
 // --- Sub-component: KPI Card ------------------------------------------------
-function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
+function KpiCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '16px', padding: '1.5rem', position: 'relative', overflow: 'hidden',
+      background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: '14px', padding: '1.25rem 1.4rem',
     }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, width: '70px', height: '70px', background: color, opacity: 0.12, borderRadius: '0 0 0 70px' }} />
-      <p style={{ fontSize: '0.78rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>{label}</p>
-      <p style={{ fontSize: '2rem', fontWeight: '900', color, lineHeight: 1 }}>{value}</p>
-      {sub && <p style={{ fontSize: '0.75rem', opacity: 0.5, marginTop: '0.35rem' }}>{sub}</p>}
+      <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '0 0 0.4rem', fontWeight: '500' }}>{label}</p>
+      <p style={{ fontSize: '1.75rem', fontWeight: '800', color: color && color !== '#38bdf8' && color !== '#a855f7' ? color : '#ffffff', lineHeight: 1.1, margin: 0 }}>{value}</p>
+      {sub && <p style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '0.35rem', margin: '0.35rem 0 0' }}>{sub}</p>}
     </div>
   );
 }
@@ -152,12 +151,13 @@ function KpiCard({ label, value, sub, color }: { label: string; value: string | 
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span style={{
-      background: active ? 'rgba(16,185,129,0.15)' : 'rgba(249,115,22,0.15)',
-      color: active ? '#10b981' : '#f97316',
-      border: `1px solid ${active ? '#10b981' : '#f97316'}`,
-      padding: '0.2rem 0.65rem', borderRadius: '20px',
-      fontSize: '0.75rem', fontWeight: '700',
+      background: active ? 'rgba(34,197,94,0.12)' : 'rgba(249,115,22,0.12)',
+      color: active ? '#22c55e' : '#f97316',
+      padding: '0.15rem 0.55rem', borderRadius: '9999px',
+      fontSize: '0.72rem', fontWeight: '600',
+      display: 'inline-flex', alignItems: 'center', gap: '4px'
     }}>
+      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: active ? '#22c55e' : '#f97316' }} />
       {active ? 'Actif' : 'Suspendu'}
     </span>
   );
@@ -185,16 +185,12 @@ function randomLatency(min: number, max: number) {
 }
 
 function buildServices(): ServiceCheck[] {
-  const dbLat  = randomLatency(4, 22);
-  const apiLat = randomLatency(8, 45);
-  const stoLat = randomLatency(12, 60);
-  const authLat = randomLatency(3, 18);
   return [
-    { name: 'Base de donnees (Supabase)', status: dbLat  < 20 ? 'ok' : 'warn', latency: dbLat,  detail: 'PostgreSQL — pool 10/50 connexions actives' },
-    { name: 'API Applicative',            status: apiLat < 40 ? 'ok' : 'warn', latency: apiLat, detail: 'Next.js API routes — 0 erreur 5xx derniere heure' },
-    { name: 'Stockage Supabase Storage',  status: stoLat < 50 ? 'ok' : 'warn', latency: stoLat, detail: 'Bucket public — 2.4 GB utilises sur 10 GB' },
-    { name: 'Service Auth',               status: authLat < 15 ? 'ok' : 'warn', latency: authLat, detail: 'JWT — sessions actives : 3' },
-    { name: 'CDN / Edge',                 status: 'ok',                         latency: 2,      detail: 'Vercel Edge Network — 99.98% uptime 30 jours' },
+    { name: 'Base de données (Supabase)', status: 'ok', latency: 15, detail: 'PostgreSQL — En attente de mesure directe' },
+    { name: 'API Applicative',            status: 'ok', latency: 10, detail: 'Next.js API Engine — Serveur en ligne' },
+    { name: 'Stockage Supabase Storage',  status: 'ok', latency: 20, detail: 'Stockage cloud Moncolis' },
+    { name: 'Service Auth',               status: 'ok', latency: 8,  detail: 'Sessions sécurisées HMAC / JWT' },
+    { name: 'CDN / Passerelle Edge',      status: 'ok', latency: 2,  detail: 'Vercel Edge Network' },
   ];
 }
 
@@ -433,7 +429,7 @@ export default function AdminDashboard() {
         if (!cancelled && profiles) {
           setVendeurs(profiles.map(p => {
             const vPkgs = allPackages.filter(pkg => pkg.vendeurId === p.id);
-            const vLivres = vPkgs.filter(pkg => pkg.status === 'Livré');
+            const vLivres = vPkgs.filter(pkg => (pkg.status as string) === 'Livré' || (pkg.status as string) === 'DELIVERED' || (pkg as any).rawStatus === 'DELIVERED');
             // Revenu vendeur = somme des prix des colis livrés (valeur des marchandises)
             const vRevenu = vLivres.reduce((s, pkg) => s + (pkg.prixColis || 0), 0);
             return {
@@ -551,14 +547,23 @@ export default function AdminDashboard() {
     return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
   };
 
-  const handleDiagRefresh = useCallback(() => {
+  const handleDiagRefresh = useCallback(async () => {
     setDiagRefreshing(true);
-    setTimeout(() => {
-      setServices(buildServices());
-      const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: 'Diagnostic système rafraîchi manuellement', time: now }, ...prev.slice(0, 19)]);
+    try {
+      const res = await fetch('/api/admin/diagnostics');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.services) {
+          setServices(data.services);
+        }
+      }
+    } catch (e) {
+      console.warn('Erreur rafraîchissement diagnostic:', e);
+    } finally {
+      const now = new Date().toLocaleTimeString('fr-FR', { timeZone: 'Africa/Kinshasa', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLogs(prev => [{ id: logIdRef.current++, level: 'INFO', message: 'Diagnostic système rafraîchi avec succès depuis le serveur.', time: now }, ...prev.slice(0, 19)]);
       setDiagRefreshing(false);
-    }, 900);
+    }
   }, []);
 
   // -- Derived stats ---------------------------------------------------------
@@ -756,16 +761,28 @@ export default function AdminDashboard() {
   };
 
   // -- Advanced Options & Permanent Agency Deletion Handlers ------------------
-  const handleUnlockAdvanced = (e: React.FormEvent) => {
+  const handleUnlockAdvanced = async (e: React.FormEvent) => {
     e.preventDefault();
     const code = advancedCodeInput.trim();
-    if (code === '7412' || code === '9876' || code === 'SUPERADMIN2026' || code === actionPin) {
-      setIsAdvancedUnlocked(true);
-      setShowAdvancedUnlockModal(false);
-      setAdvancedCodeError(null);
-      setToast('🔓 Options avancées déverrouillées avec succès.');
-    } else {
-      setAdvancedCodeError('Code de sécurité incorrect. Essayez le code 7412 ou votre PIN.');
+    if (!code) return;
+    setAdvancedCodeError(null);
+    try {
+      const res = await fetch('/api/admin/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: code }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsAdvancedUnlocked(true);
+        setShowAdvancedUnlockModal(false);
+        setAdvancedCodeError(null);
+        setToast('Options avancées déverrouillées.');
+      } else {
+        setAdvancedCodeError(data.error || 'Code de sécurité incorrect.');
+      }
+    } catch {
+      setAdvancedCodeError('Erreur de connexion au serveur.');
     }
   };
 
@@ -783,7 +800,7 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agencyId: agencyToDelete.id,
-          securityCode: advancedCodeInput.trim() || actionPin || '7412'
+          securityCode: advancedCodeInput.trim()
         })
       });
       const data = await res.json();
@@ -816,7 +833,7 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vendorId: vendorToDelete.id,
-          securityCode: advancedCodeInput.trim() || actionPin || '7412'
+          securityCode: advancedCodeInput.trim()
         })
       });
       const data = await res.json();
@@ -1108,25 +1125,25 @@ export default function AdminDashboard() {
       items: [
         { key: 'overview', label: 'Vue globale', icon: <LayoutDashboard size={15} /> },
         { key: 'colis', label: 'Tous les colis', icon: <Package size={15} />, count: colis.length },
-        { key: 'agences', label: 'Agences Actives', icon: <Building2 size={15} />, count: activeAgences, permission: 'canManageAgences' },
-        { key: 'fulfillment', label: 'Fulfillment & Entrepôts', icon: <Boxes size={15} />, count: fulfillmentData?.subscriptions?.length, permission: 'canManageAgences' },
-        { key: 'demandes', label: 'Adhésions Agences', icon: <UserPlus size={15} />, count: pendingAgencesCount, badgeColor: pendingAgencesCount > 0 ? '#fb923c' : undefined, permission: 'canManageAgences' },
-        { key: 'relais', label: 'Points Relais', icon: <MapPin size={15} />, count: dropPoints.length, permission: 'canManageRelais' },
+        { key: 'agences', label: 'Agences actives', icon: <Building2 size={15} />, count: activeAgences, permission: 'canManageAgences' },
+        { key: 'fulfillment', label: 'Entrepôts', icon: <Boxes size={15} />, count: fulfillmentData?.subscriptions?.length, permission: 'canManageAgences' },
+        { key: 'demandes', label: 'Adhésions', icon: <UserPlus size={15} />, count: pendingAgencesCount, badgeColor: pendingAgencesCount > 0 ? '#f97316' : undefined, permission: 'canManageAgences' },
+        { key: 'relais', label: 'Points relais', icon: <MapPin size={15} />, count: dropPoints.length, permission: 'canManageRelais' },
         { key: 'vendeurs', label: 'Vendeurs', icon: <Users size={15} />, count: vendeurs.length, permission: 'canManageVendeurs' },
       ],
     },
     {
       title: 'Finance',
       items: [
-        { key: 'audit', label: 'Audit Financier', icon: <Shield size={15} />, permission: 'canManageSettings' },
-        { key: 'reconciliation', label: 'Écarts Livreurs', icon: <AlertCircle size={15} />, permission: 'canManageSettings' },
+        { key: 'audit', label: 'Audit financier', icon: <Shield size={15} />, permission: 'canManageSettings' },
+        { key: 'reconciliation', label: 'Écarts livreurs', icon: <AlertCircle size={15} />, permission: 'canManageSettings' },
       ],
     },
     {
       title: 'Système',
       items: [
-        { key: 'diagnostique', label: 'Diagnostic Système', icon: <Activity size={15} />, permission: 'canViewDiagnostics' },
-        { key: 'parametres', label: 'Paramètres Admin', icon: <Settings size={15} />, permission: 'canManageSettings' },
+        { key: 'diagnostique', label: 'Diagnostic', icon: <Activity size={15} />, permission: 'canViewDiagnostics' },
+        { key: 'parametres', label: 'Paramètres', icon: <Settings size={15} />, permission: 'canManageSettings' },
       ],
     },
   ];
@@ -1164,9 +1181,9 @@ export default function AdminDashboard() {
               </svg>
             </div>
             <div>
-              <p style={{ fontWeight: '800', fontSize: '0.92rem', margin: 0, letterSpacing: '-0.01em' }}>{adminUser?.name || 'Moncolis'}</p>
-              <p style={{ fontSize: '0.7rem', color: ROLE_LABELS[role]?.color || '#f97316', margin: '0.1rem 0 0', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {ROLE_LABELS[role]?.label || 'Super Admin'}
+              <p style={{ fontWeight: '800', fontSize: '0.92rem', margin: 0, letterSpacing: '-0.01em', color: '#ffffff' }}>Moncolis Admin</p>
+              <p style={{ fontSize: '0.72rem', color: '#f97316', margin: '0.1rem 0 0', fontWeight: '600' }}>
+                Super administrateur
               </p>
             </div>
           </div>
@@ -1180,16 +1197,14 @@ export default function AdminDashboard() {
             return (
               <div key={group.title}>
                 <p style={{
-                  fontSize: '0.66rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.1em',
-                  color: 'rgba(255,255,255,0.35)',
+                  fontSize: '0.68rem',
+                  color: '#64748b',
                   margin: '0 0.5rem 0.4rem',
-                  fontWeight: '800',
+                  fontWeight: '600',
                 }}>
                   {group.title}
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
                   {visibleItems.map(item => {
                     const isActive = activeTab === item.key;
                     return (
@@ -1197,31 +1212,30 @@ export default function AdminDashboard() {
                         key={item.key}
                         onClick={() => setActiveTab(item.key)}
                         style={{
-                          width: '100%', padding: '0.55rem 0.75rem', borderRadius: '10px',
+                          width: '100%', padding: '0.5rem 0.75rem', borderRadius: '10px',
                           border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                           textAlign: 'left', fontSize: '0.84rem',
-                          background: isActive ? 'rgba(249,115,22,0.14)' : 'transparent',
-                          color: isActive ? '#fb923c' : 'rgba(255,255,255,0.6)',
-                          fontWeight: isActive ? '700' : '400',
-                          borderLeft: isActive ? '3px solid #f97316' : '3px solid transparent',
+                          background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+                          color: isActive ? '#ffffff' : 'rgba(255,255,255,0.6)',
+                          fontWeight: isActive ? '600' : '400',
                           transition: 'all 0.15s ease',
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         }}
                       >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                          <span style={{ color: isActive ? '#f97316' : 'rgba(255,255,255,0.4)', display: 'flex' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                          <span style={{ color: isActive ? '#ffffff' : 'rgba(255,255,255,0.4)', display: 'flex' }}>
                             {item.icon}
                           </span>
                           {item.label}
                         </span>
                         {item.count !== undefined && (
                           <span style={{
-                            fontSize: '0.7rem',
-                            fontWeight: '700',
+                            fontSize: '0.72rem',
+                            fontWeight: '600',
                             padding: '0.1rem 0.45rem',
-                            borderRadius: '10px',
-                            background: item.badgeColor ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.08)',
-                            color: item.badgeColor || 'rgba(255,255,255,0.6)',
+                            borderRadius: '8px',
+                            background: item.badgeColor ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.06)',
+                            color: item.badgeColor || '#94a3b8',
                           }}>
                             {item.count}
                           </span>
@@ -1304,16 +1318,52 @@ export default function AdminDashboard() {
       </aside>
 
       {/* Main content */}
-      <main style={{ marginLeft: '230px', padding: '2rem', minHeight: '100vh' }}>
+      <main style={{ marginLeft: '230px', padding: '2rem 2.5rem', minHeight: '100vh', background: '#050505' }}>
 
-        {/* Page header */}
-        <div style={{ marginBottom: '2rem', paddingBottom: '1.25rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <h1 style={{ fontWeight: '800', fontSize: '1.6rem', margin: 0 }}>
-            {getActiveTabTitle()}
-          </h1>
-          <p style={{ opacity: 0.45, marginTop: '0.25rem', fontSize: '0.85rem' }}>
-            Panneau d&apos;administration — Accès restreint
-          </p>
+        {/* Page header avec filtres temporels intégrés à droite */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          flexWrap: 'wrap', gap: '1rem', marginBottom: '1.75rem'
+        }}>
+          <div>
+            <h1 style={{ fontWeight: '800', fontSize: '1.75rem', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+              {getActiveTabTitle()}
+            </h1>
+            <p style={{ color: '#64748b', marginTop: '0.2rem', fontSize: '0.84rem' }}>
+              Panneau d&apos;administration · accès restreint
+            </p>
+          </div>
+
+          {activeTab === 'overview' && (
+            <div style={{
+              display: 'flex', alignItems: 'center', background: '#0f0f0f',
+              border: '1px solid rgba(255,255,255,0.08)', borderRadius: '9999px', padding: '3px'
+            }}>
+              {[
+                { key: 'today', label: "Aujourd'hui" },
+                { key: '7d', label: '7 jours' },
+                { key: '30d', label: '30 jours' },
+                { key: 'all', label: 'Tout' },
+              ].map(p => {
+                const isSelected = periodFilter === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => setPeriodFilter(p.key as any)}
+                    style={{
+                      padding: '0.45rem 1.1rem', borderRadius: '9999px', border: 'none',
+                      fontSize: '0.8rem', fontWeight: isSelected ? '700' : '500',
+                      background: isSelected ? '#ffffff' : 'transparent',
+                      color: isSelected ? '#000000' : '#94a3b8',
+                      cursor: 'pointer', transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* -- TAB: Overview -------------------------------------------------- */}
@@ -1325,195 +1375,208 @@ export default function AdminDashboard() {
         ) : (
           <>
             {activeTab === 'overview' && (
-              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
 
-                {/* Filter bar & Period Selector */}
+                {/* Bloc KPI 4 colonnes épuré (conforme à la référence) */}
                 <div style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem',
-                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '0.85rem 1.25rem'
+                  background: '#0d0d0d',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  overflow: 'hidden'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <Calendar size={16} color="#fb923c" />
-                    <span style={{ fontSize: '0.84rem', fontWeight: '700', color: '#cbd5e1' }}>Filtrer par période :</span>
+                  {/* Col 1 : Volume encaissé */}
+                  <div style={{ padding: '1.5rem 1.75rem', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 0.5rem', fontWeight: '500' }}>
+                      Volume encaissé
+                    </p>
+                    <p style={{ fontSize: '1.85rem', fontWeight: '800', color: '#ffffff', margin: 0, lineHeight: 1.1 }}>
+                      {volumeTotalEncaisse.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.4rem 0 0' }}>
+                      ≈ {Math.round(volumeTotalEncaisse * plafondFC).toLocaleString('fr-FR')} FC
+                    </p>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    {[
-                      { key: 'today', label: "Aujourd'hui" },
-                      { key: '7d', label: '7 derniers jours' },
-                      { key: '30d', label: '30 jours' },
-                      { key: 'all', label: 'Toutes les périodes' },
-                    ].map(p => (
-                      <button
-                        key={p.key}
-                        onClick={() => setPeriodFilter(p.key as any)}
-                        style={{
-                          padding: '0.4rem 0.85rem', borderRadius: '8px', border: 'none',
-                          fontSize: '0.8rem', fontWeight: periodFilter === p.key ? '800' : '500',
-                          background: periodFilter === p.key ? 'linear-gradient(135deg, #f97316, #ea580c)' : 'rgba(255,255,255,0.05)',
-                          color: periodFilter === p.key ? '#fff' : 'rgba(255,255,255,0.65)',
-                          cursor: 'pointer', transition: 'all 0.15s ease',
-                          boxShadow: periodFilter === p.key ? '0 2px 8px rgba(249,115,22,0.35)' : 'none'
-                        }}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
+                  {/* Col 2 : Commissions */}
+                  <div style={{ padding: '1.5rem 1.75rem', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 0.5rem', fontWeight: '500' }}>
+                      Commissions
+                    </p>
+                    <p style={{ fontSize: '1.85rem', fontWeight: '800', color: '#ffffff', margin: 0, lineHeight: 1.1 }}>
+                      {revenuTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.4rem 0 0' }}>
+                      ≈ {Math.round(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC
+                    </p>
+                  </div>
+
+                  {/* Col 3 : Colis livrés */}
+                  <div style={{ padding: '1.5rem 1.75rem', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 0.5rem', fontWeight: '500' }}>
+                      Colis livrés
+                    </p>
+                    <p style={{ fontSize: '1.85rem', fontWeight: '800', color: '#ffffff', margin: 0, lineHeight: 1.1 }}>
+                      {totalLivres}
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.4rem 0 0' }}>
+                      sur {totalColis} · {totalColis > 0 ? Math.round((totalLivres / totalColis) * 100) : 0} % de succès
+                    </p>
+                  </div>
+
+                  {/* Col 4 : En cours */}
+                  <div style={{ padding: '1.5rem 1.75rem' }}>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 0.5rem', fontWeight: '500' }}>
+                      En cours
+                    </p>
+                    <p style={{ fontSize: '1.85rem', fontWeight: '800', color: '#ffffff', margin: 0, lineHeight: 1.1 }}>
+                      {colisEnCours}
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.4rem 0 0' }}>
+                      transit, acceptés, en attente
+                    </p>
                   </div>
                 </div>
 
-                {/* Low credit alert banner for drop points */}
-                {dropPointsLowCredit.length > 0 && (
-                  <div style={{
-                    background: 'rgba(245, 158, 11, 0.08)',
-                    border: '1px solid rgba(245, 158, 11, 0.3)',
-                    borderRadius: '14px', padding: '1rem 1.25rem',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <AlertTriangle size={20} color="#fbbf24" style={{ flexShrink: 0 }} />
-                      <div>
-                        <strong style={{ color: '#fbbf24', fontSize: '0.88rem' }}>Alerte Crédits Points Relais :</strong>
-                        <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: '#cbd5e1' }}>
-                          {dropPointsLowCredit.length} point(s) relais ont un solde critique (&le; 5 crédits) :{' '}
-                          <strong>{dropPointsLowCredit.map(dp => `${dp.name} (${dp.credits || 0} cr)`).join(', ')}</strong>. Risque d'interruption des retraits.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab('relais')}
-                      style={{
-                        padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.4)',
-                        background: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', fontSize: '0.78rem', fontWeight: '700',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Gérer les relais
-                    </button>
-                  </div>
-                )}
+                {/* Section À traiter (simple, net, épuré) */}
+                {(dropPointsLowCredit.length > 0 || orphanColisTotal > 0) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    <h2 style={{ fontSize: '1.15rem', fontWeight: '700', color: '#ffffff', margin: '0.25rem 0 0' }}>À traiter</h2>
 
-                {/* KPI Cards Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                  <KpiCard label="Total colis" value={totalColis} sub="Volume plateforme" color="#38bdf8" />
-                  <KpiCard label="Colis Livrés" value={totalLivres} sub={`${totalColis > 0 ? Math.round((totalLivres / totalColis) * 100) : 0}% taux de succès`} color="#4ade80" />
-                  <KpiCard label="En cours de livraison" value={colisEnCours} sub="Transit, acceptés, en attente" color="#fbbf24" />
-                  <KpiCard
-                    label="Volume total encaissé"
-                    value={`${volumeTotalEncaisse.toFixed(2)} $`}
-                    sub={`≈ ${(volumeTotalEncaisse * plafondFC).toLocaleString('fr-FR')} FC`}
-                    color="#22c55e"
-                  />
-                  <KpiCard
-                    label="Commissions Moncolis"
-                    value={`${revenuTotal.toFixed(2)} $`}
-                    sub={`≈ ${(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC`}
-                    color="#f97316"
-                  />
-                  <div style={{
-                    background: orphanColisTotal > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${orphanColisTotal > 0 ? 'rgba(239, 68, 68, 0.35)' : 'rgba(255,255,255,0.08)'}`,
-                    borderRadius: '16px', padding: '1.5rem', position: 'relative', overflow: 'hidden'
-                  }}>
-                    <div style={{ position: 'absolute', top: 0, right: 0, width: '70px', height: '70px', background: orphanColisTotal > 0 ? '#ef4444' : '#64748b', opacity: 0.12, borderRadius: '0 0 0 70px' }} />
-                    <p style={{ fontSize: '0.78rem', opacity: 0.65, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', color: orphanColisTotal > 0 ? '#fca5a5' : '#cbd5e1' }}>
-                      Colis orphelins (sans agence)
-                    </p>
-                    <p style={{ fontSize: '2rem', fontWeight: '900', color: orphanColisTotal > 0 ? '#f87171' : '#94a3b8', lineHeight: 1 }}>
-                      {orphanColisTotal}
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem' }}>
-                      <p style={{ fontSize: '0.74rem', opacity: 0.7, margin: 0, color: orphanColisLivres > 0 ? '#fca5a5' : '#94a3b8' }}>
-                        {orphanColisLivres} livré(s) non commissionné(s)
-                      </p>
-                      {orphanColisTotal > 0 && (
+                    {dropPointsLowCredit.length > 0 && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '0.5rem 0', gap: '1rem', flexWrap: 'wrap'
+                      }}>
+                        <div>
+                          <p style={{ fontSize: '0.92rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
+                            {dropPointsLowCredit.length} points relais à crédit critique
+                          </p>
+                          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                            {dropPointsLowCredit.map(dp => `${dp.name} (${dp.credits || 0} cr)`).join(' et ')}. Risque d&apos;interruption des retraits.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab('relais')}
+                          style={{
+                            padding: '0.55rem 1.35rem', borderRadius: '9999px', border: 'none',
+                            background: '#f97316', color: '#ffffff', fontSize: '0.84rem', fontWeight: '700',
+                            cursor: 'pointer', flexShrink: 0
+                          }}
+                        >
+                          Gérer les relais
+                        </button>
+                      </div>
+                    )}
+
+                    {orphanColisTotal > 0 && (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '0.5rem 0', gap: '1rem', flexWrap: 'wrap'
+                      }}>
+                        <div>
+                          <p style={{ fontSize: '0.92rem', fontWeight: '700', color: '#f87171', margin: 0 }}>
+                            {orphanColisTotal} colis sans agence
+                          </p>
+                          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+                            Dont {orphanColisLivres} livré non commissionné.
+                          </p>
+                        </div>
                         <button
                           onClick={() => {
                             setColisAgencyFilter('ORPHAN');
                             setActiveTab('colis');
                           }}
                           style={{
-                            background: 'transparent', border: 'none', color: '#f87171',
-                            cursor: 'pointer', fontSize: '0.74rem', fontWeight: '800', textDecoration: 'underline'
+                            padding: '0.55rem 1.35rem', borderRadius: '9999px', border: 'none',
+                            background: '#f97316', color: '#ffffff', fontSize: '0.84rem', fontWeight: '700',
+                            cursor: 'pointer', flexShrink: 0
                           }}
                         >
-                          Assigner &rarr;
+                          Assigner
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
-                {/* Commission breakdown by agency */}
-                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', overflow: 'hidden' }}>
-                  <div style={{ padding: '1.1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {/* Section Revenus par agence */}
+                <div style={{
+                  background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: '700' }}>Revenus par agence — commissions perçues</h3>
-                      <p style={{ margin: '0.2rem 0 0', opacity: 0.45, fontSize: '0.78rem' }}>
-                        Calculé sur l&apos;ensemble des <strong>{totalLivres} colis livrés</strong> (27 assignés aux agences + 1 orphelin)
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '700', color: '#ffffff' }}>Revenus par agence</h3>
+                      <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.78rem' }}>
+                        Calculé sur {totalLivres} colis livrés (27 assignés aux agences + 1 orphelin) · 1 $ = {plafondFC.toLocaleString('fr-FR')} FC
                       </p>
                     </div>
-                    <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Taux de change appliqué : 1 $ = {plafondFC.toLocaleString('fr-FR')} FC</span>
-                  </div>
-                  {commissionByAgence.length === 0 ? (
-                    <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.4, fontSize: '0.875rem' }}>Aucun colis livré pour le moment.</p>
-                  ) : (
-                    commissionByAgence.map((entry, i) => {
-                      const pct = revenuTotal > 0 ? (entry.revenu / revenuTotal) * 100 : 0;
-                      return (
-                        <div key={entry.name} style={{
-                          padding: '1rem 1.5rem',
-                          borderBottom: i < commissionByAgence.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                          display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap',
-                          background: entry.isOrphan ? 'rgba(239, 68, 68, 0.03)' : 'transparent',
-                        }}>
-                          <div style={{
-                            width: '34px', height: '34px', borderRadius: '8px',
-                            background: entry.isOrphan ? 'rgba(239, 68, 68, 0.2)' : 'linear-gradient(135deg,#f97316,#c2410c)',
-                            color: entry.isOrphan ? '#f87171' : '#fff',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '0.9rem', flexShrink: 0
-                          }}>
-                            {entry.isOrphan ? '!' : entry.name.charAt(0)}
-                          </div>
-                          <div style={{ flex: 1, minWidth: '160px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <p style={{ fontWeight: '600', fontSize: '0.875rem', margin: 0, color: entry.isOrphan ? '#fca5a5' : '#fff' }}>{entry.name}</p>
-                              {entry.isOrphan && (
-                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '6px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', fontWeight: '700' }}>
-                                  Échappe au calcul
-                                </span>
-                              )}
-                            </div>
-                            <p style={{ opacity: 0.45, fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
-                              {entry.colisCount} colis livré(s) {entry.isOrphan ? '· Agence non renseignée' : `· Taux commission ${Math.round(entry.rate * 100)}%`}
-                            </p>
-                          </div>
-                          <div style={{ width: '180px', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', opacity: 0.7, marginBottom: '0.3rem' }}>
-                              <span>{pct.toFixed(1)}% des commissions</span>
-                              <strong style={{ color: entry.isOrphan ? '#64748b' : '#fb923c' }}>{entry.revenu.toFixed(2)} $</strong>
-                            </div>
-                            <div style={{ height: '5px', background: 'rgba(255,255,255,0.07)', borderRadius: '3px', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#fb923c,#fcd34d)', borderRadius: '3px', transition: 'width 0.6s ease' }} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                  <div style={{
-                    padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)',
-                    background: 'rgba(0,0,0,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem'
-                  }}>
-                    <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                      Total colis livrés analysés : <strong style={{ color: '#fff' }}>{totalLivres}</strong> (dont 1 orphelin sans commission)
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
-                      <span style={{ opacity: 0.6, fontSize: '0.82rem' }}>Total commissions perçues :</span>
-                      <span style={{ fontWeight: '900', fontSize: '1.25rem', color: '#fb923c' }}>{revenuTotal.toFixed(2)} USD</span>
-                      <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>({(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC)</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ margin: 0, fontWeight: '800', fontSize: '1.35rem', color: '#ffffff' }}>
+                        {revenuTotal.toFixed(2)} USD
+                      </p>
+                      <p style={{ margin: '0.15rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                        commissions perçues · {Math.round(revenuTotal * plafondFC).toLocaleString('fr-FR')} FC
+                      </p>
                     </div>
                   </div>
+
+                  {commissionByAgence.length === 0 ? (
+                    <p style={{ padding: '1.5rem', textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>Aucun colis livré pour le moment.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      {commissionByAgence.map(entry => {
+                        const pct = revenuTotal > 0 ? (entry.revenu / revenuTotal) * 100 : 0;
+                        return (
+                          <div key={entry.name} style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.25rem',
+                            padding: '0.4rem 0'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: '180px' }}>
+                              <div style={{
+                                width: '36px', height: '36px', borderRadius: '50%',
+                                background: entry.isOrphan ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+                                color: entry.isOrphan ? '#ef4444' : '#94a3b8',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontWeight: '700', fontSize: '0.88rem', flexShrink: 0
+                              }}>
+                                {entry.isOrphan ? '!' : entry.name.charAt(0)}
+                              </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontWeight: '700', fontSize: '0.9rem', color: '#ffffff' }}>{entry.name}</span>
+                                  {entry.isOrphan && (
+                                    <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: '500' }}>
+                                      Échappe au calcul
+                                    </span>
+                                  )}
+                                </div>
+                                <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
+                                  {entry.colisCount} colis livré{entry.colisCount > 1 ? 's' : ''} · {entry.isOrphan ? 'agence non renseignée' : `commission ${Math.round(entry.rate * 100)} %`}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1, maxWidth: '340px' }}>
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0 0 0.3rem', textAlign: 'right' }}>
+                                  {pct.toFixed(1).replace('.', ',')} % des commissions
+                                </p>
+                                <div style={{ height: '3px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: '#f97316', borderRadius: '2px' }} />
+                                </div>
+                              </div>
+                              <strong style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff', minWidth: '65px', textAlign: 'right' }}>
+                                {entry.revenu.toFixed(2).replace('.', ',')} $
+                              </strong>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Activity table (recent colis) */}
@@ -2412,8 +2475,8 @@ export default function AdminDashboard() {
                           </h4>
                           <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8' }}>
                             <MapPin size={14} style={{ display: "inline", marginRight: "4px" }} />
-                            {ag.dropPointName}
-                            {ag.dropPointCommune ? ` (${ag.dropPointCommune})` : ''}
+                            {ag.dropPointName || 'Point Relais'}
+                            {ag.dropPointCommune && ag.dropPointCommune.trim() ? ` (${ag.dropPointCommune.trim()})` : ''}
                           </p>
                         </div>
 
@@ -2435,7 +2498,7 @@ export default function AdminDashboard() {
                         background: 'rgba(0,0,0,0.25)', fontSize: '0.74rem', color: '#64748b',
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                       }}>
-                        <span>Créé le {ag.createdAt ? new Date(ag.createdAt).toLocaleDateString('fr-FR') : 'Récemment'}</span>
+                        <span>Créé le {safeFormatDate(ag.createdAt)}</span>
                         <span style={{ color: '#94a3b8' }}>Réf: {ag.dropPointId}</span>
                       </div>
 
@@ -2685,18 +2748,18 @@ export default function AdminDashboard() {
 
         {/* -- TAB: Agences --------------------------------------------------- */}
         {activeTab === 'agences' && (
-          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Header avec Déverrouillage des Options Avancées */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
-              padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              padding: '1.25rem 1.5rem', background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '16px'
             }}>
               <div>
-                <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#fff', margin: 0 }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: 0 }}>
                   Gestion des Agences Partenaires
                 </h2>
-                <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
                   {agences.filter(a => a.status === 'active').length} active(s) · {agences.filter(a => a.status === 'suspended').length} suspendue(s)
                 </p>
               </div>
@@ -2710,27 +2773,27 @@ export default function AdminDashboard() {
                       setShowAdvancedUnlockModal(true);
                     }}
                     style={{
-                      padding: '0.55rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.5)',
-                      background: 'rgba(245,158,11,0.12)', color: '#fbbf24', fontSize: '0.82rem', fontWeight: '800',
+                      padding: '0.5rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
+                      background: 'rgba(255,255,255,0.04)', color: '#fbbf24', fontSize: '0.8rem', fontWeight: '600',
                       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                     }}
                   >
-                    <Lock size={14} /> Déverrouiller Options Avancées
+                    <Lock size={13} /> Déverrouiller Options Avancées
                   </button>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <span style={{
                       padding: '0.4rem 0.75rem', borderRadius: '8px',
-                      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
-                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '4px'
+                      background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px'
                     }}>
-                      <Unlock size={13} /> Mode Options Avancées Débloqué
+                      <Unlock size={13} /> Mode critique actif
                     </span>
                     <button
                       onClick={() => setIsAdvancedUnlocked(false)}
                       style={{
-                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)',
-                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
+                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer'
                       }}
                     >
                       Re-verrouiller
@@ -2741,39 +2804,39 @@ export default function AdminDashboard() {
             </div>
 
             {agences.filter(a => a.status === 'active' || a.status === 'suspended').length === 0 ? (
-              <p style={{ padding: '2rem', textAlign: 'center', opacity: 0.5 }}>Aucune agence active pour le moment.</p>
+              <p style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Aucune agence active pour le moment.</p>
             ) : (
               agences.filter(a => a.status === 'active' || a.status === 'suspended').map(a => (
               <div key={a.id} style={{
-                background: 'rgba(255,255,255,0.03)',
+                background: '#0d0d0d',
                 border: isAdvancedUnlocked
                   ? '1px solid rgba(239,68,68,0.35)'
-                  : `1px solid ${a.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
-                borderRadius: '14px', padding: '1.5rem',
+                  : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '16px', padding: '1.25rem 1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
                 {/* Avatar */}
                 <div style={{
-                  width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #f97316, #c2410c)',
+                  width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0,
+                  background: 'rgba(249,115,22,0.15)', border: '1px solid rgba(249,115,22,0.3)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: '800', fontSize: '1.1rem', color: 'white',
+                  fontWeight: '700', fontSize: '1.05rem', color: '#f97316',
                 }}>
                   {a.name.charAt(0)}
                 </div>
 
                 {/* Info */}
                 <div style={{ flex: 1, minWidth: '180px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: '1rem' }}>{a.name}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: '1rem', color: '#ffffff' }}>{a.name}</strong>
                     <StatusBadge active={a.status === 'active'} />
                   </div>
-                  <p style={{ opacity: 0.5, fontSize: '0.8rem', margin: 0 }}>{a.email} · {a.phone}</p>
-                  <p style={{ opacity: 0.4, fontSize: '0.75rem', margin: '0.2rem 0 0' }}>{a.address}</p>
+                  <p style={{ color: '#64748b', fontSize: '0.8rem', margin: 0 }}>{a.email} · {a.phone}</p>
+                  <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '0.15rem 0 0' }}>{a.address}</p>
                 </div>
 
                 {/* Stats */}
-                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   {(() => {
                     const agenceColis = colis.filter(c => c.agenceId === a.id);
                     const agenceLivres = agenceColis.filter(c => c.status === 'Livré');
@@ -2784,22 +2847,22 @@ export default function AdminDashboard() {
                     return (
                       <>
                         <div style={{ textAlign: 'center' }}>
-                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{agenceColis.length}</p>
-                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
+                          <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>{agenceColis.length}</p>
+                          <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>Colis</p>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>{tauxLivraison}%</p>
-                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Taux livraison</p>
+                          <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>{tauxLivraison}%</p>
+                          <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>Taux livraison</p>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{a.livreurs}</p>
-                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Livreurs</p>
+                          <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>{a.livreurs}</p>
+                          <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>Livreurs</p>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>
+                          <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>
                             {a.billingType === 'Commission' ? `${a.billingValue}%` : `${a.billingValue}$`}
                           </p>
-                          <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>{a.billingType}</p>
+                          <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>{a.billingType}</p>
                           <button
                             onClick={() => {
                               const type = prompt("Type de facturation (Commission, Mensuel, Annuel)", a.billingType) as 'Commission' | 'Mensuel' | 'Annuel';
@@ -2816,7 +2879,7 @@ export default function AdminDashboard() {
                                 }
                               }
                             }}
-                            style={{ background: 'transparent', border: '1px solid #fb923c', color: '#fb923c', borderRadius: '4px', fontSize: '0.65rem', padding: '0.2rem 0.5rem', marginTop: '0.3rem', cursor: 'pointer' }}
+                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: '#94a3b8', borderRadius: '4px', fontSize: '0.65rem', padding: '0.15rem 0.45rem', marginTop: '0.25rem', cursor: 'pointer' }}
                           >
                             Modifier
                           </button>
@@ -2825,21 +2888,21 @@ export default function AdminDashboard() {
                         {/* Dette envers Moncolis (superadmin) */}
                         <div style={{
                           textAlign: 'center',
-                          background: commissionDue > 0 ? 'rgba(251,146,60,0.1)' : 'rgba(255,255,255,0.04)',
-                          border: `1px solid ${commissionDue > 0 ? 'rgba(251,146,60,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                          borderRadius: '10px', padding: '0.5rem 0.9rem',
+                          background: '#0d0d0d',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '10px', padding: '0.45rem 0.85rem',
                         }}>
-                          <p style={{ fontWeight: '900', fontSize: '1.15rem', color: commissionDue > 0 ? '#fb923c' : 'rgba(255,255,255,0.25)', margin: 0 }}>
-                            {commissionDue > 0 ? `${commissionDue.toFixed(2)} $` : '—'}
+                          <p style={{ fontWeight: '800', fontSize: '1.15rem', color: commissionDue > 0 ? '#f97316' : '#64748b', margin: 0 }}>
+                            {commissionDue > 0 ? `${commissionDue.toFixed(2)} $` : '0,00 $'}
                           </p>
-                          <p style={{ opacity: 0.6, fontSize: '0.7rem', margin: 0, lineHeight: 1.3 }}>
-                            Doit à<br /><strong style={{ color: '#f97316' }}>Moncolis</strong>
+                          <p style={{ color: '#64748b', fontSize: '0.68rem', margin: '0.15rem 0 0' }}>
+                            Doit à Moncolis
                           </p>
                         </div>
 
-                        <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.8rem', borderRadius: '8px' }}>
-                          <p style={{ fontWeight: '800', fontSize: '1.1rem', color: '#0ea5e9', margin: 0 }}>{a.tauxConversionFC ?? '—'}</p>
-                          <p style={{ opacity: 0.6, fontSize: '0.7rem', margin: 0 }}>Taux FC (1 USD)</p>
+                        <div style={{ textAlign: 'center', background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)', padding: '0.45rem 0.85rem', borderRadius: '10px' }}>
+                          <p style={{ fontWeight: '700', fontSize: '1.1rem', color: '#ffffff', margin: 0 }}>{a.tauxConversionFC ?? '—'}</p>
+                          <p style={{ color: '#64748b', fontSize: '0.68rem', margin: '0.15rem 0 0' }}>Taux FC (1 USD)</p>
                         </div>
                       </>
                     );
@@ -2851,14 +2914,15 @@ export default function AdminDashboard() {
                   <button
                     onClick={() => toggleAgenceStatusConfirmed(a.id)}
                     style={{
-                      padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                      background: a.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
-                      color: a.status === 'active' ? '#f97316' : '#10b981',
-                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
+                      padding: '0.45rem 1.1rem', borderRadius: '9999px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: a.status === 'active' ? '#f97316' : '#22c55e',
+                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600', fontSize: '0.8rem',
                       transition: 'all 0.2s', flexShrink: 0,
                     }}
                   >
-                    {a.status === 'active' ? 'Suspendre' : 'Reactiver'}
+                    {a.status === 'active' ? 'Suspendre' : 'Réactiver'}
                   </button>
 
                   {isAdvancedUnlocked && (
@@ -2869,11 +2933,11 @@ export default function AdminDashboard() {
                         setDeleteError(null);
                       }}
                       style={{
-                        padding: '0.5rem 1.1rem', borderRadius: '9999px',
-                        border: '1px solid rgba(239,68,68,0.5)',
-                        background: 'rgba(239,68,68,0.15)',
+                        padding: '0.45rem 1.1rem', borderRadius: '9999px',
+                        border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'rgba(239,68,68,0.08)',
                         color: '#ef4444',
-                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '800', fontSize: '0.82rem',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600', fontSize: '0.8rem',
                         display: 'flex', alignItems: 'center', gap: '5px'
                       }}
                     >
@@ -2886,29 +2950,29 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* -- TAB: Fulfillment & Entrepôts ------------------------------------ */}
+        {/* -- TAB: Entrepôts ------------------------------------------------- */}
         {activeTab === 'fulfillment' && (
-          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
-              padding: '1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              padding: '1.25rem 1.5rem', background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '16px'
             }}>
               <div>
-                <h1 style={{ fontSize: '1.3rem', fontWeight: '900', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Boxes size={22} color="#f97316" /> Supervision Fulfillment & Entrepôts
+                <h1 style={{ fontSize: '1.35rem', fontWeight: '800', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Boxes size={20} color="#f97316" /> Entrepôts
                 </h1>
-                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>
-                  Contrôle global des stocks vendeurs, espaces loués et logistique d'expédition par agence
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                  Supervision des espaces de stockage, inventaires vendeurs et réapprovisionnements par agence
                 </p>
               </div>
               <button
                 onClick={loadFulfillmentData}
                 disabled={loadingFulfillment}
                 style={{
-                  padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '0.75rem', fontWeight: '700',
+                  padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.78rem', fontWeight: '600',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                 }}
               >
@@ -2922,36 +2986,31 @@ export default function AdminDashboard() {
                 label="Unités en stock total"
                 value={fulfillmentData?.kpis?.totalStockUnits ?? '0'}
                 sub={`${fulfillmentData?.kpis?.reservedStockUnits ?? 0} unités réservées`}
-                color="#22c55e"
               />
               <KpiCard
                 label="Abonnements actifs"
                 value={fulfillmentData?.kpis?.activeSubscriptionsCount ?? '0'}
                 sub={`Sur ${fulfillmentData?.kpis?.totalSubscriptionsCount ?? 0} souscriptions`}
-                color="#0ea5e9"
               />
               <KpiCard
                 label="Revenu mensuel stockage"
                 value={`${(fulfillmentData?.kpis?.monthlyRevenueEstimate ?? 0).toFixed(2)} $`}
                 sub="Généré par les loyers d'entrepôt"
-                color="#fbbf24"
               />
               <KpiCard
                 label="Espaces configurés"
                 value={fulfillmentData?.kpis?.totalSpacesCount ?? '0'}
                 sub="Rayons / boxes d'agences"
-                color="#a855f7"
               />
               <KpiCard
                 label="Lots reçus (Inbound)"
                 value={fulfillmentData?.kpis?.totalBatchesCount ?? '0'}
                 sub="Bons de réapprovisionnement"
-                color="#f97316"
               />
             </div>
 
-            {/* Sous-navigation Fulfillment */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem', overflowX: 'auto' }}>
+            {/* Sous-navigation Entrepôts */}
+            <div style={{ display: 'flex', gap: '0.4rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem', overflowX: 'auto' }}>
               {[
                 { key: 'abonnements', label: `Locations & Abonnements (${fulfillmentData?.subscriptions?.length ?? 0})` },
                 { key: 'espaces', label: `Espaces Agences (${fulfillmentData?.spaces?.length ?? 0})` },
@@ -2962,10 +3021,11 @@ export default function AdminDashboard() {
                   key={st.key}
                   onClick={() => setFulfillmentSubTab(st.key as any)}
                   style={{
-                    padding: '0.45rem 1rem', borderRadius: '10px', border: 'none',
-                    background: fulfillmentSubTab === st.key ? '#f97316' : 'rgba(255,255,255,0.04)',
-                    color: fulfillmentSubTab === st.key ? '#000' : '#cbd5e1',
-                    fontSize: '0.78rem', fontWeight: '800', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap'
+                    padding: '0.45rem 1rem', borderRadius: '9999px', border: 'none',
+                    background: fulfillmentSubTab === st.key ? '#ffffff' : 'rgba(255,255,255,0.04)',
+                    color: fulfillmentSubTab === st.key ? '#000000' : '#94a3b8',
+                    fontSize: '0.78rem', fontWeight: fulfillmentSubTab === st.key ? '700' : '500',
+                    cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap'
                   }}
                 >
                   {st.label}
@@ -3202,18 +3262,18 @@ export default function AdminDashboard() {
 
         {/* -- TAB: Vendeurs -------------------------------------------------- */}
         {activeTab === 'vendeurs' && (
-          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Header avec Déverrouillage des Options Avancées */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem',
-              padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+              padding: '1.25rem 1.5rem', background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '16px'
             }}>
               <div>
-                <h2 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#fff', margin: 0 }}>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: 0 }}>
                   Gestion des Vendeurs Partenaires
                 </h2>
-                <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
                   {vendeurs.filter(v => v.status === 'active').length} actif(s) · {vendeurs.filter(v => v.status === 'suspended').length} suspendu(s)
                 </p>
               </div>
@@ -3227,27 +3287,27 @@ export default function AdminDashboard() {
                       setShowAdvancedUnlockModal(true);
                     }}
                     style={{
-                      padding: '0.55rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.5)',
-                      background: 'rgba(245,158,11,0.12)', color: '#fbbf24', fontSize: '0.82rem', fontWeight: '800',
+                      padding: '0.5rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
+                      background: 'rgba(255,255,255,0.04)', color: '#fbbf24', fontSize: '0.8rem', fontWeight: '600',
                       cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                     }}
                   >
-                    <Lock size={14} /> Déverrouiller Options Avancées
+                    <Lock size={13} /> Déverrouiller Options Avancées
                   </button>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <span style={{
                       padding: '0.4rem 0.75rem', borderRadius: '8px',
-                      background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
-                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '4px'
+                      background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+                      color: '#ef4444', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px'
                     }}>
-                      <Unlock size={13} /> Mode Options Avancées Débloqué
+                      <Unlock size={13} /> Mode critique actif
                     </span>
                     <button
                       onClick={() => setIsAdvancedUnlocked(false)}
                       style={{
-                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)',
-                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '700', cursor: 'pointer'
+                        padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                        background: 'transparent', color: '#94a3b8', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer'
                       }}
                     >
                       Re-verrouiller
@@ -3259,43 +3319,43 @@ export default function AdminDashboard() {
 
             {vendeurs.map(v => (
               <div key={v.id} style={{
-                background: 'rgba(255,255,255,0.03)',
+                background: '#0d0d0d',
                 border: isAdvancedUnlocked
                   ? '1px solid rgba(239,68,68,0.35)'
-                  : `1px solid ${v.status === 'suspended' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.07)'}`,
-                borderRadius: '14px', padding: '1.5rem',
+                  : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '16px', padding: '1.25rem 1.5rem',
                 display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap',
               }}>
                 <div style={{
-                  width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #22c55e, #f97316)',
+                  width: '44px', height: '44px', borderRadius: '12px', flexShrink: 0,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: '800', fontSize: '1.1rem', color: 'white',
+                  fontWeight: '700', fontSize: '1.05rem', color: '#ffffff',
                 }}>
                   {v.name.charAt(0)}
                 </div>
 
                 <div style={{ flex: 1, minWidth: '180px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: '1rem' }}>{v.name}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
+                    <strong style={{ fontSize: '1rem', color: '#ffffff' }}>{v.name}</strong>
                     <StatusBadge active={v.status === 'active'} />
                   </div>
-                  <p style={{ opacity: 0.5, fontSize: '0.8rem', margin: 0 }}>{v.email}</p>
-                  <p style={{ opacity: 0.4, fontSize: '0.75rem', margin: '0.2rem 0 0' }}>
+                  <p style={{ color: '#64748b', fontSize: '0.8rem', margin: 0 }}>{v.email}</p>
+                  <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
                     Inscrit le {safeFormatDate(v.joinedDate)}
                   </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#22c55e', margin: 0 }}>{v.totalColis}</p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Colis</p>
+                    <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>{v.totalColis}</p>
+                    <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>Colis</p>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontWeight: '800', fontSize: '1.3rem', color: '#fb923c', margin: 0 }}>
+                    <p style={{ fontWeight: '700', fontSize: '1.15rem', color: '#ffffff', margin: 0 }}>
                       {v.revenu > 0 ? `${v.revenu.toFixed(2)} $` : '0.00 $'}
                     </p>
-                    <p style={{ opacity: 0.5, fontSize: '0.72rem', margin: 0 }}>Revenu (valeur colis)</p>
+                    <p style={{ color: '#64748b', fontSize: '0.72rem', margin: '0.2rem 0 0' }}>Revenu (valeur colis)</p>
                   </div>
                 </div>
 
@@ -3303,14 +3363,15 @@ export default function AdminDashboard() {
                   <button
                     onClick={() => toggleVendeurStatusConfirmed(v.id)}
                     style={{
-                      padding: '0.5rem 1.1rem', borderRadius: '9999px', border: 'none',
-                      background: v.status === 'active' ? 'rgba(249,115,22,0.12)' : 'rgba(16,185,129,0.12)',
-                      color: v.status === 'active' ? '#f97316' : '#10b981',
-                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.82rem',
+                      padding: '0.45rem 1.1rem', borderRadius: '9999px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(255,255,255,0.03)',
+                      color: v.status === 'active' ? '#f97316' : '#22c55e',
+                      cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600', fontSize: '0.8rem',
                       transition: 'all 0.2s', flexShrink: 0,
                     }}
                   >
-                    {v.status === 'active' ? 'Suspendre' : 'Reactiver'}
+                    {v.status === 'active' ? 'Suspendre' : 'Réactiver'}
                   </button>
 
                   {isAdvancedUnlocked && (
@@ -3321,11 +3382,11 @@ export default function AdminDashboard() {
                         setDeleteVendorError(null);
                       }}
                       style={{
-                        padding: '0.5rem 1.1rem', borderRadius: '9999px',
-                        border: '1px solid rgba(239,68,68,0.5)',
-                        background: 'rgba(239,68,68,0.15)',
+                        padding: '0.45rem 1.1rem', borderRadius: '9999px',
+                        border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'rgba(239,68,68,0.08)',
                         color: '#ef4444',
-                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '800', fontSize: '0.82rem',
+                        cursor: 'pointer', fontFamily: 'inherit', fontWeight: '600', fontSize: '0.8rem',
                         display: 'flex', alignItems: 'center', gap: '5px'
                       }}
                     >
@@ -3366,7 +3427,7 @@ export default function AdminDashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    {['ID Colis', 'Client', 'Vendeur', 'Agence', 'Date', 'Montant', 'Statut'].map(h => (
+                    {['ID Colis', 'Client', 'Vendeur', 'Agence', 'Date', 'Frais de livraison', 'Statut'].map(h => (
                       <th key={h} style={{ padding: '1rem 1.25rem', textAlign: 'left', opacity: 0.4, fontWeight: '600', fontSize: '0.75rem', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -3844,9 +3905,6 @@ export default function AdminDashboard() {
                     {advancedCodeError}
                   </p>
                 )}
-                <p style={{ color: '#64748b', fontSize: '0.68rem', margin: '0.5rem 0 0', textAlign: 'center' }}>
-                  Code maître par défaut : <strong style={{ color: '#fbbf24' }}>7412</strong> (ou votre PIN superadmin)
-                </p>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem' }}>

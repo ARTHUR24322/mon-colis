@@ -5,6 +5,7 @@
 
 import { supabase as supabaseClient } from '@/utils/supabase/client';
 import { supabaseAdmin } from '@/utils/supabase/admin';
+import { fulfillmentService } from '@/lib/fulfillment-service';
 
 // Utilise le client admin sur le serveur si disponible, sinon le client par défaut
 const db = typeof window === 'undefined' ? (supabaseAdmin || supabaseClient) : supabaseClient;
@@ -376,6 +377,15 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
       success: false,
       message: updateErr ? `Échec mise à jour en base : ${updateErr.message}` : "L'état du colis a été modifié en parallèle. Veuillez rafraîchir."
     };
+  }
+
+  // Libération de la réservation de stock si colis annulé
+  if (targetStatus === 'CANCELLED') {
+    try {
+      await fulfillmentService.handlePackageStockRelease(packageId, reason || 'Annulation du colis');
+    } catch (relErr) {
+      console.warn('[package-state-machine] Libération stock:', relErr);
+    }
   }
 
   // 8. Enregistrer dans package_audit_logs

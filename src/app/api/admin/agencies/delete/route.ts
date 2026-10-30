@@ -1,33 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdminSession } from '@/lib/adminSession';
-import { getSession } from '@/lib/session-server';
-
-// Codes autorisés pour le déverrouillage des options avancées
-const VALID_ADVANCED_CODES = ['7412', '9876', 'SUPERADMIN2026', 'ADMIN-DELETE-AGENCY'];
+import { requireAdminSession, getAdvancedAdminPin } from '@/lib/adminSession';
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Vérification de la session admin / superadmin
-    const adminSession = await requireAdminSession().catch(() => null);
-    const userSession = !adminSession ? await getSession().catch(() => null) : null;
-
-    const isSuperAdmin = (adminSession && ['SUPER_ADMIN', 'superadmin'].includes(adminSession.role)) ||
-                         (userSession && ['superadmin', 'admin'].includes(userSession.role));
+    // 1. Seul un superadmin authentifié peut supprimer définitivement
+    const admin = await requireAdminSession().catch(() => null);
+    if (!admin) {
+      return NextResponse.json({ error: 'Session administrateur requise.' }, { status: 401 });
+    }
+    if (admin.role !== 'superadmin') {
+      return NextResponse.json({ error: 'Action réservée au Super Admin général.' }, { status: 403 });
+    }
 
     const body = await request.json();
     const { agencyId, securityCode } = body as { agencyId: string; securityCode?: string };
 
     if (!agencyId) {
-      return NextResponse.json({ error: 'Identifiant agence manquant' }, { status: 400 });
+      return NextResponse.json({ error: 'Identifiant agence manquant.' }, { status: 400 });
     }
 
-    // 2. Vérification du code de sécurité des options avancées
-    const envCode = process.env.ADMIN_ADVANCED_CODE;
-    const isCodeValid = (securityCode && (VALID_ADVANCED_CODES.includes(securityCode.trim()) || securityCode.trim() === envCode)) || isSuperAdmin;
-
-    if (!isCodeValid) {
-      return NextResponse.json({ error: 'Code de sécurité des options avancées invalide.' }, { status: 403 });
+    // 2. Vérification du code ADVANCED_ADMIN_PIN — aucun code par défaut
+    const correctPin = getAdvancedAdminPin();
+    if (!correctPin) {
+      return NextResponse.json(
+        { error: 'ADVANCED_ADMIN_PIN non configuré sur le serveur. Contactez l\'administrateur système.' },
+        { status: 500 }
+      );
+    }
+    if (!securityCode || securityCode.trim() !== correctPin) {
+      return NextResponse.json({ error: 'Code de sécurité incorrect.' }, { status: 403 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

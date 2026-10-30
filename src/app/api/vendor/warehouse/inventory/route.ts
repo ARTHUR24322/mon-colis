@@ -1,10 +1,16 @@
 /**
  * API /api/vendor/warehouse/inventory
  * Gestion des articles et niveaux de stock en entrepôt pour le vendeur.
+ * Correction Bug 2.2 :
+ * - Nom de colonne Postgres exact : low_stock_threshold (snake_case)
+ * - Rattachement obligatoire à une souscription de stockage acceptée (ACTIVE)
+ * - Détection et propositions en cas de SKU existant
+ * - Générateur de SKU unique (PRÉFIXE-NOM-0001)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
+import { fulfillmentService } from '@/lib/fulfillment-service';
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,6 +21,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
+    const action = req.nextUrl.searchParams.get('action');
+
+    // 1. Action : Génération automatique de SKU unique
+    if (action === 'generate_sku') {
+      const prodName = req.nextUrl.searchParams.get('name') || 'PROD';
+      const sku = await fulfillmentService.generateUniqueSku(vendorId, prodName);
+      return NextResponse.json({ sku });
+    }
+
+    // 2. Action : Vérification d'existence d'un SKU
+    if (action === 'check_sku') {
+      const skuQuery = req.nextUrl.searchParams.get('sku') || '';
+      const existing = await fulfillmentService.checkSkuExists(vendorId, skuQuery);
+      return NextResponse.json({ exists: !!existing, item: existing });
+    }
+
+    // 3. Récupération normale de l'inventaire
     const agencyId = req.nextUrl.searchParams.get('agencyId');
 
     let query = supabase
@@ -31,11 +54,12 @@ export async function GET(req: NextRequest) {
     const { data: items, error } = await query;
 
     if (error) {
-      console.warn('Inventory fetch error (tables might be pending migration):', error.message);
+      console.error('[GET /api/vendor/warehouse/inventory] Erreur SQL:', error.message);
       return NextResponse.json({
         items: [],
+        error: error.message,
         stats: { totalItems: 0, totalStock: 0, lowStockCount: 0, totalValuationUSD: 0 }
-      });
+      }, { status: 500 });
     }
 
     const rawItems = items || [];
@@ -60,7 +84,7 @@ export async function GET(req: NextRequest) {
       const inStock = Number(item.quantity_in_stock || 0);
       const reserved = Number(item.quantity_reserved || 0);
       const available = Math.max(0, inStock - reserved);
-      const threshold = Number(item.low_stock_threshold || 5);
+      const threshold = Number(item.low_stock_threshold ?? 5);
       const isLow = inStock <= threshold;
 
       totalStock += inStock;
@@ -75,17 +99,20 @@ export async function GET(req: NextRequest) {
         agencyId: item.agency_id,
         agencyName: agencyNamesMap.get(item.agency_id) || 'Agence Partenaire',
         storageSpaceId: item.storage_space_id,
+        subscriptionId: item.subscription_id,
         productName: item.product_name,
         sku: item.sku || '',
         barcode: item.barcode || '',
         photoUrl: item.photo_url || '',
         category: item.category || 'Général',
+        variant: item.variant || '',
+        dimensions: item.dimensions || '',
         unitPrice: Number(item.unit_price || 0),
         unitCurrency: item.unit_currency || 'USD',
         quantityInStock: inStock,
         quantityReserved: reserved,
         quantityAvailable: available,
-        shelfLocation: item.shelf_location || 'Non assigné',
+        shelfLocation: item.shelf_location || 'Rayon A',
         lowStockThreshold: threshold,
         isLowStock: isLow,
         weightKg: Number(item.weight_kg || 0),
@@ -113,12 +140,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
-    const body = await req.json();
-
-    const vendorId = session?.role === 'vendeur' ? session.userId : body.vendorId;
-    if (!vendorId) {
-      return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
+    if (!session || (session.role !== 'vendeur' && session.role !== 'superadmin')) {
+      return NextResponse.json({ error: 'Accès réservé aux vendeurs.' }, { status: 403 });
     }
+
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Format JSON invalide.' }, { status: 400 });
+    }
+
+    const vendorId = session.role === 'vendeur' ? session.userId : (body.vendorId || session.userId);
 
     const {
       agencyId,
@@ -127,63 +160,47 @@ export async function POST(req: NextRequest) {
       barcode,
       photoUrl,
       category,
+      variant,
+      dimensions,
       unitPrice,
       unitCurrency,
       initialQuantity,
       shelfLocation,
       lowStockThreshold,
-      weightKg
+      weightKg,
+      storageSpaceId,
+      subscriptionId,
     } = body;
 
-    if (!agencyId || !productName) {
+    if (!agencyId || !productName?.trim()) {
       return NextResponse.json({ error: 'L’agence et le nom du produit sont obligatoires.' }, { status: 400 });
     }
 
-    const initialQty = Math.max(0, parseInt(initialQuantity, 10) || 0);
+    const result = await fulfillmentService.createInventoryItem({
+      vendorId,
+      agencyId,
+      productName: productName.trim(),
+      sku: sku?.trim() || undefined,
+      barcode: barcode?.trim() || undefined,
+      photoUrl: photoUrl?.trim() || undefined,
+      category: category?.trim() || 'Général',
+      variant: variant?.trim() || undefined,
+      dimensions: dimensions?.trim() || undefined,
+      unitPrice: parseFloat(unitPrice) || 0,
+      unitCurrency: unitCurrency === 'CDF' ? 'CDF' : 'USD',
+      initialQuantity: parseInt(initialQuantity, 10) || 0,
+      lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
+      weightKg: parseFloat(weightKg) || undefined,
+      shelfLocation: shelfLocation?.trim() || 'Rayon A',
+      storageSpaceId,
+      subscriptionId,
+    });
 
-    const { data: created, error } = await supabase
-      .from('warehouse_inventory')
-      .insert({
-        vendor_id: vendorId,
-        agency_id: agencyId,
-        product_name: productName.trim(),
-        sku: sku?.trim() || null,
-        barcode: barcode?.trim() || null,
-        photo_url: photoUrl?.trim() || null,
-        category: category?.trim() || 'Général',
-        unit_price: parseFloat(unitPrice) || 0,
-        unit_currency: unitCurrency === 'CDF' ? 'CDF' : 'USD',
-        quantity_in_stock: initialQty,
-        quantity_reserved: 0,
-        shelf_location: shelfLocation?.trim() || null,
-        lowStockThreshold: parseInt(lowStockThreshold, 10) || 5,
-        weight_kg: parseFloat(weightKg) || null,
-        is_active: true
-      })
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Inventory insert error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!result.success) {
+      return NextResponse.json(result, { status: result.skuExists ? 409 : 400 });
     }
 
-    // Si une quantité initiale a été enregistrée, consigner le mouvement de stock
-    if (initialQty > 0 && created) {
-      await supabase.from('warehouse_stock_movements').insert({
-        inventory_id: created.id,
-        agency_id: agencyId,
-        vendor_id: vendorId,
-        type: 'DEPOSIT',
-        quantity: initialQty,
-        previous_stock: 0,
-        new_stock: initialQty,
-        performed_by: session?.name || 'Vendeur',
-        notes: 'Initialisation de stock lors de la création du produit'
-      });
-    }
-
-    return NextResponse.json({ success: true, item: created });
+    return NextResponse.json(result);
   } catch (err: any) {
     console.error('[POST /api/vendor/warehouse/inventory]', err);
     return NextResponse.json({ error: 'Erreur interne du serveur.' }, { status: 500 });

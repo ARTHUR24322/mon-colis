@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { createAdminSessionCookie, clearAdminOtpMeta, getAdminOtpMeta } from '@/lib/adminSession';
+import { rateLimit } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
+    const rl = rateLimit(request, { max: 3, windowMs: 60_000, blockDurationMs: 15 * 60_000 });
+    if (!rl.success) {
+      return NextResponse.json(
+        { success: false, error: 'Trop de tentatives erronées. Réessayez dans 15 minutes.' },
+        { status: 429, headers: { 'Retry-After': '900' } }
+      );
+    }
+
     const { otp } = await request.json();
 
     if (!otp) {

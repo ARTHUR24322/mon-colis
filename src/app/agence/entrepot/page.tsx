@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AgencyShell from '@/components/agency/AgencyShell';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
@@ -11,6 +11,19 @@ import {
   RotateCcw, DollarSign, ShieldCheck
 } from 'lucide-react';
 import { normalizeAgencyRole, hasAgencyPermission } from '@/lib/agencyPermissions';
+
+// ─── Utilitaire dates (fuseau Africa/Kinshasa) ─────────────────────────────
+function safeFormatDate(val: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
+  if (!val) return '—';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('fr-FR', { timeZone: 'Africa/Kinshasa', day: '2-digit', month: 'short', year: 'numeric', ...opts });
+}
+
+// ─── Clé d'idempotence ─────────────────────────────────────────────────────
+function makeIdempotencyKey(prefix: string, id: string): string {
+  return `${prefix}-${id}-${Date.now()}`;
+}
 
 interface InboundBatch {
   id: string;
@@ -101,6 +114,8 @@ interface AgencySubscriptionRow {
   startDate: string;
   endDate: string;
   autoRenew: boolean;
+  rejectionReason?: string;
+  expiresAt?: string;
 }
 
 interface WarehouseReturnRow {
@@ -155,6 +170,10 @@ export default function AgencyWarehousePage() {
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [spaces, setSpaces] = useState<StorageSpaceRow[]>([]);
   const [agencySubscriptions, setAgencySubscriptions] = useState<AgencySubscriptionRow[]>([]);
+  // Abonnements PENDING en attente de décision de l'agence
+  const [pendingSubscriptions, setPendingSubscriptions] = useState<AgencySubscriptionRow[]>([]);
+  const [isReviewingSub, setIsReviewingSub] = useState<string | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [totalSubscriptionRevenueUSD, setTotalSubscriptionRevenueUSD] = useState<number>(0);
   const [returnedPackages, setReturnedPackages] = useState<WarehouseReturnRow[]>([]);
   const [selectedReturnForRestock, setSelectedReturnForRestock] = useState<WarehouseReturnRow | null>(null);
@@ -218,7 +237,9 @@ export default function AgencyWarehousePage() {
       const subRes = await fetch('/api/agency/warehouse/subscriptions');
       if (subRes.ok) {
         const subData = await subRes.json();
-        setAgencySubscriptions(subData.subscriptions || []);
+        const allSubs: AgencySubscriptionRow[] = subData.subscriptions || [];
+        setAgencySubscriptions(allSubs.filter(s => s.status === 'ACTIVE'));
+        setPendingSubscriptions(allSubs.filter(s => s.status === 'PENDING'));
         setTotalSubscriptionRevenueUSD(subData.totalRevenueUSD || 0);
       }
 
@@ -278,7 +299,7 @@ export default function AgencyWarehousePage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('✅ Article prélevé en rayon avec succès ! Stock décrémenté.');
+        showToast('✅ Article prélevé en rayon et prêt à l\'expédition !');
         await loadAgencyWarehouseData();
       } else {
         showToast(`❌ Erreur: ${data.error || 'Échec du prélèvement.'}`);
@@ -303,7 +324,8 @@ export default function AgencyWarehousePage() {
       const res = await fetch(`/api/agency/warehouse/picking/${orderId}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'handover', driverId })
+        // Clé d'idempotence : un second clic avec la même clé sera ignoré côté serveur
+        body: JSON.stringify({ action: 'handover', driverId, idempotencyKey: makeIdempotencyKey('handover', orderId) })
       });
       const data = await res.json();
       if (res.ok) {
@@ -1095,16 +1117,109 @@ export default function AgencyWarehousePage() {
                   <ShieldCheck size={20} color="#f97316" />
                 </div>
                 <div style={{ fontSize: '1.8rem', fontWeight: '900', color: 'inherit' }}>
-                  {agencySubscriptions.filter(s => s.status === 'ACTIVE').length}
+                  {agencySubscriptions.length}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Vendeurs partenaires stockant dans vos locaux</div>
               </div>
             </div>
 
+            {/* ── Demandes en attente d'acceptation ──────────────────────────────── */}
+            {pendingSubscriptions.length > 0 && (
+              <div style={{
+                background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)',
+                borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem'
+              }}>
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  ⏳ Demandes en attente ({pendingSubscriptions.length})
+                </h2>
+                <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                  Ces vendeurs attendent votre réponse. Acceptez ou refusez chaque demande — sans réponse sous 48h, elle expire automatiquement.
+                </div>
+                {pendingSubscriptions.map(sub => (
+                  <div key={sub.id} style={{
+                    background: 'var(--agency-card-bg, #fff)', border: '1px solid rgba(245,158,11,0.25)',
+                    borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <div style={{ fontWeight: '800', fontSize: '0.95rem' }}>{sub.vendorName || '—'}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{sub.vendorPhone || ''}</div>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#334155' }}>
+                        Espace : <strong>{sub.spaceName}</strong> · {sub.slotsCount} slot(s) · {sub.pricePaid} {sub.currency}
+                        {sub.expiresAt && (
+                          <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.2rem' }}>
+                            Expire le {safeFormatDate(sub.expiresAt)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Raison de refus (si l'agence veut en saisir une) */}
+                    {isReviewingSub === sub.id && (
+                      <input
+                        type="text"
+                        placeholder="Motif de refus (facultatif)"
+                        value={rejectionReasonInput}
+                        onChange={e => setRejectionReasonInput(e.target.value)}
+                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', outline: 'none' }}
+                      />
+                    )}
+
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/agency/warehouse/subscriptions', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ subscriptionId: sub.id, action: 'accept' })
+                            });
+                            const d = await res.json();
+                            if (res.ok) { showToast('✅ Demande acceptée ! Le vendeur peut maintenant déposer du stock.'); await loadAgencyWarehouseData(); }
+                            else showToast(`❌ ${d.error || 'Échec.'}`)
+                          } catch { showToast('❌ Erreur réseau.'); }
+                        }}
+                        style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
+                      >
+                        ✅ Accepter
+                      </button>
+                      {isReviewingSub === sub.id ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch('/api/agency/warehouse/subscriptions', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ subscriptionId: sub.id, action: 'reject', reason: rejectionReasonInput.trim() || undefined })
+                              });
+                              const d = await res.json();
+                              if (res.ok) { showToast('Demande refusée.'); setIsReviewingSub(null); setRejectionReasonInput(''); await loadAgencyWarehouseData(); }
+                              else showToast(`❌ ${d.error || 'Échec.'}`)
+                            } catch { showToast('❌ Erreur réseau.'); }
+                          }}
+                          style={{ flex: 1, padding: '0.6rem', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
+                        >
+                          Confirmer le refus
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setIsReviewingSub(sub.id); setRejectionReasonInput(''); }}
+                          style={{ flex: 1, padding: '0.6rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
+                        >
+                          ❌ Refuser
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Abonnements Actifs des Vendeurs */}
             <div>
               <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '0.75rem' }}>
-                📋 Locataires & Abonnements en Cours ({agencySubscriptions.length})
+                📋 Locataires & Abonnements Actifs ({agencySubscriptions.length})
               </h2>
 
               {agencySubscriptions.length === 0 ? (
@@ -1141,7 +1256,7 @@ export default function AgencyWarehousePage() {
                           <td style={{ padding: '0.8rem 1rem' }}>{sub.slotsCount} slot(s)</td>
                           <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#10b981' }}>${sub.pricePaid}</td>
                           <td style={{ padding: '0.8rem 1rem', fontSize: '0.78rem' }}>
-                            {new Date(sub.endDate).toLocaleDateString('fr-FR')}
+                            {safeFormatDate(sub.endDate)}
                           </td>
                           <td style={{ padding: '0.8rem 1rem' }}>
                             <span style={{

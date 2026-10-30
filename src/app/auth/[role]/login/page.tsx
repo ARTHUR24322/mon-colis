@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -156,7 +156,11 @@ export default function LoginPage() {
         return;
       }
       try { localStorage.setItem('moncolis_last_role', role); } catch {}
-      router.push(searchParams?.get('redirect') || cfg.redirect);
+      const rawRedirect = searchParams?.get('redirect') ?? '';
+      const safeRedirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') && !rawRedirect.startsWith('/\\')
+        ? rawRedirect
+        : cfg.redirect;
+      router.push(safeRedirect);
     } catch {
       setError('Impossible de joindre le serveur. Verifiez votre connexion.');
       setLoading(false);
