@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Search, Plus, X, Camera, QrCode, ArrowDown,
+  Search, Plus, X, Boxes, QrCode, ArrowDown,
   Building, Clock, ChevronRight, AlertCircle, Check, RotateCw
 } from 'lucide-react';
 import { useCurrency } from '@/components/CurrencyContext';
@@ -130,7 +130,6 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
   const activeSubscriptions = subscriptions.filter(s => s.status === 'ACTIVE');
 
   // Modales
-  const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [showInboundModal, setShowInboundModal] = useState(false);
   const [selectedBatchForQr, setSelectedBatchForQr] = useState<InboundBatch | null>(null);
   const [selectedSpaceForSub, setSelectedSpaceForSub] = useState<StorageSpace | null>(null);
@@ -138,30 +137,17 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
   const [subMonths, setSubMonths] = useState<number>(1);
   const [isSubmittingSub, setIsSubmittingSub] = useState<boolean>(false);
 
-  // Formulaire Produit
-  const [newProductName, setNewProductName] = useState('');
-  const [newProductSku, setNewProductSku] = useState('');
-  const [newProductSkuConflict, setNewProductSkuConflict] = useState<{ exists: boolean; existingId?: string } | null>(null);
-  const [isGeneratingSku, setIsGeneratingSku] = useState(false);
-  const [isScanningBarcode, setIsScanningBarcode] = useState(false);
-  const [newProductAgencyId, setNewProductAgencyId] = useState('');
-  const [newProductSubscriptionId, setNewProductSubscriptionId] = useState('');
-  const [newProductCategory, setNewProductCategory] = useState('Général');
-  const [newProductPrice, setNewProductPrice] = useState('10');
-  const [newProductQty, setNewProductQty] = useState('0');
-  const [newProductThreshold, setNewProductThreshold] = useState('5');
-  const [thresholdWarning, setThresholdWarning] = useState('');
-  const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
-  // Formulaire Bon de dépôt
+  // Formulaire Bon de dépôt (Nouveau dépôt)
+  const [inboundSubscriptionId, setInboundSubscriptionId] = useState('');
   const [inboundAgencyId, setInboundAgencyId] = useState('');
   const [inboundItems, setInboundItems] = useState<Array<{ productName: string; sku: string; expectedQuantity: number; unitPrice: number }>>([
     { productName: '', sku: '', expectedQuantity: 10, unitPrice: 0 }
   ]);
   const [inboundNotes, setInboundNotes] = useState('');
   const [isSubmittingInbound, setIsSubmittingInbound] = useState(false);
+
+  const selectedInboundSub = activeSubscriptions.find(s => s.id === inboundSubscriptionId) || activeSubscriptions[0] || null;
+  const maxAllowedMerchandises = selectedInboundSub ? (selectedInboundSub.slotsCount || 1) : 1;
 
   // Message toast discret
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
@@ -200,9 +186,8 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         const subs: VendorSubscription[] = subData.subscriptions || [];
         setSubscriptions(subs);
         const actives = subs.filter(s => s.status === 'ACTIVE');
-        if (actives.length === 1 && !newProductAgencyId) {
-          setNewProductAgencyId(actives[0].agencyId);
-          setNewProductSubscriptionId(actives[0].id);
+        if (actives.length > 0 && !inboundSubscriptionId) {
+          setInboundSubscriptionId(actives[0].id);
           setInboundAgencyId(actives[0].agencyId);
         }
       }
@@ -211,162 +196,33 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
     } finally {
       setLoading(false);
     }
-  }, [vendorId, newProductAgencyId]);
+  }, [vendorId, inboundSubscriptionId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Seuil d'alerte cohérence
-  useEffect(() => {
-    const qty = parseInt(newProductQty, 10) || 0;
-    const thr = parseInt(newProductThreshold, 10) || 0;
-    if (thr > qty && qty > 0) {
-      setThresholdWarning(`Le seuil (${thr}) dépasse le stock initial (${qty})`);
-    } else {
-      setThresholdWarning('');
-    }
-  }, [newProductQty, newProductThreshold]);
-
-  // SKU automatique
-  const handleGenerateSku = async () => {
-    if (!newProductName.trim()) {
-      showToast('Entrez d\'abord le nom du produit', 'err');
-      return;
-    }
-    setIsGeneratingSku(true);
-    try {
-      const res = await fetch(
-        `/api/vendor/warehouse/inventory?action=generate_sku&name=${encodeURIComponent(newProductName.trim())}${vendorId ? `&vendorId=${vendorId}` : ''}`
-      );
-      const data = await res.json();
-      if (res.ok && data.sku) {
-        setNewProductSku(data.sku);
-        setNewProductSkuConflict(null);
-      }
-    } catch {
-      showToast('Échec génération SKU', 'err');
-    } finally {
-      setIsGeneratingSku(false);
-    }
-  };
-
-  // Vérification de collision SKU
-  useEffect(() => {
-    if (!newProductSku.trim()) { setNewProductSkuConflict(null); return; }
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `/api/vendor/warehouse/inventory?action=check_sku&sku=${encodeURIComponent(newProductSku.trim())}${vendorId ? `&vendorId=${vendorId}` : ''}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setNewProductSkuConflict(data.exists ? { exists: true, existingId: data.existingItemId } : { exists: false });
-        }
-      } catch {}
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [newProductSku, vendorId]);
-
-  // Scanner caméra
-  const startBarcodeScanner = async () => {
-    setIsScanningBarcode(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-      if ('BarcodeDetector' in window) {
-        // @ts-ignore
-        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128', 'qr_code'] });
-        const interval = setInterval(async () => {
-          if (!videoRef.current) { clearInterval(interval); return; }
-          try {
-            const codes = await detector.detect(videoRef.current);
-            if (codes.length > 0) {
-              clearInterval(interval);
-              setNewProductSku(codes[0].rawValue);
-              stopBarcodeScanner();
-              showToast('Code scanné');
-            }
-          } catch {}
-        }, 300);
-      }
-    } catch {
-      setIsScanningBarcode(false);
-      showToast('Accès caméra non autorisé', 'err');
-    }
-  };
-
-  const stopBarcodeScanner = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-    setIsScanningBarcode(false);
-  };
-
-  useEffect(() => {
-    if (!showAddProductModal) stopBarcodeScanner();
-  }, [showAddProductModal]);
-
-  // Création produit
-  const handleCreateProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProductName.trim() || !newProductAgencyId) {
-      showToast('Renseignez le nom et l\'agence', 'err');
-      return;
-    }
-    if (newProductSkuConflict?.exists) {
-      showToast('Ce SKU est déjà utilisé', 'err');
-      return;
-    }
-    setIsSubmittingProduct(true);
-    try {
-      const res = await fetch('/api/vendor/warehouse/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vendorId,
-          agencyId: newProductAgencyId,
-          subscriptionId: newProductSubscriptionId || undefined,
-          storageSpaceId: activeSubscriptions.find(s => s.id === newProductSubscriptionId)?.storageSpaceId || undefined,
-          productName: newProductName.trim(),
-          sku: newProductSku.trim() || undefined,
-          category: newProductCategory,
-          unitPrice: parseFloat(newProductPrice) || 0,
-          unitCurrency: 'USD',
-          initialQuantity: parseInt(newProductQty, 10) || 0,
-          lowStockThreshold: parseInt(newProductThreshold, 10) || 5
-        })
-      });
-      if (res.ok) {
-        showToast('Article ajouté');
-        setShowAddProductModal(false);
-        setNewProductName('');
-        setNewProductSku('');
-        setNewProductSkuConflict(null);
-        setNewProductQty('0');
-        await loadData();
-      } else {
-        const d = await res.json();
-        showToast(d.error || 'Erreur d\'enregistrement', 'err');
-      }
-    } catch {
-      showToast('Erreur réseau', 'err');
-    } finally {
-      setIsSubmittingProduct(false);
-    }
-  };
-
-  // Création bon de dépôt
+  // Création bon de dépôt (Nouveau dépôt)
   const handleCreateInbound = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inboundAgencyId) {
-      showToast('Sélectionnez une agence', 'err');
+    if (!inboundAgencyId && selectedInboundSub) {
+      setInboundAgencyId(selectedInboundSub.agencyId);
+    }
+    const currentAgencyId = inboundAgencyId || selectedInboundSub?.agencyId;
+    if (!currentAgencyId) {
+      showToast('Sélectionnez une agence et un emplacement', 'err');
       return;
     }
     const valid = inboundItems.filter(it => it.productName.trim() && it.expectedQuantity > 0);
     if (valid.length === 0) {
-      showToast('Ajoutez au moins un article valide', 'err');
+      showToast('Ajoutez au moins une marchandise valide', 'err');
+      return;
+    }
+    const missingPrice = valid.some(it => !it.unitPrice || it.unitPrice <= 0);
+    if (missingPrice) {
+      showToast('Veuillez renseigner un prix unitaire supérieur à 0 pour chaque marchandise', 'err');
+      return;
+    }
+    if (valid.length > maxAllowedMerchandises) {
+      showToast(`Cette location autorise au maximum ${maxAllowedMerchandises} marchandise(s) (${maxAllowedMerchandises} place(s) louée(s))`, 'err');
       return;
     }
     setIsSubmittingInbound(true);
@@ -376,24 +232,26 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vendorId,
-          agencyId: inboundAgencyId,
+          agencyId: currentAgencyId,
+          subscriptionId: inboundSubscriptionId || selectedInboundSub?.id,
+          storageSpaceId: selectedInboundSub?.storageSpaceId,
           items: valid,
           notes: inboundNotes
         })
       });
       const d = await res.json();
       if (res.ok && d.batch) {
-        showToast('Bon de dépôt créé');
+        showToast('Bon de dépôt créé avec succès');
         setShowInboundModal(false);
         setSelectedBatchForQr(d.batch);
         setInboundItems([{ productName: '', sku: '', expectedQuantity: 10, unitPrice: 0 }]);
         setInboundNotes('');
         await loadData();
       } else {
-        showToast(d.error || 'Échec création bon', 'err');
+        showToast(d.error || 'Échec création bon de dépôt', 'err');
       }
     } catch {
-      showToast('Erreur réseau', 'err');
+      showToast('Erreur réseau. Veuillez réessayer.', 'err');
     } finally {
       setIsSubmittingInbound(false);
     }
@@ -621,10 +479,10 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 if (activeSubscriptions.length === 0) {
                   showToast('Louez d\'abord un emplacement en agence', 'err');
                 } else {
-                  setShowAddProductModal(true);
+                  setShowInboundModal(true);
                 }
               }}
-              title="Ajouter un article"
+              title="Nouveau dépôt"
               style={{
                 width: '44px',
                 height: '44px',
@@ -665,7 +523,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                   if (activeSubscriptions.length === 0) {
                     showToast('Louez d\'abord un emplacement en agence', 'err');
                   } else {
-                    setShowAddProductModal(true);
+                    setShowInboundModal(true);
                   }
                 }}
                 style={{
@@ -680,7 +538,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                   cursor: 'pointer'
                 }}
               >
-                Ajouter un article
+                Nouveau dépôt
               </button>
             </div>
           ) : (
@@ -983,198 +841,6 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         </div>
       )}
 
-      {/* ─── MODALE BOTTOM SHEET : NOUVEL ARTICLE ────────────────────────────── */}
-      {showAddProductModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          zIndex: 9999,
-          background: 'rgba(0,0,0,0.6)',
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'center'
-        }}>
-          <div style={{
-            background: surface,
-            borderTop: `1px solid ${borderSubtle}`,
-            borderRadius: '16px 16px 0 0',
-            width: '100%',
-            maxWidth: '440px',
-            maxHeight: '90dvh',
-            overflowY: 'auto',
-            padding: '20px 20px 32px',
-            boxSizing: 'border-box',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '1.05rem', fontWeight: 600 }}>Nouvel article</span>
-              <button
-                onClick={() => setShowAddProductModal(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: textSecondary,
-                  cursor: 'pointer',
-                  minHeight: '44px',
-                  minWidth: '44px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'flex-end'
-                }}
-              >
-                <X size={20} strokeWidth={1.8} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateProduct} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>
-                  Nom de l'article *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ex : Robe en pagne"
-                  value={newProductName}
-                  onChange={e => setNewProductName(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>
-                  Agence de stockage *
-                </label>
-                <select
-                  required
-                  value={newProductSubscriptionId}
-                  onChange={e => {
-                    const subId = e.target.value;
-                    setNewProductSubscriptionId(subId);
-                    const sub = activeSubscriptions.find(s => s.id === subId);
-                    if (sub) setNewProductAgencyId(sub.agencyId);
-                  }}
-                  style={inputStyle}
-                >
-                  <option value="">Choisir une agence & emplacement...</option>
-                  {activeSubscriptions.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.agencyName} — {s.spaceName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '0.78rem', color: textSecondary }}>SKU / Référence</label>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                      type="button"
-                      onClick={handleGenerateSku}
-                      disabled={isGeneratingSku}
-                      style={{ background: 'none', border: 'none', color: accent, fontSize: '0.75rem', cursor: 'pointer', fontWeight: 500 }}
-                    >
-                      {isGeneratingSku ? '...' : 'Générer'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => isScanningBarcode ? stopBarcodeScanner() : startBarcodeScanner()}
-                      style={{ background: 'none', border: 'none', color: textSecondary, fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <Camera size={13} strokeWidth={1.8} />
-                      <span>Scanner</span>
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  placeholder="MC-PROD-0001"
-                  value={newProductSku}
-                  onChange={e => setNewProductSku(e.target.value)}
-                  style={inputStyle}
-                />
-                {newProductSkuConflict?.exists && (
-                  <span style={{ fontSize: '0.75rem', color: isDark ? '#f87171' : '#dc2626', marginTop: '3px', display: 'block' }}>
-                    Ce SKU existe déjà
-                  </span>
-                )}
-                {isScanningBarcode && (
-                  <div style={{ marginTop: '8px', borderRadius: '12px', overflow: 'hidden' }}>
-                    <video ref={videoRef} style={{ width: '100%', maxHeight: '180px', objectFit: 'cover' }} playsInline muted />
-                    <button type="button" onClick={stopBarcodeScanner} style={{ width: '100%', padding: '8px', background: 'none', border: 'none', color: isDark ? '#f87171' : '#dc2626', fontSize: '0.8rem', cursor: 'pointer' }}>
-                      Arrêter la caméra
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>Prix ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={newProductPrice}
-                    onChange={e => setNewProductPrice(e.target.value.replace(/^0+(?=\d)/, ''))}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>Stock initial</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={newProductQty}
-                    onChange={e => setNewProductQty(e.target.value.replace(/^0+(?=\d)/, ''))}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>
-                  Seuil d'alerte
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={newProductThreshold}
-                  onChange={e => setNewProductThreshold(e.target.value.replace(/^0+(?=\d)/, ''))}
-                  style={inputStyle}
-                />
-                {thresholdWarning && (
-                  <span style={{ fontSize: '0.74rem', color: isDark ? '#fbbf24' : '#d97706', marginTop: '3px', display: 'block' }}>
-                    {thresholdWarning}
-                  </span>
-                )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmittingProduct}
-                style={{
-                  minHeight: '44px',
-                  marginTop: '10px',
-                  background: accent,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  cursor: isSubmittingProduct ? 'wait' : 'pointer'
-                }}
-              >
-                {isSubmittingProduct ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* ─── MODALE BOTTOM SHEET : NOUVEAU BON DE DÉPÔT ──────────────────────── */}
       {showInboundModal && (
         <div style={{
@@ -1223,70 +889,159 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
             <form onSubmit={handleCreateInbound} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
                 <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>
-                  Agence destinataire *
+                  Emplacement réservé *
                 </label>
                 <select
                   required
-                  value={inboundAgencyId}
-                  onChange={e => setInboundAgencyId(e.target.value)}
+                  value={inboundSubscriptionId}
+                  onChange={e => {
+                    const subId = e.target.value;
+                    setInboundSubscriptionId(subId);
+                    const sub = activeSubscriptions.find(s => s.id === subId);
+                    if (sub) {
+                      setInboundAgencyId(sub.agencyId);
+                      if (inboundItems.length > (sub.slotsCount || 1)) {
+                        setInboundItems(inboundItems.slice(0, sub.slotsCount || 1));
+                      }
+                    }
+                  }}
                   style={inputStyle}
                 >
-                  <option value="">Sélectionner une agence...</option>
+                  <option value="">Sélectionner une location d'espace...</option>
                   {activeSubscriptions.map(s => (
-                    <option key={s.id} value={s.agencyId}>{s.agencyName} — {s.spaceName}</option>
+                    <option key={s.id} value={s.id}>
+                      {s.agencyName} — {s.spaceName} ({s.slotsCount} place{s.slotsCount > 1 ? 's' : ''} = {s.slotsCount} marchandise{s.slotsCount > 1 ? 's' : ''} max)
+                    </option>
                   ))}
                 </select>
               </div>
 
+              {selectedInboundSub && (
+                <div style={{
+                  fontSize: '0.78rem',
+                  color: isDark ? '#4ade80' : '#16a34a',
+                  background: isDark ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.1)',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  padding: '8px 12px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <Boxes size={16} />
+                  <span>
+                    Capacité : <strong>{selectedInboundSub.slotsCount}</strong> marchandise(s) max ({selectedInboundSub.slotsCount === 1 ? '1 marchandise pour 1 emplacement loué' : '1 marchandise par emplacement loué'})
+                  </span>
+                </div>
+              )}
+
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label style={{ fontSize: '0.78rem', color: textSecondary }}>Articles à déposer</label>
-                  <button
-                    type="button"
-                    onClick={() => setInboundItems([...inboundItems, { productName: '', sku: '', expectedQuantity: 10, unitPrice: 0 }])}
-                    style={{ background: 'none', border: 'none', color: accent, fontSize: '0.75rem', cursor: 'pointer', fontWeight: 500 }}
-                  >
-                    + Ligne
-                  </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: textPrimary }}>
+                    Marchandise{inboundItems.length > 1 ? 's' : ''} à déposer ({inboundItems.length}/{maxAllowedMerchandises})
+                  </label>
+                  {inboundItems.length < maxAllowedMerchandises && (
+                    <button
+                      type="button"
+                      onClick={() => setInboundItems([...inboundItems, { productName: '', sku: '', expectedQuantity: 10, unitPrice: 0 }])}
+                      style={{ background: 'none', border: 'none', color: accent, fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <Plus size={14} />
+                      <span>+ Marchandise</span>
+                    </button>
+                  )}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {inboundItems.length >= maxAllowedMerchandises && (
+                  <div style={{ fontSize: '0.72rem', color: textMuted, marginBottom: '8px' }}>
+                    Limite atteinte ({maxAllowedMerchandises} marchandise{maxAllowedMerchandises > 1 ? 's' : ''} max pour cette location de {maxAllowedMerchandises} place{maxAllowedMerchandises > 1 ? 's' : ''}).
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {inboundItems.map((line, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        placeholder="Article"
-                        required
-                        value={line.productName}
-                        onChange={e => {
-                          const copy = [...inboundItems];
-                          copy[idx].productName = e.target.value;
-                          setInboundItems(copy);
-                        }}
-                        style={{ ...inputStyle, flex: 2 }}
-                      />
-                      <input
-                        type="number"
-                        placeholder="Qté"
-                        required
-                        min="1"
-                        value={line.expectedQuantity}
-                        onChange={e => {
-                          const copy = [...inboundItems];
-                          copy[idx].expectedQuantity = parseInt(e.target.value, 10) || 1;
-                          setInboundItems(copy);
-                        }}
-                        style={{ ...inputStyle, flex: 1 }}
-                      />
-                      {inboundItems.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setInboundItems(inboundItems.filter((_, i) => i !== idx))}
-                          style={{ background: 'none', border: 'none', color: textSecondary, cursor: 'pointer', padding: '0 4px' }}
-                        >
-                          <X size={16} strokeWidth={1.8} />
-                        </button>
-                      )}
+                    <div key={idx} style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)',
+                      border: `1px solid ${borderSubtle}`,
+                      borderRadius: '12px',
+                      padding: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: textSecondary }}>
+                          Marchandise #{idx + 1}
+                        </span>
+                        {inboundItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setInboundItems(inboundItems.filter((_, i) => i !== idx))}
+                            style={{ background: 'none', border: 'none', color: textMuted, cursor: 'pointer', padding: '2px' }}
+                            title="Supprimer cette marchandise"
+                          >
+                            <X size={15} strokeWidth={2} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.72rem', color: textSecondary, display: 'block', marginBottom: '3px' }}>
+                          Nom de la marchandise *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex : Chaussures basket, Robe pagne..."
+                          required
+                          value={line.productName}
+                          onChange={e => {
+                            const copy = [...inboundItems];
+                            copy[idx].productName = e.target.value;
+                            setInboundItems(copy);
+                          }}
+                          style={inputStyle}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div>
+                          <label style={{ fontSize: '0.72rem', color: textSecondary, display: 'block', marginBottom: '3px' }}>
+                            Prix de vente ($ USD) *
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="0.00"
+                            required
+                            min="0.01"
+                            step="0.01"
+                            value={line.unitPrice || ''}
+                            onChange={e => {
+                              const copy = [...inboundItems];
+                              copy[idx].unitPrice = parseFloat(e.target.value) || 0;
+                              setInboundItems(copy);
+                            }}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.72rem', color: textSecondary, display: 'block', marginBottom: '3px' }}>
+                            Quantité totale *
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="Qté"
+                            required
+                            min="1"
+                            value={line.expectedQuantity || ''}
+                            onChange={e => {
+                              const copy = [...inboundItems];
+                              copy[idx].expectedQuantity = parseInt(e.target.value, 10) || 1;
+                              setInboundItems(copy);
+                            }}
+                            style={inputStyle}
+                          />
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1294,14 +1049,14 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
 
               <div>
                 <label style={{ fontSize: '0.78rem', color: textSecondary, display: 'block', marginBottom: '4px' }}>
-                  Notes ou instructions
+                  Notes ou instructions (optionnel)
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Ex : 2 cartons scotchés"
+                  placeholder="Ex : Colis fragile, carton rouge..."
                   value={inboundNotes}
                   onChange={e => setInboundNotes(e.target.value)}
-                  style={{ ...inputStyle, minHeight: '60px', padding: '8px 10px', resize: 'none' }}
+                  style={{ ...inputStyle, resize: 'vertical' }}
                 />
               </div>
 
@@ -1309,18 +1064,19 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 type="submit"
                 disabled={isSubmittingInbound}
                 style={{
-                  minHeight: '44px',
-                  marginTop: '10px',
-                  background: accent,
-                  color: '#fff',
-                  border: 'none',
+                  minHeight: '48px',
                   borderRadius: '12px',
+                  background: accent,
+                  color: '#000',
+                  fontWeight: 700,
                   fontSize: '0.9rem',
-                  fontWeight: 600,
-                  cursor: isSubmittingInbound ? 'wait' : 'pointer'
+                  border: 'none',
+                  cursor: isSubmittingInbound ? 'not-allowed' : 'pointer',
+                  opacity: isSubmittingInbound ? 0.6 : 1,
+                  fontFamily: 'inherit'
                 }}
               >
-                {isSubmittingInbound ? 'Création...' : 'Générer le bon'}
+                {isSubmittingInbound ? 'Création du bon...' : 'Générer le bon de dépôt & QR'}
               </button>
             </form>
           </div>

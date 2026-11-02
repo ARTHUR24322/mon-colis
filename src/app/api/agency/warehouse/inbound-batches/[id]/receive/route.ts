@@ -104,6 +104,7 @@ export async function POST(
             .insert({
               vendor_id: batch.vendor_id,
               agency_id: batch.agency_id,
+              storage_space_id: batch.storage_space_id || null,
               product_name: declared.productName,
               sku: declared.sku || null,
               unit_price: parseFloat(declared.unitPrice) || 0,
