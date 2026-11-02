@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, Plus, X, Camera, QrCode, ArrowDown,
-  Building, Clock, ChevronRight, AlertCircle, Check
+  Building, Clock, ChevronRight, AlertCircle, Check, RotateCw
 } from 'lucide-react';
 import { useCurrency } from '@/components/CurrencyContext';
 
@@ -491,51 +491,87 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         </div>
       )}
 
-      {/* En-tête simple : Titre + ligne compacte de stats */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.01em' }}>
-          Stock et entrepôt
-        </h2>
-        {/* Remplacement des 4 grandes cartes par une ligne compacte */}
-        <p style={{ margin: 0, fontSize: '0.82rem', color: textSecondary }}>
-          {stats.totalStock} unités en stock · {stats.totalItems} réf.
-          {stats.lowStockCount > 0 && (
-            <span style={{ color: isDark ? '#f87171' : '#dc2626', marginLeft: '6px' }}>
-              · {stats.lowStockCount} alerte stock
-            </span>
-          )}
-        </p>
+      {/* En-tête conforme à l'image : Titre + Bouton Actualiser */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+          Entrepôt & Stock
+        </h1>
+        <button
+          type="button"
+          onClick={() => loadData()}
+          title="Actualiser"
+          style={{
+            width: '38px',
+            height: '38px',
+            borderRadius: '10px',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'rgba(255, 255, 255, 0.03)',
+            color: '#94a3b8',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer'
+          }}
+        >
+          <RotateCw size={17} />
+        </button>
       </div>
 
-      {/* Navigation secondaire : 3 onglets textuels sobres */}
+      {/* Carte des statistiques à 4 colonnes compacte */}
+      <div style={{
+        background: '#0d1117',
+        borderRadius: '14px',
+        padding: '1.1rem 0.5rem',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        textAlign: 'center',
+        border: '1px solid rgba(255, 255, 255, 0.04)'
+      }}>
+        <div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.totalStock}</div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Unités</div>
+        </div>
+        <div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.lowStockCount}</div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Stock faible</div>
+        </div>
+        <div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.totalItems}</div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Articles</div>
+        </div>
+        <div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{formatPrice(stats.totalValuationUSD || 0)}</div>
+          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Valeur</div>
+        </div>
+      </div>
+
+      {/* Navigation secondaire : 3 onglets textuels soulignés de vert */}
       <div style={{
         display: 'flex',
-        borderBottom: `1px solid ${borderSubtle}`,
-        gap: '20px'
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        gap: '1.5rem'
       }}>
         {[
-          { key: 'inventory', label: `Articles (${items.length})` },
-          { key: 'inbound', label: `Bons de dépôt (${batches.length})` },
-          { key: 'spaces', label: `Agences (${spaces.length})` }
+          { key: 'inventory', label: 'Stock' },
+          { key: 'inbound', label: 'Bons de dépôt' },
+          { key: 'spaces', label: 'Agences' }
         ].map(tab => {
           const isActive = subTab === tab.key;
           return (
             <button
               key={tab.key}
+              type="button"
               onClick={() => setSubTab(tab.key as any)}
               style={{
                 background: 'none',
                 border: 'none',
-                padding: '10px 0',
+                padding: '0.6rem 0',
                 cursor: 'pointer',
-                fontSize: '0.88rem',
-                fontWeight: isActive ? 600 : 400,
-                color: isActive ? accent : textSecondary,
-                borderBottom: isActive ? `2px solid ${accent}` : '2px solid transparent',
-                marginBottom: '-1px',
-                minHeight: '44px',
-                display: 'flex',
-                alignItems: 'center'
+                fontSize: '0.9rem',
+                fontWeight: isActive ? '700' : '500',
+                color: isActive ? '#ffffff' : '#64748b',
+                borderBottom: isActive ? '2px solid #22c55e' : '2px solid transparent',
+                marginBottom: '-1px'
               }}
             >
               {tab.label}
@@ -547,8 +583,8 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
       {/* ─── ONGLET 1 : ARTICLES ────────────────────────────────────────────── */}
       {subTab === 'inventory' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Action principale unique + barre de recherche */}
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {/* Barre de recherche + bouton carré + */}
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
             <div style={{
               flex: 1,
               position: 'relative',
@@ -558,24 +594,25 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
               <Search
                 size={16}
                 strokeWidth={1.8}
-                color={textMuted}
-                style={{ position: 'absolute', left: '12px' }}
+                color="#64748b"
+                style={{ position: 'absolute', left: '14px' }}
               />
               <input
                 type="text"
-                placeholder="Rechercher par nom ou SKU..."
+                placeholder="Rechercher un article"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 style={{
                   ...inputStyle,
-                  paddingLeft: '36px',
+                  paddingLeft: '38px',
                   fontSize: '0.85rem'
                 }}
               />
             </div>
 
-            {/* Unique bouton plein de l'écran */}
+            {/* Bouton carré '+' conforme à l'image */}
             <button
+              type="button"
               onClick={() => {
                 if (activeSubscriptions.length === 0) {
                   showToast('Louez d\'abord un emplacement en agence', 'err');
@@ -583,43 +620,64 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                   setShowAddProductModal(true);
                 }
               }}
+              title="Ajouter un article"
               style={{
-                minHeight: '44px',
-                padding: '0 16px',
-                background: accent,
-                color: '#fff',
-                border: 'none',
+                width: '44px',
+                height: '44px',
                 borderRadius: '12px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                background: 'rgba(255, 255, 255, 0.04)',
+                color: '#ffffff',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap'
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0
               }}
             >
-              <Plus size={16} strokeWidth={1.8} />
-              <span>Article</span>
+              <Plus size={20} strokeWidth={2} />
             </button>
           </div>
 
-          {/* Note discrète disponible/réservé */}
-          <div style={{ fontSize: '0.78rem', color: textMuted }}>
-            Stock disponible = Total physique − Réservé aux commandes
-          </div>
-
-          {/* Liste d'articles avec simples séparateurs fins 1px */}
+          {/* Liste d'articles ou état vide conforme à l'image */}
           {filteredItems.length === 0 ? (
             <div style={{
-              padding: '40px 16px',
+              padding: '3.5rem 1rem',
               textAlign: 'center',
-              color: textSecondary,
-              fontSize: '0.85rem'
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.6rem'
             }}>
-              {items.length === 0
-                ? 'Aucun article enregistré. Ajoutez votre premier produit.'
-                : 'Aucun produit ne correspond à la recherche.'}
+              <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#ffffff' }}>
+                Aucun article en stock
+              </div>
+              <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '300px', lineHeight: '1.4' }}>
+                Ajoutez vos produits pour suivre vos stocks et laisser l&apos;agence expédier à votre place.
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeSubscriptions.length === 0) {
+                    showToast('Louez d\'abord un emplacement en agence', 'err');
+                  } else {
+                    setShowAddProductModal(true);
+                  }
+                }}
+                style={{
+                  marginTop: '0.8rem',
+                  padding: '0.85rem 1.75rem',
+                  borderRadius: '12px',
+                  background: '#22c55e',
+                  color: '#000000',
+                  fontWeight: '700',
+                  fontSize: '0.9rem',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Ajouter un article
+              </button>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>

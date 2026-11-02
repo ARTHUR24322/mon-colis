@@ -2,9 +2,7 @@
 
 import React from 'react';
 import { ColisItem } from '@/lib/data-service';
-import MobileStatusBadge from './MobileStatusBadge';
-import { ChevronRight, MapPin, DollarSign, User, AlertTriangle } from 'lucide-react';
-import { MOBILE_THEME } from './MobileDesignTokens';
+import { ChevronRight, AlertTriangle } from 'lucide-react';
 
 interface MobilePackageCardProps {
   colis: ColisItem;
@@ -18,6 +16,16 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
     colis.status === 'En réclamation' ||
     colis.claimStatus === 'OPEN';
 
+  const isDelivered = colis.status.toLowerCase().includes('livré');
+  const isTransit = colis.status.toLowerCase().includes('transit');
+  const statusColor = isProblem
+    ? '#ef4444'
+    : isDelivered
+    ? '#22c55e'
+    : isTransit
+    ? '#38bdf8'
+    : '#fbbf24';
+
   return (
     <div
       onClick={onClick}
@@ -25,64 +33,55 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
       style={{
-        background: isProblem ? 'rgba(239, 68, 68, 0.05)' : MOBILE_THEME.bg.card,
-        border: isProblem ? '1px solid rgba(239, 68, 68, 0.35)' : `1px solid ${MOBILE_THEME.bg.border}`,
-        borderRadius: MOBILE_THEME.touch.cardRadius,
-        padding: '12px 14px',
+        background: isProblem ? 'rgba(239, 68, 68, 0.04)' : 'rgba(255, 255, 255, 0.02)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+        padding: '1rem 0.5rem',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: '0.4rem',
         cursor: 'pointer',
-        transition: 'transform 0.1s ease, border-color 0.15s ease',
-        minHeight: '64px',
+        transition: 'background 0.15s ease',
         WebkitTapHighlightColor: 'transparent',
       }}
     >
-      {/* Ligne 1 : Nom du client + Statut immédiat */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
+        {/* Colonne gauche : Client & Ville/Commune */}
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
-            width: '28px', height: '28px', borderRadius: '50%',
-            background: 'rgba(255, 255, 255, 0.06)', display: 'flex',
-            alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', flexShrink: 0
-          }}>
-            <User size={15} />
-          </div>
-          <span style={{
-            fontSize: '0.95rem', fontWeight: '800', color: '#ffffff',
+            fontSize: '1rem', fontWeight: '700', color: '#ffffff',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
           }}>
             {colis.clientName || 'Client'}
-          </span>
-        </div>
-
-        <MobileStatusBadge status={colis.status} size="sm" />
-      </div>
-
-      {/* Ligne 2 : Commune / Adresse + Montant + Chevron */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: '#94a3b8' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
-          <MapPin size={13} color="#64748b" style={{ flexShrink: 0 }} />
-          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          </div>
+          <div style={{
+            fontSize: '0.8rem', color: '#64748b', marginTop: '0.15rem',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+          }}>
             {colis.clientCommune || colis.clientAddress || 'Kinshasa'}
-          </span>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
-          <span style={{ fontSize: '0.9rem', fontWeight: '800', color: '#f8fafc' }}>
+        {/* Colonne droite : Montant & Statut en texte coloré discret */}
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff' }}>
             {formatPrice(colis.prixColis || 0)}
-          </span>
-          <ChevronRight size={16} color="#64748b" />
+          </div>
+          <div style={{
+            fontSize: '0.75rem', fontWeight: '600', color: statusColor, marginTop: '0.15rem'
+          }}>
+            {colis.status}
+          </div>
         </div>
       </div>
 
-      {/* Alerte discrète si réclamation ou refus */}
+      {/* Alerte discrète si incident */}
       {isProblem && (
         <div style={{
-          fontSize: '0.72rem', color: '#f87171', background: 'rgba(239, 68, 68, 0.1)',
-          padding: '0.25rem 0.5rem', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '0.3rem'
+          fontSize: '0.72rem', color: '#f87171', background: 'rgba(239, 68, 68, 0.08)',
+          padding: '0.3rem 0.6rem', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '0.35rem',
+          marginTop: '0.2rem'
         }}>
-          <AlertTriangle size={12} />
+          <AlertTriangle size={12} style={{ flexShrink: 0 }} />
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {colis.claimReason || colis.refusalComment || 'Action requise sur ce colis'}
           </span>

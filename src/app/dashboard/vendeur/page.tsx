@@ -37,7 +37,7 @@ export function getVendorBadge(livres: number) {
 export default function VendeurDashboard() {
   const { user, loading: authLoading, logout } = useAuth('vendeur');
   const { formatPrice, exchangeRate } = useCurrency();
-  const { theme, isDark } = useTheme();
+  const { theme, isDark, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('apercu');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [colis, setColis] = useState<Colis[]>([]);
@@ -555,160 +555,46 @@ export default function VendeurDashboard() {
 
       {/* ══════════════ 1. ACCUEIL (APERCU) ══════════════ */}
       {activeTab === 'apercu' && (
-        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Header Vendeur */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Espace Vendeur
+              <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '500' }}>
+                Espace vendeur
               </div>
-              <h1 style={{ margin: '0.1rem 0 0', fontSize: '1.25rem', fontWeight: '900', color: isDark ? '#fff' : '#0f172a' }}>
+              <h1 style={{ margin: '0.15rem 0 0', fontSize: '1.45rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.02em' }}>
                 Bonjour, {user?.name || 'Vendeur'}
               </h1>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <ThemeToggle />
               <CurrencyToggle />
-              {vendorBadge && (
-                <span style={{
-                  padding: '0.2rem 0.5rem', borderRadius: '8px',
-                  background: `${vendorBadge.color}20`, border: `1px solid ${vendorBadge.color}50`,
-                  color: vendorBadge.color, fontSize: '0.72rem', fontWeight: '800'
-                }}>
-                  {vendorBadge.icon}
-                </span>
-              )}
             </div>
           </div>
-
-          {/* BANDEAU ACTION REQUISE : Notification de versement en cours (la validation se fait en Finance) */}
-          {hasActivePaymentAction && (
-            <div 
-              onClick={() => setActiveTab('revenus')}
-              style={{
-                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(245, 158, 11, 0.08))',
-                border: '2px solid rgba(245, 158, 11, 0.6)',
-                borderRadius: '16px',
-                padding: '0.9rem 1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.75rem',
-                cursor: 'pointer',
-                boxShadow: '0 4px 15px rgba(245, 158, 11, 0.15)',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{
-                  width: '38px', height: '38px', borderRadius: '10px',
-                  background: 'rgba(245, 158, 11, 0.2)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0
-                }}>
-                  ⚡
-                </div>
-                <div>
-                  <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase' }}>
-                    Versement prêt à encaisser
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '2px' }}>
-                    {payoutRequests[0]?.agencyName
-                      ? `L'agence ${payoutRequests[0].agencyName} a préparé votre versement (${payoutRequests[0].amount.toLocaleString('fr-FR')} CDF).`
-                      : pendingPaymentOtps[0]
-                      ? `L'agence ${pendingPaymentOtps[0].agency?.profile?.name || 'partenaire'} a préparé votre versement (${pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF).`
-                      : "Un versement est en attente de confirmation."}
-                  </div>
-                </div>
-              </div>
-              <span style={{
-                padding: '0.4rem 0.85rem',
-                borderRadius: '8px',
-                background: '#fbbf24',
-                color: '#000',
-                fontWeight: '800',
-                fontSize: '0.75rem',
-                whiteSpace: 'nowrap',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}>
-                Encaisser en Finance →
-              </span>
-            </div>
-          )}
 
           {/* ACTION PRINCIPALE UNIQUE : Expédier un colis */}
           <button
             onClick={() => setShowModal(true)}
             style={{
               width: '100%',
-              minHeight: '52px',
-              borderRadius: MOBILE_THEME.touch.buttonRadius,
+              minHeight: '48px',
+              borderRadius: '12px',
               border: 'none',
-              background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-              color: '#000',
-              fontWeight: '900',
-              fontSize: '1.05rem',
+              background: '#22c55e',
+              color: '#000000',
+              fontWeight: '700',
+              fontSize: '0.95rem',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '0.5rem',
-              boxShadow: '0 6px 20px rgba(34, 197, 94, 0.35)',
               fontFamily: 'inherit',
-              WebkitTapHighlightColor: 'transparent',
+              transition: 'opacity 0.15s ease',
             }}
           >
-            <Plus size={22} strokeWidth={2.5} />
             <span>Expédier un colis</span>
           </button>
 
-          {/* BANDEAU ENTREPÔT & STOCK (FULFILLMENT) */}
-          <div
-            onClick={() => setActiveTab('stock')}
-            style={{
-              background: isDark
-                ? 'linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(249, 115, 22, 0.05))'
-                : 'linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(249, 115, 22, 0.03))',
-              border: '1px solid rgba(249, 115, 22, 0.35)',
-              borderRadius: '16px',
-              padding: '0.9rem 1rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              boxShadow: '0 4px 14px rgba(249, 115, 22, 0.12)'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <div style={{
-                width: '40px', height: '40px', borderRadius: '12px',
-                background: 'rgba(249, 115, 22, 0.2)', color: '#f97316',
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}>
-                <Boxes size={22} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span style={{ fontWeight: '800', fontSize: '0.92rem', color: isDark ? '#fff' : '#0f172a' }}>
-                    Entrepôt & Stock Agence
-                  </span>
-                  <span style={{
-                    fontSize: '0.62rem', fontWeight: '800', padding: '0.12rem 0.4rem',
-                    background: '#f97316', color: '#fff', borderRadius: '6px'
-                  }}>
-                    Fulfillment
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.74rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '0.1rem' }}>
-                  Gérer vos stocks et créer vos bons de dépôt QR
-                </div>
-              </div>
-            </div>
-            <ChevronRight size={18} color="#f97316" />
-          </div>
-
-          {/* 3 CHIFFRES CLÉS MAXIMUM */}
+          {/* 3 CHIFFRES CLÉS COMPACTS ET ÉPURÉS (Conforme à l'image 1) */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(3, 1fr)',
@@ -716,71 +602,69 @@ export default function VendeurDashboard() {
           }}>
             {/* KPI 1 : En cours */}
             <div style={{
-              background: 'rgba(59, 130, 246, 0.08)',
-              border: '1px solid rgba(59, 130, 246, 0.25)',
-              borderRadius: '14px',
-              padding: '0.75rem 0.5rem',
-              textAlign: 'center',
+              background: '#0d1117',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: '12px',
+              padding: '0.85rem 0.65rem',
             }}>
-              <span style={{ fontSize: '0.7rem', color: '#93c5fd', fontWeight: '700', display: 'block' }}>En cours</span>
-              <span style={{ fontSize: '1.35rem', fontWeight: '900', color: '#60a5fa' }}>{colisEnCours.length}</span>
-              <span style={{ fontSize: '0.62rem', color: '#64748b', display: 'block' }}>en acheminement</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '500', display: 'block' }}>En cours</span>
+              <span style={{ fontSize: '1.35rem', fontWeight: '800', color: '#38bdf8', marginTop: '0.2rem', display: 'block' }}>
+                {colisEnCours.length}
+              </span>
             </div>
 
             {/* KPI 2 : Livrés */}
             <div style={{
-              background: 'rgba(34, 197, 94, 0.08)',
-              border: '1px solid rgba(34, 197, 94, 0.25)',
-              borderRadius: '14px',
-              padding: '0.75rem 0.5rem',
-              textAlign: 'center',
+              background: '#0d1117',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: '12px',
+              padding: '0.85rem 0.65rem',
             }}>
-              <span style={{ fontSize: '0.7rem', color: '#86efac', fontWeight: '700', display: 'block' }}>Livrés</span>
-              <span style={{ fontSize: '1.35rem', fontWeight: '900', color: '#4ade80' }}>{colisLivres.length}</span>
-              <span style={{ fontSize: '0.62rem', color: '#64748b', display: 'block' }}>avec succès</span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '500', display: 'block' }}>Livrés</span>
+              <span style={{ fontSize: '1.35rem', fontWeight: '800', color: '#22c55e', marginTop: '0.2rem', display: 'block' }}>
+                {colisLivres.length}
+              </span>
             </div>
 
-            {/* KPI 3 : Reste à recevoir */}
+            {/* KPI 3 : À recevoir */}
             <div
               onClick={() => setActiveTab('revenus')}
               style={{
-                background: 'rgba(245, 158, 11, 0.08)',
-                border: '1px solid rgba(245, 158, 11, 0.25)',
-                borderRadius: '14px',
-                padding: '0.75rem 0.5rem',
-                textAlign: 'center',
+                background: '#0d1117',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                borderRadius: '12px',
+                padding: '0.85rem 0.65rem',
                 cursor: 'pointer',
               }}
             >
-              <span style={{ fontSize: '0.7rem', color: '#fcd34d', fontWeight: '700', display: 'block' }}>À recevoir</span>
-              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: '#fbbf24', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '500', display: 'block' }}>À recevoir</span>
+              <span style={{ fontSize: '1.15rem', fontWeight: '800', color: '#fbbf24', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                 {formatPrice(soldeNetRecevoir)}
               </span>
-              <span style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'block' }}>Voir détails →</span>
             </div>
           </div>
 
           {/* Alertes d'incidents (Refus relais / Réclamations en cours) */}
           {colisIncidents.length > 0 && (
             <div style={{
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
-              borderRadius: '14px',
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '12px',
               padding: '0.75rem 1rem',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '0.5rem',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fca5a5', fontSize: '0.82rem', fontWeight: '700' }}>
-                <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#fca5a5', fontSize: '0.82rem', fontWeight: '600' }}>
+                <AlertTriangle size={16} color="#ef4444" style={{ flexShrink: 0 }} />
                 <span>{colisIncidents.length} colis avec incident ou réclamation</span>
               </div>
               <button
                 onClick={() => { setStatusFilter('Incidents'); setActiveTab('historique'); }}
                 style={{
                   background: 'none', border: 'none', color: '#f87171',
-                  fontWeight: '800', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline'
+                  fontWeight: '700', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline'
                 }}
               >
                 Gérer
@@ -789,15 +673,15 @@ export default function VendeurDashboard() {
           )}
 
           {/* SECTION : Colis en cours */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <h2 style={{ fontSize: '0.95rem', fontWeight: '800', color: '#cbd5e1', margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Colis en cours ({colisEnCours.length})
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
+                Colis en cours
               </h2>
               {colisEnCours.length > 0 && (
                 <button
                   onClick={() => setActiveTab('historique')}
-                  style={{ background: 'none', border: 'none', color: '#60a5fa', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
+                  style={{ background: 'none', border: 'none', color: '#22c55e', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }}
                 >
                   Tout voir
                 </button>
@@ -823,7 +707,7 @@ export default function VendeurDashboard() {
                 </p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {colisEnCours.slice(0, 5).map(c => (
                   <MobilePackageCard
                     key={c.id}
@@ -840,52 +724,87 @@ export default function VendeurDashboard() {
 
       {/* ══════════════ 2. TOUS LES COLIS (HISTORIQUE) ══════════════ */}
       {activeTab === 'historique' && (
-        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
-            Mes Expéditions
-          </h1>
-
-          {/* Recherche */}
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              placeholder="Rechercher par client, téléphone..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+        <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Header avec bouton Expédier (Conforme à l'image 2) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+              Colis
+            </h1>
+            <button
+              onClick={() => setShowModal(true)}
               style={{
-                width: '100%', minHeight: '44px', borderRadius: '12px',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
-                padding: '0 1rem 0 2.5rem', color: '#fff', fontSize: '0.85rem'
+                padding: '0.45rem 1.15rem', borderRadius: '10px', border: 'none',
+                background: '#22c55e', color: '#000000', fontSize: '0.85rem', fontWeight: '700',
+                cursor: 'pointer', transition: 'opacity 0.15s ease'
               }}
-            />
-            <Search size={16} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            >
+              Expédier
+            </button>
           </div>
 
-          {/* Filtres rapides */}
-          <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '2px' }}>
-            {['Tous', 'En cours', 'Livrés', 'Incidents'].map(filterKey => (
+          {/* Onglets épurés : En cours vs Livrés (soulignés comme sur l'image 2) */}
+          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <button
+              onClick={() => setStatusFilter('En cours')}
+              style={{
+                background: 'none', border: 'none',
+                borderBottom: statusFilter === 'En cours' ? '2px solid #22c55e' : '2px solid transparent',
+                color: statusFilter === 'En cours' ? '#ffffff' : '#64748b',
+                fontWeight: statusFilter === 'En cours' ? '700' : '500',
+                fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px'
+              }}
+            >
+              <span>En cours</span>
+              <span style={{ fontSize: '0.82rem', color: statusFilter === 'En cours' ? '#ffffff' : '#64748b' }}>
+                {colisEnCours.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setStatusFilter('Livrés')}
+              style={{
+                background: 'none', border: 'none',
+                borderBottom: statusFilter === 'Livrés' ? '2px solid #22c55e' : '2px solid transparent',
+                color: statusFilter === 'Livrés' ? '#ffffff' : '#64748b',
+                fontWeight: statusFilter === 'Livrés' ? '700' : '500',
+                fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px'
+              }}
+            >
+              <span>Livrés</span>
+              <span style={{ fontSize: '0.82rem', color: statusFilter === 'Livrés' ? '#ffffff' : '#64748b' }}>
+                {colisLivres.length}
+              </span>
+            </button>
+
+            {colisIncidents.length > 0 && (
               <button
-                key={filterKey}
-                onClick={() => setStatusFilter(filterKey)}
+                onClick={() => setStatusFilter('Incidents')}
                 style={{
-                  minHeight: '36px', padding: '0 0.85rem', borderRadius: '20px', border: 'none',
-                  background: statusFilter === filterKey ? '#22c55e' : 'rgba(255,255,255,0.06)',
-                  color: statusFilter === filterKey ? '#000' : '#cbd5e1',
-                  fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer', whiteSpace: 'nowrap'
+                  background: 'none', border: 'none',
+                  borderBottom: statusFilter === 'Incidents' ? '2px solid #ef4444' : '2px solid transparent',
+                  color: statusFilter === 'Incidents' ? '#f87171' : '#64748b',
+                  fontWeight: statusFilter === 'Incidents' ? '700' : '500',
+                  fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '6px'
                 }}
               >
-                {filterKey}
+                <span>Incidents</span>
+                <span style={{ fontSize: '0.82rem', color: '#f87171' }}>
+                  {colisIncidents.length}
+                </span>
               </button>
-            ))}
+            )}
           </div>
 
-          {/* Liste des colis */}
+          {/* Liste des colis épurée */}
           {filteredColis.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b' }}>
-              Aucun colis trouvé.
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b', fontSize: '0.85rem' }}>
+              Aucun colis dans cette section.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
               {filteredColis.map(c => (
                 <MobilePackageCard
                   key={c.id}
@@ -901,86 +820,85 @@ export default function VendeurDashboard() {
 
       {/* ══════════════ 3. REVENUS & VIREMENTS (DÉDIÉ) ══════════════ */}
       {activeTab === 'revenus' && (
-        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
-              Finance & Virements
+        <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Header Finance avec bouton actualiser discret (Conforme à l'image 4) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+              Finance
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (agencesFinances.length === 1) {
-                    setVendorRequestModal({
-                      agencyId: agencesFinances[0].agencyId,
-                      agencyName: agencesFinances[0].agencyName,
-                      agencyPhone: agencesFinances[0].phone || '',
-                      amountUsd: agencesFinances[0].duAuVendeur,
-                    });
-                  } else if (agencesFinances.length > 1) {
-                    setRevenueSubTab('soldes');
-                    showToast('Sélectionnez l\'agence souhaitée pour demander votre versement');
-                  } else {
-                    showToast('Aucun solde disponible à verser pour l\'instant.');
-                  }
-                }}
-                style={{
-                  padding: '0.4rem 0.85rem', borderRadius: '8px', border: 'none',
-                  background: '#22c55e', color: '#000', fontSize: '0.75rem', fontWeight: '800',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'
-                }}
-              >
-                💸 Demander un versement
-              </button>
-              <button
-                onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
-                style={{
-                  padding: '0.4rem 0.65rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', fontSize: '0.72rem', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '4px'
-                }}
-              >
-                <RefreshCw size={12} /> Actualiser
-              </button>
-            </div>
+            <button
+              onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
+              style={{
+                width: '36px', height: '36px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >
+              <RefreshCw size={14} />
+            </button>
           </div>
 
-          {/* Sélecteur de sous-onglets : Virements vs Soldes */}
-          <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: '12px' }}>
+          {/* Action principale : Demander un versement (grand bouton vert comme sur l'image 4) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (agencesFinances.length === 1) {
+                setVendorRequestModal({
+                  agencyId: agencesFinances[0].agencyId,
+                  agencyName: agencesFinances[0].agencyName,
+                  agencyPhone: agencesFinances[0].phone || '',
+                  amountUsd: agencesFinances[0].duAuVendeur,
+                });
+              } else if (agencesFinances.length > 1) {
+                setRevenueSubTab('soldes');
+                showToast('Sélectionnez l\'agence souhaitée pour demander votre versement');
+              } else {
+                showToast('Aucun solde disponible à verser pour l\'instant.');
+              }
+            }}
+            style={{
+              width: '100%', minHeight: '48px', borderRadius: '12px', border: 'none',
+              background: '#22c55e', color: '#000000', fontSize: '0.95rem', fontWeight: '700',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}
+          >
+            Demander un versement
+          </button>
+
+          {/* Onglets soulignés : Mes versements vs Soldes par agence */}
+          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
             <button
               type="button"
               onClick={() => setRevenueSubTab('virements')}
               style={{
-                flex: 1, minHeight: '38px', borderRadius: '8px', border: 'none',
-                background: revenueSubTab === 'virements' ? '#22c55e' : 'transparent',
-                color: revenueSubTab === 'virements' ? '#000' : '#cbd5e1',
-                fontWeight: '800', fontSize: '0.78rem', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                background: 'none', border: 'none',
+                borderBottom: revenueSubTab === 'virements' ? '2px solid #22c55e' : '2px solid transparent',
+                color: revenueSubTab === 'virements' ? '#ffffff' : '#64748b',
+                fontWeight: revenueSubTab === 'virements' ? '700' : '500',
+                fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px'
               }}
             >
-              <span>💸 Mes Virements</span>
+              <span>Mes versements</span>
               {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length > 0 && (
-                <span style={{
-                  background: revenueSubTab === 'virements' ? '#000' : '#22c55e',
-                  color: revenueSubTab === 'virements' ? '#fff' : '#000',
-                  fontSize: '0.65rem', padding: '1px 6px', borderRadius: '10px', fontWeight: '900'
-                }}>
+                <span style={{ fontSize: '0.82rem', color: revenueSubTab === 'virements' ? '#ffffff' : '#64748b' }}>
                   {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length}
                 </span>
               )}
             </button>
+
             <button
               type="button"
               onClick={() => setRevenueSubTab('soldes')}
               style={{
-                flex: 1, minHeight: '38px', borderRadius: '8px', border: 'none',
-                background: revenueSubTab === 'soldes' ? '#22c55e' : 'transparent',
-                color: revenueSubTab === 'soldes' ? '#000' : '#cbd5e1',
-                fontWeight: '800', fontSize: '0.78rem', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                background: 'none', border: 'none',
+                borderBottom: revenueSubTab === 'soldes' ? '2px solid #22c55e' : '2px solid transparent',
+                color: revenueSubTab === 'soldes' ? '#ffffff' : '#64748b',
+                fontWeight: revenueSubTab === 'soldes' ? '700' : '500',
+                fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
               }}
             >
-              <span>📊 Soldes par agence</span>
+              <span>Soldes par agence</span>
             </button>
           </div>
 
@@ -1092,7 +1010,7 @@ export default function VendeurDashboard() {
                 </button>
               </div>
 
-              {/* Demande active la plus récente */}
+              {/* Demande active la plus récente (Conforme à l'image 4) */}
               {payoutRequests.length > 0 && (() => {
                 const latest = payoutRequests[0];
                 const isActive = ['en_attente', 'qr_genere'].includes(latest.status);
@@ -1103,309 +1021,127 @@ export default function VendeurDashboard() {
 
                 return (
                   <div style={{
-                    background: isQrReady
-                      ? 'linear-gradient(135deg, rgba(34,197,94,0.18), rgba(34,197,94,0.06))'
-                      : isExpired
-                      ? 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(239,68,68,0.06))'
-                      : 'rgba(255,255,255,0.04)',
-                    border: isQrReady
-                      ? '2px solid rgba(34,197,94,0.5)'
-                      : isExpired
-                      ? '2px solid rgba(239,68,68,0.4)'
-                      : '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '20px', padding: '1.25rem',
+                    background: '#0d1117',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: '16px', padding: '1.25rem',
+                    display: 'flex', flexDirection: 'column', gap: '0.75rem'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>
-                        Dernière demande de virement
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: '600', color: '#cbd5e1' }}>
+                        Agence {latest.agencyName}
                       </span>
-                      {/* Statuts explicites obligatoires */}
                       <span style={{
-                        padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: '800',
-                        background: isQrReady ? 'rgba(34,197,94,0.2)' : isExpired ? 'rgba(239,68,68,0.2)' : isConfirmed ? 'rgba(59,130,246,0.2)' : 'rgba(245,158,11,0.2)',
-                        color: isQrReady ? '#4ade80' : isExpired ? '#f87171' : isConfirmed ? '#60a5fa' : '#fcd34d',
-                        border: `1px solid ${isQrReady ? '#22c55e' : isExpired ? '#ef4444' : isConfirmed ? '#3b82f6' : '#f59e0b'}`,
+                        fontSize: '0.8rem', fontWeight: '700',
+                        color: isConfirmed ? '#22c55e' : isExpired ? '#ef4444' : '#fbbf24'
                       }}>
-                        {isQrReady && '📱 QR Code généré'}
-                        {latest.status === 'en_attente' && '⏳ En attente de l\'agence'}
-                        {isExpired && '⚠️ Expiré'}
-                        {isConfirmed && '✅ Confirmé'}
-                        {isCancelled && '❌ Annulé'}
+                        {latest.status === 'en_attente' && 'En attente de l\'agence'}
+                        {isQrReady && 'QR Code prêt'}
+                        {isConfirmed && 'Confirmé'}
+                        {isExpired && 'Expiré'}
+                        {isCancelled && 'Annulé'}
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
-                      <div>
-                        <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
-                          Agence : <strong style={{ color: '#fff' }}>{latest.agencyName}</strong>
-                        </div>
-                        <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', marginTop: '2px' }}>
-                          {latest.amount.toLocaleString('fr-FR')} CDF
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                          Demandé le {new Date(latest.createdAt).toLocaleString('fr-FR')}
-                        </div>
+                    <div>
+                      <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                        {latest.amount.toLocaleString('fr-FR')} CDF
                       </div>
-
-                      {/* Compte à rebours dynamique de validité */}
-                      {isQrReady && (
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '0.68rem', color: '#86efac', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
-                            Validité
-                          </span>
-                          <span style={{ fontSize: '1.1rem', fontWeight: '900', color: '#4ade80', fontFamily: 'monospace' }}>
-                            ⏱️ {timeRemaining[latest.id] || '15:00'}
-                          </span>
-                        </div>
-                      )}
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem' }}>
+                        Demandé le {new Date(latest.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </div>
                     </div>
 
-                    {/* Affichage du QR code et du code de secours dès que l'agence le génère */}
-                    {isQrReady && (
-                      <div style={{
-                        background: 'rgba(0,0,0,0.4)', borderRadius: '16px', padding: '1rem',
-                        textAlign: 'center', marginBottom: '1rem', border: '1px solid rgba(34,197,94,0.3)'
-                      }}>
-                        <p style={{ margin: '0 0 0.6rem', fontSize: '0.75rem', color: '#86efac', fontWeight: '700' }}>
-                          Présentez ce QR Code à l'agence pour percevoir votre virement :
-                        </p>
-                        {latest.qrImageUrl && (
-                          <div style={{ display: 'inline-block', background: '#fff', padding: '10px', borderRadius: '12px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}
-                            onClick={() => setZoomedQr({ url: latest.qrImageUrl!, code: latest.code || '', amount: latest.amount, agency: latest.agencyName })}>
-                            <img src={latest.qrImageUrl} alt="QR Virement" style={{ width: '180px', height: '180px', display: 'block' }} />
-                            <span style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px', display: 'block' }}>🔍 Toucher pour agrandir</span>
-                          </div>
-                        )}
-
-                        {/* Code de secours à 6 chiffres */}
-                        {latest.code && (
-                          <div style={{ marginTop: '0.85rem' }}>
-                            <span style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '2px' }}>
-                              Code de secours à 6 chiffres
-                            </span>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '2rem', fontWeight: '900', letterSpacing: '8px', color: '#fbbf24', fontFamily: 'monospace' }}>
-                                {latest.code}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (latest.code) {
-                                    navigator.clipboard.writeText(latest.code);
-                                    showToast('Code copié !');
-                                  }
-                                }}
-                                style={{
-                                  padding: '4px 8px', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.4)',
-                                  background: 'rgba(251,191,36,0.1)', color: '#fbbf24', cursor: 'pointer', fontSize: '0.7rem', fontWeight: '700'
-                                }}
-                              >
-                                Copier
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Si expirée : afficher « Expiré » avec « Refaire la demande » et « Supprimer » */}
-                    {isExpired && (
-                      <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
-                        <p style={{ margin: '0 0 0.6rem', fontSize: '0.78rem', color: '#f87171' }}>
-                          Le délai de validité de ce versement a expiré avant confirmation. Les fonds sont restés sur votre solde.
-                        </p>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const rate = agencyRatesMap[latest.agencyId] || exchangeRate || 2400;
-                              const parsedUsd = latest.amount >= 500 ? Math.round((latest.amount / rate) * 100) / 100 : latest.amount;
-                              setVendorRequestModal({
-                                agencyId: latest.agencyId,
-                                agencyName: latest.agencyName,
-                                agencyPhone: latest.agencyPhone,
-                                amountUsd: parsedUsd,
-                                previousRequestId: latest.id,
-                              });
-                            }}
-                            style={{
-                              flex: 1, minHeight: '44px', borderRadius: '10px', border: 'none',
-                              background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
-                              fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
-                            }}
-                          >
-                            <RefreshCw size={15} /> Refaire la demande
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteExpiredRequest(latest.id)}
-                            title="Supprimer cette demande expirée pour la faire disparaître"
-                            style={{
-                              minHeight: '44px', padding: '0 12px', borderRadius: '10px',
-                              border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.1)',
-                              color: '#f87171', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px'
-                            }}
-                          >
-                            <Trash2 size={15} /> Supprimer
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Si en attente de l'agence : avertissement mais champ de saisie disponible */}
-                    {latest.status === 'en_attente' && (
-                      <div style={{ textAlign: 'center', padding: '0.4rem 0', color: '#fcd34d', fontSize: '0.78rem' }}>
-                        ⏳ L&apos;agence prépare votre virement. Si elle vous a déjà communiqué le code OTP, saisissez-le directement ci-dessous :
-                      </div>
-                    )}
-
-                    {/* Saisie de validation OTP toujours accessible si non confirmé */}
+                    {/* Saisie du code à 6 chiffres */}
                     {!isConfirmed && (
-                      <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        {otpConfirmSuccess ? (
-                          <div style={{ padding: '0.6rem', borderRadius: '8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', fontSize: '0.8rem', fontWeight: '700', textAlign: 'center' }}>
-                            {otpConfirmSuccess}
-                          </div>
-                        ) : (
-                          <>
-                            {latest.code && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (latest.code) setOtpConfirmInput(latest.code);
-                                }}
-                                style={{
-                                  background: 'transparent', border: 'none', color: '#60a5fa',
-                                  fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'underline', alignSelf: 'flex-start'
-                                }}
-                              >
-                                Pré-remplir avec le code de secours ({latest.code})
-                              </button>
-                            )}
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={6}
-                                placeholder="Code reçu (6 chiffres)"
-                                value={otpConfirmInput}
-                                onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
-                                style={{
-                                  flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)',
-                                  border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
-                                  textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
-                                }}
-                              />
-                              <button
-                                type="submit"
-                                disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
-                                style={{
-                                  padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
-                                  background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                                  color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
-                                  fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
-                                }}
-                              >
-                                {otpConfirmLoading ? '...' : 'Valider'}
-                              </button>
-                            </div>
-                            {otpConfirmError && (
-                              <div style={{ color: '#f87171', fontSize: '0.72rem' }}>{otpConfirmError}</div>
-                            )}
-                          </>
+                      <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#94a3b8' }}>
+                          Code reçu de l&apos;agence ? Saisissez-le ici.
+                        </p>
+                        <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', gap: '0.6rem' }}>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={6}
+                            placeholder="Code à 6 chiffres"
+                            value={otpConfirmInput}
+                            onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
+                            style={{
+                              flex: 1, height: '44px', borderRadius: '10px', background: '#000000',
+                              border: '1px solid rgba(255, 255, 255, 0.15)', color: '#ffffff', fontSize: '0.95rem',
+                              padding: '0 0.85rem', outline: 'none'
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
+                            style={{
+                              padding: '0 1.25rem', height: '44px', borderRadius: '10px', border: 'none',
+                              background: '#ffffff', color: '#000000', fontWeight: '700',
+                              fontSize: '0.85rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed',
+                              opacity: otpConfirmInput.length === 6 ? 1 : 0.5
+                            }}
+                          >
+                            {otpConfirmLoading ? '...' : 'Valider'}
+                          </button>
+                        </form>
+                        {otpConfirmError && (
+                          <div style={{ color: '#f87171', fontSize: '0.75rem' }}>{otpConfirmError}</div>
                         )}
-                      </form>
+                        {otpConfirmSuccess && (
+                          <div style={{ color: '#22c55e', fontSize: '0.75rem', fontWeight: '600' }}>{otpConfirmSuccess}</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
               })()}
 
-              {/* Historique persistant des demandes de virement : une demande ne disparaît JAMAIS */}
-              <div>
-                <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#cbd5e1', margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
-                  Historique de vos demandes ({payoutRequests.length})
-                </h2>
+              {/* Historique des demandes (Conforme à l'image 4) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
+                    Historique ({payoutRequests.length})
+                  </h2>
+                  {payoutRequests.length > 0 && (
+                    <span style={{ color: '#22c55e', fontSize: '0.82rem', fontWeight: '600', cursor: 'pointer' }}>
+                      Tout voir
+                    </span>
+                  )}
+                </div>
 
                 {payoutRequests.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', color: '#64748b', fontSize: '0.8rem' }}>
-                    Aucune demande de virement émise pour l'instant. Rendez-vous dans l'onglet "Soldes par agence" pour en demander une.
+                  <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#64748b', fontSize: '0.85rem' }}>
+                    Aucun versement dans l&apos;historique.
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
                     {payoutRequests.map(req => {
                       const isExpired = req.status === 'expire';
-                      const isQr = req.status === 'qr_genere';
-                      const isPending = req.status === 'en_attente';
-                      const isPaid = req.status === 'confirme';
+                      const isConfirmed = req.status === 'confirme';
+                      const statusColor = isConfirmed ? '#22c55e' : isExpired ? '#ef4444' : '#fbbf24';
 
                       return (
                         <div
                           key={req.id}
                           style={{
-                            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                            borderRadius: '12px', padding: '0.75rem', display: 'flex', justifyContent: 'space-between',
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                            padding: '0.85rem 0.25rem',
+                            display: 'flex',
+                            justifyContent: 'space-between',
                             alignItems: 'center'
                           }}
                         >
                           <div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#fff' }}>
+                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>
                               {req.agencyName}
                             </div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>
                               {new Date(req.createdAt).toLocaleDateString('fr-FR')} · {req.amount.toLocaleString('fr-FR')} CDF
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{
-                              fontSize: '0.7rem', fontWeight: '800', padding: '2px 8px', borderRadius: '8px',
-                              background: isPaid ? 'rgba(59,130,246,0.15)' : isQr ? 'rgba(34,197,94,0.15)' : isExpired ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                              color: isPaid ? '#60a5fa' : isQr ? '#4ade80' : isExpired ? '#f87171' : '#fcd34d',
-                            }}>
-                              {isPaid && 'Confirmé'}
-                              {isQr && 'QR Prêt'}
-                              {isPending && 'En attente'}
-                              {isExpired && 'Expiré'}
-                              {req.status === 'annule' && 'Annulé'}
-                            </span>
-
-                            {isExpired && (
-                              <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const rate = agencyRatesMap[req.agencyId] || exchangeRate || 2400;
-                                    const parsedUsd = req.amount >= 500 ? Math.round((req.amount / rate) * 100) / 100 : req.amount;
-                                    setVendorRequestModal({
-                                      agencyId: req.agencyId,
-                                      agencyName: req.agencyName,
-                                      agencyPhone: req.agencyPhone,
-                                      amountUsd: parsedUsd,
-                                      previousRequestId: req.id,
-                                    });
-                                  }}
-                                  style={{
-                                    padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(245,158,11,0.4)',
-                                    background: 'rgba(245,158,11,0.1)', color: '#fcd34d', fontSize: '0.68rem', fontWeight: '700', cursor: 'pointer'
-                                  }}
-                                >
-                                  Refaire
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteExpiredRequest(req.id)}
-                                  title="Supprimer cette demande expirée pour la faire disparaître"
-                                  style={{
-                                    padding: '3px 6px', borderRadius: '6px', border: '1px solid rgba(239,68,68,0.3)',
-                                    background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.68rem', cursor: 'pointer'
-                                  }}
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
-                            )}
+                          <div style={{ fontSize: '0.82rem', fontWeight: '600', color: statusColor }}>
+                            {isConfirmed ? 'Confirmé' : isExpired ? 'Expiré' : 'En attente'}
                           </div>
                         </div>
                       );
@@ -1603,106 +1339,109 @@ export default function VendeurDashboard() {
         </div>
       )}
 
-      {/* ══════════════ 5. PROFIL ══════════════ */}
+      {/* ══════════════ 5. PROFIL (Conforme à l'image 5) ══════════════ */}
       {activeTab === 'profil' && (
-        <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: isDark ? '#fff' : '#0f172a' }}>
-            Mon Profil Vendeur
+        <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+            Profil
           </h1>
 
+          {/* Carte Utilisateur */}
           <div style={{
-            background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
-            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
-            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.8rem',
-            boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.04)'
+            display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem 0'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <div style={{
-                width: '48px', height: '48px', borderRadius: '50%',
-                background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '1.2rem'
-              }}>
-                {(user?.name || 'V')[0].toUpperCase()}
+            <div style={{
+              width: '54px', height: '54px', borderRadius: '50%',
+              background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '1.4rem',
+              flexShrink: 0
+            }}>
+              {(user?.name || 'V')[0].toUpperCase()}
+            </div>
+            <div>
+              <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>
+                {user?.name || 'Vendeur'}
               </div>
-              <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: isDark ? '#fff' : '#0f172a' }}>{user?.name}</div>
-                <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>{user?.email || user?.phone}</div>
+              <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                {user?.email || user?.phone}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem' }}>
+                Vendeur actif · {colisLivres.length} colis livrés
               </div>
             </div>
-
-            {vendorBadge && (
-              <div style={{
-                padding: '0.5rem 0.75rem', borderRadius: '10px',
-                background: `${vendorBadge.color}15`, border: `1px solid ${vendorBadge.color}40`,
-                display: 'flex', alignItems: 'center', gap: '0.5rem', color: vendorBadge.color,
-                fontSize: '0.82rem', fontWeight: '800'
-              }}>
-                {vendorBadge.icon} Rang : {vendorBadge.label} ({colisLivres.length} colis livrés)
-              </div>
-            )}
           </div>
 
           {/* Préférences & Sécurité */}
           <div style={{
-            background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
-            border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)',
-            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem',
-            boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.04)'
+            background: '#0d1117',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
           }}>
-            <h2 style={{ fontSize: '0.82rem', fontWeight: '800', textTransform: 'uppercase', color: isDark ? '#94a3b8' : '#64748b', margin: 0, letterSpacing: '0.05em' }}>
-              Préférences & Sécurité
-            </h2>
-
             {/* Thème clair / sombre */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: isDark ? '#fff' : '#0f172a' }}>Thème de l&apos;application</div>
-                <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>Actuellement en mode {isDark ? 'sombre' : 'clair'}</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>Thème</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>
+                  Mode {isDark ? 'sombre' : 'clair'} activé
+                </div>
               </div>
-              <ThemeToggle showLabel />
+              <button
+                type="button"
+                onClick={toggleTheme}
+                style={{
+                  padding: '0.45rem 1.1rem',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  color: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Passer en {isDark ? 'clair' : 'sombre'}
+              </button>
             </div>
 
-            <div style={{ height: '1px', background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }} />
+            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.06)' }} />
 
             {/* Modifier le mot de passe */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '0.9rem', fontWeight: '700', color: isDark ? '#fff' : '#0f172a' }}>Mot de passe</div>
-                <div style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>Modifier votre mot de passe de connexion</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>Mot de passe</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>Pour vous connecter</div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowPasswordModal(true)}
                 style={{
-                  padding: '0.45rem 0.9rem',
-                  borderRadius: '10px',
-                  border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
-                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  color: isDark ? '#fff' : '#0f172a',
-                  fontSize: '0.8rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
+                  padding: '0.45rem 1.1rem',
+                  borderRadius: '9999px',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  color: '#ffffff',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer'
                 }}
               >
-                <KeyRound size={14} /> Modifier
+                Modifier
               </button>
             </div>
           </div>
 
-          <button
-            onClick={() => logout()}
-            style={{
-              minHeight: '48px', borderRadius: '12px', border: '1px solid rgba(239,68,68,0.3)',
-              background: 'rgba(239,68,68,0.1)', color: '#f87171', fontWeight: '800',
-              fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', gap: '0.5rem'
-            }}
-          >
-            <LogOut size={18} /> Se déconnecter
-          </button>
+          {/* Déconnexion sobre en texte rouge centré */}
+          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <button
+              onClick={() => logout()}
+              style={{
+                background: 'none', border: 'none', color: '#ef4444',
+                fontWeight: '700', fontSize: '0.92rem', cursor: 'pointer', padding: '0.75rem 1.5rem'
+              }}
+            >
+              Se déconnecter
+            </button>
+          </div>
         </div>
       )}
 

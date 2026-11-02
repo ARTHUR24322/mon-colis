@@ -28,15 +28,14 @@ export default function MobileBottomNav({ items, activeId, onChange }: MobileBot
         left: 0,
         right: 0,
         height: '62px',
-        background: 'rgba(15, 23, 42, 0.96)',
+        background: 'rgba(5, 5, 5, 0.96)',
         backdropFilter: 'blur(16px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
         zIndex: 50,
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.4)',
       }}
     >
       {safeItems.map((item) => {
@@ -56,35 +55,28 @@ export default function MobileBottomNav({ items, activeId, onChange }: MobileBot
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '3px',
+              gap: '4px',
               cursor: 'pointer',
-              color: isActive ? MOBILE_THEME.brand.primary : '#94a3b8',
+              color: isActive ? '#22c55e' : '#64748b',
               position: 'relative',
-              transition: 'transform 0.15s ease, color 0.15s ease',
+              transition: 'color 0.15s ease',
               padding: '4px 0',
               fontFamily: 'inherit',
             }}
           >
-            {/* Indicateur de badge numérique */}
+            {/* Indicateur de badge dot rouge discret (Conforme aux images) */}
             {item.badge !== undefined && item.badge !== null && item.badge !== 0 && (
               <span
                 style={{
                   position: 'absolute',
-                  top: '4px',
-                  right: 'calc(50% - 18px)',
+                  top: '6px',
+                  right: 'calc(50% - 12px)',
+                  width: '6px',
+                  height: '6px',
                   background: '#ef4444',
-                  color: '#fff',
-                  fontSize: '0.62rem',
-                  fontWeight: '800',
-                  padding: '1px 5px',
-                  borderRadius: '10px',
-                  minWidth: '16px',
-                  textAlign: 'center',
-                  boxShadow: '0 2px 6px rgba(239, 68, 68, 0.4)',
+                  borderRadius: '50%',
                 }}
-              >
-                {item.badge}
-              </span>
+              />
             )}
 
             {/* Icône */}
@@ -93,8 +85,6 @@ export default function MobileBottomNav({ items, activeId, onChange }: MobileBot
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                transform: isActive ? 'scale(1.1)' : 'scale(1)',
-                transition: 'transform 0.15s ease',
               }}
             >
               {item.icon}
@@ -104,28 +94,12 @@ export default function MobileBottomNav({ items, activeId, onChange }: MobileBot
             <span
               style={{
                 fontSize: '0.68rem',
-                fontWeight: isActive ? '800' : '600',
-                letterSpacing: '0.01em',
+                fontWeight: isActive ? '700' : '500',
                 lineHeight: 1,
               }}
             >
               {item.label}
             </span>
-
-            {/* Petit point indicateur sous l'onglet actif */}
-            {isActive && (
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: '2px',
-                  width: '4px',
-                  height: '4px',
-                  borderRadius: '50%',
-                  background: MOBILE_THEME.brand.primary,
-                  boxShadow: `0 0 6px ${MOBILE_THEME.brand.primary}`,
-                }}
-              />
-            )}
           </button>
         );
       })}
