@@ -69,11 +69,11 @@ export async function GET(req: NextRequest) {
     const agencyNamesMap = new Map<string, string>();
 
     if (agencyIds.length > 0) {
-      const { data: agencies } = await supabase
-        .from('agencies')
+      const { data: profs } = await supabase
+        .from('profiles')
         .select('id, name')
         .in('id', agencyIds);
-      (agencies || []).forEach(a => agencyNamesMap.set(a.id, a.name));
+      (profs || []).forEach(p => agencyNamesMap.set(p.id, p.name || 'Agence'));
     }
 
     let totalStock = 0;
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
         id: item.id,
         vendorId: item.vendor_id,
         agencyId: item.agency_id,
-        agencyName: agencyNamesMap.get(item.agency_id) || 'Agence Partenaire',
+        agencyName: agencyNamesMap.get(item.agency_id) || 'Agence',
         storageSpaceId: item.storage_space_id,
         subscriptionId: item.subscription_id,
         productName: item.product_name,

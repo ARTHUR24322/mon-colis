@@ -36,15 +36,22 @@ export async function GET(req: NextRequest) {
     const agencyMap = new Map<string, { name: string; phone: string; address: string }>();
 
     if (agencyIds.length > 0) {
-      const { data: agencies } = await supabase
-        .from('agencies')
-        .select('id, name, phone, address')
-        .in('id', agencyIds);
-      (agencies || []).forEach(a => agencyMap.set(a.id, {
-        name: a.name || 'Agence',
-        phone: a.phone || '',
-        address: a.address || ''
-      }));
+      const [{ data: profs }, { data: agencies }] = await Promise.all([
+        supabase.from('profiles').select('id, name, phone, address').in('id', agencyIds),
+        supabase.from('agencies').select('id, phone, address').in('id', agencyIds),
+      ]);
+      const profMap = new Map((profs || []).map(p => [p.id, p]));
+      const agMap = new Map((agencies || []).map(a => [a.id, a]));
+
+      agencyIds.forEach(id => {
+        const p = profMap.get(id);
+        const a = agMap.get(id);
+        agencyMap.set(id, {
+          name: p?.name || 'Agence',
+          phone: p?.phone || a?.phone || '',
+          address: a?.address || p?.address || ''
+        });
+      });
     }
 
     const formatted = rawSubs.map(s => {
@@ -54,7 +61,7 @@ export async function GET(req: NextRequest) {
         id: s.id,
         vendorId: s.vendor_id,
         agencyId: s.agency_id,
-        agencyName: ag?.name || 'Agence Partenaire',
+        agencyName: ag?.name || 'Agence',
         agencyPhone: ag?.phone || '',
         agencyAddress: ag?.address || '',
         storageSpaceId: s.storage_space_id,

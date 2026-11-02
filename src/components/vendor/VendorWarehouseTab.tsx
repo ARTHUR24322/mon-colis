@@ -145,6 +145,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
   const [isGeneratingSku, setIsGeneratingSku] = useState(false);
   const [isScanningBarcode, setIsScanningBarcode] = useState(false);
   const [newProductAgencyId, setNewProductAgencyId] = useState('');
+  const [newProductSubscriptionId, setNewProductSubscriptionId] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('Général');
   const [newProductPrice, setNewProductPrice] = useState('10');
   const [newProductQty, setNewProductQty] = useState('0');
@@ -201,6 +202,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         const actives = subs.filter(s => s.status === 'ACTIVE');
         if (actives.length === 1 && !newProductAgencyId) {
           setNewProductAgencyId(actives[0].agencyId);
+          setNewProductSubscriptionId(actives[0].id);
           setInboundAgencyId(actives[0].agencyId);
         }
       }
@@ -325,6 +327,8 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
         body: JSON.stringify({
           vendorId,
           agencyId: newProductAgencyId,
+          subscriptionId: newProductSubscriptionId || undefined,
+          storageSpaceId: activeSubscriptions.find(s => s.id === newProductSubscriptionId)?.storageSpaceId || undefined,
           productName: newProductName.trim(),
           sku: newProductSku.trim() || undefined,
           category: newProductCategory,
@@ -1045,13 +1049,20 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 </label>
                 <select
                   required
-                  value={newProductAgencyId}
-                  onChange={e => setNewProductAgencyId(e.target.value)}
+                  value={newProductSubscriptionId}
+                  onChange={e => {
+                    const subId = e.target.value;
+                    setNewProductSubscriptionId(subId);
+                    const sub = activeSubscriptions.find(s => s.id === subId);
+                    if (sub) setNewProductAgencyId(sub.agencyId);
+                  }}
                   style={inputStyle}
                 >
-                  <option value="">Choisir une agence...</option>
+                  <option value="">Choisir une agence & emplacement...</option>
                   {activeSubscriptions.map(s => (
-                    <option key={s.id} value={s.agencyId}>{s.agencyName} ({s.spaceName})</option>
+                    <option key={s.id} value={s.id}>
+                      {s.agencyName} — {s.spaceName}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1222,7 +1233,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 >
                   <option value="">Sélectionner une agence...</option>
                   {activeSubscriptions.map(s => (
-                    <option key={s.id} value={s.agencyId}>{s.agencyName}</option>
+                    <option key={s.id} value={s.agencyId}>{s.agencyName} — {s.spaceName}</option>
                   ))}
                 </select>
               </div>

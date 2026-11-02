@@ -32,11 +32,11 @@ export async function GET(req: NextRequest) {
     const agencyMap = new Map<string, string>();
 
     if (agencyIds.length > 0) {
-      const { data: agencies } = await supabase
-        .from('agencies')
+      const { data: profs } = await supabase
+        .from('profiles')
         .select('id, name')
         .in('id', agencyIds);
-      (agencies || []).forEach(a => agencyMap.set(a.id, a.name));
+      (profs || []).forEach(p => agencyMap.set(p.id, p.name || 'Agence'));
     }
 
     const enrichedBatches = rawBatches.map(b => {
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
         batchNumber: b.batch_number,
         vendorId: b.vendor_id,
         agencyId: b.agency_id,
-        agencyName: agencyMap.get(b.agency_id) || 'Agence Partenaire',
+        agencyName: agencyMap.get(b.agency_id) || 'Agence',
         status: b.status,
         items: b.items || [],
         totalItemsCount: b.total_items_count,

@@ -44,19 +44,22 @@ export async function GET(req: NextRequest) {
     const agencyMap = new Map<string, { name: string; phone: string; address: string; commune: string }>();
 
     if (agencyIds.length > 0) {
-      const { data: agencies } = await supabase
-        .from('agencies')
-        .select('id, name, phone, address')
-        .in('id', agencyIds);
+      const [{ data: profs }, { data: agencies }] = await Promise.all([
+        supabase.from('profiles').select('id, name, phone, address').in('id', agencyIds),
+        supabase.from('agencies').select('id, phone, address').in('id', agencyIds),
+      ]);
+      const profMap = new Map((profs || []).map(p => [p.id, p]));
+      const agMap = new Map((agencies || []).map(a => [a.id, a]));
 
-      (agencies || []).forEach(a => {
-        // Extraire la commune de l'adresse si possible, sinon Kinshasa
-        const addr = a.address || '';
-        const parts = addr.split(',').map((p: string) => p.trim());
+      agencyIds.forEach(id => {
+        const p = profMap.get(id);
+        const a = agMap.get(id);
+        const addr = a?.address || p?.address || '';
+        const parts = addr.split(',').map((part: string) => part.trim());
         const commune = parts.length > 1 ? parts[parts.length - 2] : (parts[0] || 'Kinshasa');
-        agencyMap.set(a.id, {
-          name: a.name || 'Agence',
-          phone: a.phone || '',
+        agencyMap.set(id, {
+          name: p?.name || 'Agence',
+          phone: p?.phone || a?.phone || '',
           address: addr,
           commune: commune || 'Kinshasa',
         });
@@ -66,7 +69,7 @@ export async function GET(req: NextRequest) {
     const enrichedSpaces = rawSpaces.map(s => {
       const ag = agencyMap.get(s.agency_id);
       const surface = s.surface_m2 ? `${s.surface_m2} m²` : '1 m²';
-      const agencyName = ag?.name || 'Agence';
+      const agencyName = ag?.name || 'Agence inconnue';
       const commune = ag?.commune || 'Kinshasa';
       return {
         id: s.id,

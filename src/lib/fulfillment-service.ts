@@ -103,19 +103,9 @@ export class FulfillmentService {
       };
     }
 
-    // 2. Vérifier si une souscription active ou en attente existe déjà
-    const { data: existingSubs } = await db
-      .from('vendor_storage_subscriptions')
-      .select('id, status')
-      .eq('storage_space_id', storageSpaceId)
-      .in('status', ['PENDING', 'ACTIVE']);
-
-    if (existingSubs && existingSubs.length > 0) {
-      return {
-        success: false,
-        error: 'Cet emplacement fait déjà l’objet d’une demande ou d’une location en cours.',
-      };
-    }
+    // Plusieurs vendeurs peuvent partager les slots d'un même étagère.
+    // Le décrement atomique (.gte) ci-dessous empêche le sur-booking —
+    // pas besoin de bloquer si d'autres subs PENDING/ACTIVE existent déjà.
 
     const pricePerMonth = Number(space.price_per_month || 0);
     const totalPrice = pricePerMonth * slots * numMonths;

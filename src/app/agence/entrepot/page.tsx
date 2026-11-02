@@ -1989,7 +1989,30 @@ export default function AgencyWarehousePage() {
               </form>
             )}
           </div>
-        </div>
+        
+      {/* Styles d'impression dédiés à l'étiquette QR marchandise */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #depot-label-print, #depot-label-print * {
+            visibility: visible !important;
+          }
+          #depot-label-print {
+            position: fixed !important;
+            left: 20px !important;
+            top: 20px !important;
+            width: 380px !important;
+            border: 2px solid #000 !important;
+            background: #fff !important;
+            color: #000 !important;
+            box-shadow: none !important;
+            z-index: 999999 !important;
+          }
+        }
+      `}</style>
+</div>
       )}
     </AgencyShell>
   );
