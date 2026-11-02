@@ -126,13 +126,11 @@ export class FulfillmentService {
 
     // 3. Mise à jour conditionnelle atomique de l'espace
     const newAvailable = Math.max(0, space.available_slots - slots);
-    const newStatus = newAvailable === 0 ? 'reserve' : 'disponible';
 
     const { data: updatedSpace, error: updSpaceErr } = await db
       .from('agency_storage_spaces')
       .update({
         available_slots: newAvailable,
-        status: newStatus,
         updated_at: new Date().toISOString(),
       })
       .eq('id', storageSpaceId)
@@ -160,7 +158,6 @@ export class FulfillmentService {
         status: 'PENDING',
         start_date: startDate,
         end_date: endDate,
-        expires_at: expiresAt,
         notes: notes || `Demande de ${slots} emplacement(s) sur ${numMonths} mois.`,
         created_at: startDate,
         updated_at: startDate,
@@ -174,7 +171,7 @@ export class FulfillmentService {
         .from('agency_storage_spaces')
         .update({
           available_slots: space.available_slots,
-          status: space.status || 'disponible',
+          updated_at: new Date().toISOString(),
         })
         .eq('id', storageSpaceId);
 
@@ -250,14 +247,6 @@ export class FulfillmentService {
         })
         .eq('id', subscriptionId);
 
-      await db
-        .from('agency_storage_spaces')
-        .update({
-          status: 'loue',
-          updated_at: nowIso,
-        })
-        .eq('id', sub.storage_space_id);
-
       // Notifier le vendeur
       await db.from('notifications').insert({
         user_id: sub.vendor_id,
@@ -274,7 +263,7 @@ export class FulfillmentService {
         .from('vendor_storage_subscriptions')
         .update({
           status: 'REJECTED',
-          rejection_reason: reason || 'Refusé par l’agence',
+          notes: reason ? `Refusé : ${reason}` : 'Refusé par l’agence',
           updated_at: nowIso,
         })
         .eq('id', subscriptionId);
@@ -286,7 +275,6 @@ export class FulfillmentService {
           .from('agency_storage_spaces')
           .update({
             available_slots: restoredSlots,
-            status: 'disponible',
             updated_at: nowIso,
           })
           .eq('id', sub.storage_space_id);
@@ -314,13 +302,20 @@ export class FulfillmentService {
     } catch {}
 
     const nowIso = new Date().toISOString();
-    const { data: expiredSubs } = await db
+    const { data: pendingSubs } = await db
       .from('vendor_storage_subscriptions')
       .select('*, space:agency_storage_spaces(*)')
-      .eq('status', 'PENDING')
-      .lt('expires_at', nowIso);
+      .eq('status', 'PENDING');
 
-    if (!expiredSubs || expiredSubs.length === 0) return 0;
+    if (!pendingSubs || pendingSubs.length === 0) return 0;
+
+    const twoDaysAgo = Date.now() - 48 * 3600 * 1000;
+    const expiredSubs = pendingSubs.filter((s: any) => {
+      if (s.expires_at) return new Date(s.expires_at).getTime() < Date.now();
+      return new Date(s.created_at).getTime() < twoDaysAgo;
+    });
+
+    if (expiredSubs.length === 0) return 0;
 
     let count = 0;
     for (const sub of expiredSubs) {
@@ -334,7 +329,6 @@ export class FulfillmentService {
           .from('agency_storage_spaces')
           .update({
             available_slots: (sub.space.available_slots || 0) + (sub.slots_count || 1),
-            status: 'disponible',
             updated_at: nowIso,
           })
           .eq('id', sub.storage_space_id);

@@ -13,8 +13,12 @@ export async function GET(req: NextRequest) {
     const session = await getSession();
     const vendorId = session?.role === 'vendeur' ? session.userId : req.nextUrl.searchParams.get('vendorId');
 
-    // Expirer automatiquement les réservations en attente dépassées
-    await fulfillmentService.expireOldReservations();
+    // Expirer automatiquement les réservations en attente dépassées (sécurisé pour ne jamais bloquer)
+    try {
+      await fulfillmentService.expireOldReservations();
+    } catch (e) {
+      // Ignorer si la table n'a pas encore de colonne expires_at
+    }
 
     // 1. Offres actives et DISPONIBLES uniquement
     const { data: spaces, error: spacesErr } = await supabase
@@ -22,9 +26,6 @@ export async function GET(req: NextRequest) {
       .select('*')
       .eq('is_active', true)
       .gt('available_slots', 0)
-      .neq('status', 'loue')
-      .neq('status', 'reserve')
-      .neq('status', 'retire')
       .order('price_per_month', { ascending: true });
 
     if (spacesErr) {
@@ -32,7 +33,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ spaces: [], subscriptions: [] });
     }
 
-    const rawSpaces = spaces || [];
+    // Filtrer en mémoire pour supporter les environnements avec ou sans colonne status
+    const rawSpaces = (spaces || []).filter((s: any) => {
+      if (!s.status) return true;
+      return s.status !== 'loue' && s.status !== 'reserve' && s.status !== 'retire';
+    });
 
     // Récupérer les informations des agences
     const agencyIds = [...new Set(rawSpaces.map(s => s.agency_id).filter(Boolean))];

@@ -183,6 +183,34 @@ export default function AgencyWarehousePage() {
   const [inventorySearch, setInventorySearch] = useState('');
   const [loadingData, setLoadingData] = useState(false);
 
+  // === DÉPÔT DIRECT AU GUICHET (nouvelle feature) ===
+  const [showDirectDepositModal, setShowDirectDepositModal] = useState(false);
+  const [directDepositVendorId, setDirectDepositVendorId] = useState('');
+  const [directDepositProduct, setDirectDepositProduct] = useState('');
+  const [directDepositPrice, setDirectDepositPrice] = useState('0');
+  const [directDepositCurrency, setDirectDepositCurrency] = useState<'USD' | 'CDF'>('USD');
+  const [directDepositQty, setDirectDepositQty] = useState('1');
+  const [directDepositShelf, setDirectDepositShelf] = useState('Rayon A - Étagère 1');
+  const [directDepositCategory, setDirectDepositCategory] = useState('Général');
+  const [directDepositNotes, setDirectDepositNotes] = useState('');
+  const [isSubmittingDeposit, setIsSubmittingDeposit] = useState(false);
+  const [depositResult, setDepositResult] = useState<{
+    qrImageUrl: string;
+    qrPayload: string;
+    labelData: {
+      productName: string;
+      vendorName: string;
+      vendorPhone: string;
+      unitPrice: number;
+      unitCurrency: string;
+      shelfLocation: string;
+      sku: string;
+      barcode: string;
+      createdAt: string;
+    };
+  } | null>(null);
+  const [vendors, setVendors] = useState<Array<{ id: string; name: string; phone: string; email?: string }>>([]);
+
   // Modal Nouvel Espace
   const [showAddSpaceModal, setShowAddSpaceModal] = useState(false);
   const [spaceName, setSpaceName] = useState('');
@@ -216,6 +244,7 @@ export default function AgencyWarehousePage() {
       if (invRes.ok) {
         const invData = await invRes.json();
         setInventory(invData.items || []);
+        if (invData.vendors) setVendors(invData.vendors);
       }
 
       // 3. Espaces
@@ -469,6 +498,62 @@ export default function AgencyWarehousePage() {
     it.shelfLocation.toLowerCase().includes(inventorySearch.toLowerCase())
   );
 
+  // === DÉPÔT DIRECT AU GUICHET : Enregistrement + Impression étiquette QR ===
+  const handleDirectDeposit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directDepositVendorId) { showToast('❌ Sélectionnez le vendeur.'); return; }
+    if (!directDepositProduct.trim()) { showToast('❌ Saisissez le nom de l\'article.'); return; }
+    if (parseInt(directDepositQty, 10) <= 0) { showToast('❌ La quantité doit être ≥ 1.'); return; }
+
+    setIsSubmittingDeposit(true);
+    try {
+      const res = await fetch('/api/agency/warehouse/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendorId: directDepositVendorId,
+          productName: directDepositProduct.trim(),
+          unitPrice: directDepositPrice,
+          unitCurrency: directDepositCurrency,
+          quantity: directDepositQty,
+          shelfLocation: directDepositShelf.trim(),
+          category: directDepositCategory,
+          notes: directDepositNotes.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDepositResult({
+          qrImageUrl: data.qrImageUrl,
+          qrPayload: data.qrPayload,
+          labelData: data.labelData
+        });
+        await loadAgencyWarehouseData();
+        // Ne pas fermer le modal — montrer l'étiquette QR à imprimer
+      } else {
+        showToast(`❌ ${data.error || 'Erreur lors de l\'enregistrement.'}`);
+      }
+    } catch {
+      showToast('❌ Erreur réseau.');
+    } finally {
+      setIsSubmittingDeposit(false);
+    }
+  };
+
+  const resetDirectDeposit = () => {
+    setShowDirectDepositModal(false);
+    setDepositResult(null);
+    setDirectDepositVendorId('');
+    setDirectDepositProduct('');
+    setDirectDepositPrice('0');
+    setDirectDepositCurrency('USD');
+    setDirectDepositQty('1');
+    setDirectDepositShelf('Rayon A - Étagère 1');
+    setDirectDepositCategory('Général');
+    setDirectDepositNotes('');
+  };
+
   return (
     <AgencyShell>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
@@ -587,6 +672,32 @@ export default function AgencyWarehousePage() {
         ═══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'reception' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+            {/* Bouton DÉPÔT DIRECT AU GUICHET */}
+            <div style={{
+              background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)',
+              borderRadius: '16px', padding: '1.2rem 1.5rem',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' as const
+            }}>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>Réception physique directe au guichet</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                  Un vendeur amène ses marchandises en main propre ? Enregistrez l&apos;article et imprimez l&apos;étiquette QR à coller dessus.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowDirectDepositModal(true); setDepositResult(null); }}
+                style={{
+                  padding: '0.7rem 1.4rem', background: '#22c55e', color: '#fff',
+                  border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '0.85rem',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' as const
+                }}
+              >
+                <Plus size={16} /> Enregistrer une marchandise
+              </button>
+            </div>
+
             {/* Formulaire de Scan / Recherche */}
             <div style={{
               background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
@@ -1603,6 +1714,283 @@ export default function AgencyWarehousePage() {
           </div>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          MODAL : DÉPÔT DIRECT AU GUICHET — Enregistrement + Étiquette QR
+      ═══════════════════════════════════════════════════════════════════ */}
+      {showDirectDepositModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '20px', width: '100%', maxWidth: '500px',
+            maxHeight: '92vh', overflowY: 'auto', padding: '1.75rem',
+            display: 'flex', flexDirection: 'column', gap: '1.25rem', boxSizing: 'border-box'
+          }}>
+            {/* En-tête */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#22c55e', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+                  Dépôt physique direct
+                </div>
+                <div style={{ fontWeight: '800', fontSize: '1.15rem' }}>Enregistrement &amp; Étiquette QR</div>
+              </div>
+              <button onClick={resetDirectDeposit} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px' }}>
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* ─── Résultat : Étiquette QR à imprimer ─────────────────── */}
+            {depositResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{
+                  background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
+                  borderRadius: '12px', padding: '0.9rem 1.1rem',
+                  display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#16a34a', fontWeight: '700'
+                }}>
+                  <Check size={18} /> Article enregistré en rayon avec succès !
+                </div>
+
+                {/* Étiquette à imprimer */}
+                <div id="depot-label-print" style={{
+                  border: '2px solid #0f172a', borderRadius: '14px', padding: '1.25rem',
+                  display: 'flex', flexDirection: 'column', gap: '0.75rem', background: '#fff'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.08em' }}>
+                        Moncolis Entrepôt
+                      </div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: '900', marginTop: '0.2rem', lineHeight: '1.2' }}>
+                        {depositResult.labelData.productName}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#334155', marginTop: '0.4rem', fontWeight: '600' }}>
+                        Vendeur : <span style={{ fontWeight: '900' }}>{depositResult.labelData.vendorName}</span>
+                        {depositResult.labelData.vendorPhone && ` · ${depositResult.labelData.vendorPhone}`}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#334155', marginTop: '0.2rem', fontWeight: '600' }}>
+                        Prix : <span style={{ fontWeight: '900' }}>{depositResult.labelData.unitPrice} {depositResult.labelData.unitCurrency}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem' }}>
+                        <MapPin size={12} color="#f97316" />
+                        <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#f97316' }}>
+                          {depositResult.labelData.shelfLocation}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '0.4rem', fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                        {depositResult.labelData.barcode}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'center', flexShrink: 0 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={depositResult.qrImageUrl}
+                        alt="QR Code article"
+                        width={100}
+                        height={100}
+                        style={{ borderRadius: '8px', display: 'block' }}
+                      />
+                      <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginTop: '4px' }}>Scanner pour détails</div>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: '#94a3b8' }}>
+                    <span>SKU : {depositResult.labelData.sku}</span>
+                    <span>{new Date(depositResult.labelData.createdAt).toLocaleDateString('fr-FR')}</span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    style={{
+                      flex: 1, padding: '0.85rem', background: '#0f172a', color: '#fff',
+                      border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
+                    }}
+                  >
+                    <Printer size={17} /> Imprimer l&apos;étiquette
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDepositResult(null); setDirectDepositProduct(''); setDirectDepositQty('1'); setDirectDepositPrice('0'); setDirectDepositNotes(''); }}
+                    style={{
+                      flex: 1, padding: '0.85rem', background: 'rgba(0,0,0,0.06)', color: '#334155',
+                      border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
+                    }}
+                  >
+                    Nouveau dépôt
+                  </button>
+                </div>
+
+                <button type="button" onClick={resetDirectDeposit} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.82rem', cursor: 'pointer', textAlign: 'center' as const }}>
+                  Fermer
+                </button>
+              </div>
+            ) : (
+              /* ─── Formulaire de dépôt ─────────────────────────────── */
+              <form onSubmit={handleDirectDeposit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+                {/* Vendeur */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                    Vendeur propriétaire *
+                  </label>
+                  <select
+                    required
+                    value={directDepositVendorId}
+                    onChange={e => setDirectDepositVendorId(e.target.value)}
+                    style={{
+                      width: '100%', padding: '0.75rem', borderRadius: '10px',
+                      border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff'
+                    }}
+                  >
+                    <option value="">-- Sélectionner le vendeur --</option>
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}{v.phone ? ` · ${v.phone}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Nom de l'article */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                    Nom de l&apos;article *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex : Sac à main en cuir, Robe en pagne, Téléphone..."
+                    value={directDepositProduct}
+                    onChange={e => setDirectDepositProduct(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                {/* Prix + Devise */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Prix unitaire *</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.01"
+                      placeholder="0"
+                      value={directDepositPrice}
+                      onChange={e => setDirectDepositPrice(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Devise</label>
+                    <select
+                      value={directDepositCurrency}
+                      onChange={e => setDirectDepositCurrency(e.target.value as 'USD' | 'CDF')}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                    >
+                      <option value="USD">USD ($)</option>
+                      <option value="CDF">CDF (FC)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Quantité */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                    Quantité reçue *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="1"
+                    placeholder="1"
+                    value={directDepositQty}
+                    onChange={e => setDirectDepositQty(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                {/* Emplacement / Rayon */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                    Emplacement dans l&apos;entrepôt *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex : Rayon B - Étagère 3 - Box 4"
+                    value={directDepositShelf}
+                    onChange={e => setDirectDepositShelf(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                {/* Catégorie */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Catégorie</label>
+                  <select
+                    value={directDepositCategory}
+                    onChange={e => setDirectDepositCategory(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                  >
+                    <option value="Général">Général</option>
+                    <option value="Habillement">Habillement</option>
+                    <option value="Électronique">Électronique</option>
+                    <option value="Alimentation">Alimentation</option>
+                    <option value="Cosmétiques">Cosmétiques</option>
+                    <option value="Maison & Déco">Maison &amp; Déco</option>
+                    <option value="Autres">Autres</option>
+                  </select>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Notes (facultatif)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex : Fragile, conserver au frais..."
+                    value={directDepositNotes}
+                    onChange={e => setDirectDepositNotes(e.target.value)}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={resetDirectDeposit}
+                    style={{
+                      flex: 1, padding: '0.85rem', background: 'rgba(0,0,0,0.05)', color: '#334155',
+                      border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingDeposit}
+                    style={{
+                      flex: 2, padding: '0.85rem', background: '#22c55e', color: '#fff',
+                      border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                      opacity: isSubmittingDeposit ? 0.7 : 1
+                    }}
+                  >
+                    <QrCode size={17} /> {isSubmittingDeposit ? 'Enregistrement...' : 'Enregistrer & Générer QR'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </AgencyShell>
   );
 }
