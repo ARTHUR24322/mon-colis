@@ -324,7 +324,7 @@ export default function AgencyDriversPage() {
               {formatPrice(stats?.totalFleetCashDeposited ?? 0)}
             </div>
             <span style={{ fontSize: '0.75rem', color: (stats?.totalPendingDeposits ?? 0) > 0 ? '#f59e0b' : 'var(--ag-text-secondary)' }}>
-              {(stats?.totalPendingDeposits ?? 0) > 0 ? `⚠️ ${formatPrice(stats?.totalPendingDeposits ?? 0)} en attente guichet` : 'Tous les dépôts sont régularisés'}
+              {(stats?.totalPendingDeposits ?? 0) > 0 ? ` ${formatPrice(stats?.totalPendingDeposits ?? 0)} en attente guichet` : 'Tous les dépôts sont régularisés'}
             </span>
           </div>
         </div>
@@ -433,7 +433,7 @@ export default function AgencyDriversPage() {
                     <td>
                       {d.activeCourses > 0 ? (
                         <span className="agency-badge" style={{ backgroundColor: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}>
-                          🚴 {d.activeCourses} en cours
+                           {d.activeCourses} en cours
                         </span>
                       ) : (
                         <span style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>0 course</span>
@@ -620,7 +620,7 @@ export default function AgencyDriversPage() {
                     fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer'
                   }}
                 >
-                  📦 Courses &amp; Livraisons ({selectedDriver.recentCourses?.length || 0})
+                   Courses &amp; Livraisons ({selectedDriver.recentCourses?.length || 0})
                 </button>
                 <button
                   onClick={() => setDriverDetailTab('versements')}
@@ -631,7 +631,7 @@ export default function AgencyDriversPage() {
                     fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer'
                   }}
                 >
-                  💵 Historique des Versements ({selectedDriver.versementsHistory?.length || 0})
+                   Historique des Versements ({selectedDriver.versementsHistory?.length || 0})
                 </button>
               </div>
 
@@ -660,7 +660,7 @@ export default function AgencyDriversPage() {
                             color: c.status === 'DELIVERED' ? 'var(--ag-success)' : '#3b82f6',
                             fontSize: '0.7rem'
                           }}>
-                            {c.status === 'DELIVERED' ? '✓ Livré' : c.status}
+                            {c.status === 'DELIVERED' ? ' Livré' : c.status}
                           </span>
                         </div>
 
@@ -707,7 +707,7 @@ export default function AgencyDriversPage() {
                               color: v.status === 'PAID' ? 'var(--ag-success)' : v.status === 'PENDING' ? 'var(--ag-warning)' : 'var(--ag-danger)',
                               fontSize: '0.7rem'
                             }}>
-                              {v.status === 'PAID' ? '✅ Encaissé en caisse' : v.status === 'PENDING' ? '⏳ En attente guichet' : v.status}
+                              {v.status === 'PAID' ? ' Encaissé en caisse' : v.status === 'PENDING' ? ' En attente guichet' : v.status}
                             </span>
                           </div>
                           <div style={{ fontSize: '0.74rem', color: 'var(--ag-text-muted)', marginTop: '2px' }}>

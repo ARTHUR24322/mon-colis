@@ -298,7 +298,7 @@ export default function AgencyParametresPage() {
           <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--ag-text-muted)', lineHeight: 1.5 }}>
             Ces tarifs sont utilisés pour calculer automatiquement le devis présenté aux vendeurs lors de la création d&apos;un colis.
             Le prix final = <strong>tarif commune</strong> + (poids × tarif/kg) + (distance × tarif/km).
-            {deviseGrille === 'FC' && <span style={{ color: '#4ade80', display: 'block', marginTop: '4px', fontWeight: '600' }}>✓ Vos tarifs sont saisis en Francs Congolais (FC) et automatiquement convertis en dollars sans gonflement de prix.</span>}
+            {deviseGrille === 'FC' && <span style={{ color: '#4ade80', display: 'block', marginTop: '4px', fontWeight: '600' }}> Vos tarifs sont saisis en Francs Congolais (FC) et automatiquement convertis en dollars sans gonflement de prix.</span>}
           </p>
 
           {/* Tarifs globaux et capacité */}
@@ -404,7 +404,7 @@ export default function AgencyParametresPage() {
                     }}>
                       <div>
                         <span style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--ag-text-primary)' }}>
-                          📍 {cp.commune}
+                           {cp.commune}
                         </span>
                         {usdEquiv && (
                           <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--ag-text-muted)' }}>

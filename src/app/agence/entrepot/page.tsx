@@ -305,14 +305,14 @@ export default function AgencyWarehousePage() {
 
       const d = await res.json();
       if (res.ok && d.success) {
-        showToast(`✅ ${d.message || 'Retour traité avec succès !'}`);
+        showToast(` ${d.message || 'Retour traité avec succès !'}`);
         setSelectedReturnForRestock(null);
         await loadAgencyWarehouseData();
       } else {
-        showToast(`❌ Erreur: ${d.error || 'Échec de la réintégration.'}`);
+        showToast(` Erreur: ${d.error || 'Échec de la réintégration.'}`);
       }
     } catch {
-      showToast('❌ Erreur réseau lors de la réintégration.');
+      showToast(' Erreur réseau lors de la réintégration.');
     } finally {
       setIsSubmittingRestock(false);
     }
@@ -329,13 +329,13 @@ export default function AgencyWarehousePage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('✅ Article prélevé en rayon et prêt à l\'expédition !');
+        showToast(' Article prélevé en rayon et prêt à l\'expédition !');
         await loadAgencyWarehouseData();
       } else {
-        showToast(`❌ Erreur: ${data.error || 'Échec du prélèvement.'}`);
+        showToast(` Erreur: ${data.error || 'Échec du prélèvement.'}`);
       }
     } catch {
-      showToast('❌ Erreur de communication.');
+      showToast(' Erreur de communication.');
     } finally {
       setProcessingPickingId(null);
     }
@@ -345,7 +345,7 @@ export default function AgencyWarehousePage() {
   const handleExecuteHandover = async (orderId: string) => {
     const driverId = selectedDrivers[orderId];
     if (!driverId) {
-      showToast('⚠️ Veuillez sélectionner un livreur.');
+      showToast(' Veuillez sélectionner un livreur.');
       return;
     }
 
@@ -359,13 +359,13 @@ export default function AgencyWarehousePage() {
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('🚀 Colis remis au livreur ! Course démarrée sans ramassage.');
+        showToast(' Colis remis au livreur ! Course démarrée sans ramassage.');
         await loadAgencyWarehouseData();
       } else {
-        showToast(`❌ Erreur: ${data.error || 'Échec de la remise au livreur.'}`);
+        showToast(` Erreur: ${data.error || 'Échec de la remise au livreur.'}`);
       }
     } catch {
-      showToast('❌ Erreur de communication.');
+      showToast(' Erreur de communication.');
     } finally {
       setProcessingPickingId(null);
     }
@@ -441,15 +441,15 @@ export default function AgencyWarehousePage() {
       const data = await res.json();
       if (res.ok) {
         setReceiveSuccess(data.message || 'Réception confirmée avec succès ! Les articles sont en stock.');
-        showToast('✅ Entrée en stock validée !');
+        showToast(' Entrée en stock validée !');
         setFoundBatch(null);
         setSearchInput('');
         await loadAgencyWarehouseData();
       } else {
-        showToast(`❌ Erreur: ${data.error || 'Échec de la réception'}`);
+        showToast(` Erreur: ${data.error || 'Échec de la réception'}`);
       }
     } catch {
-      showToast('❌ Erreur de communication.');
+      showToast(' Erreur de communication.');
     } finally {
       setIsReceiving(false);
     }
@@ -476,17 +476,17 @@ export default function AgencyWarehousePage() {
       });
 
       if (res.ok) {
-        showToast('✅ Espace de stockage créé avec succès !');
+        showToast(' Espace de stockage créé avec succès !');
         setShowAddSpaceModal(false);
         setSpaceName('');
         setSpaceDesc('');
         await loadAgencyWarehouseData();
       } else {
         const d = await res.json();
-        showToast(`❌ Erreur: ${d.error || 'Impossible de créer l’espace.'}`);
+        showToast(` Erreur: ${d.error || 'Impossible de créer l’espace.'}`);
       }
     } catch {
-      showToast('❌ Erreur réseau.');
+      showToast(' Erreur réseau.');
     } finally {
       setIsSubmittingSpace(false);
     }
@@ -502,9 +502,9 @@ export default function AgencyWarehousePage() {
   // === DÉPÔT DIRECT AU GUICHET : Enregistrement + Impression étiquette QR ===
   const handleDirectDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!directDepositVendorId) { showToast('❌ Sélectionnez le vendeur.'); return; }
-    if (!directDepositProduct.trim()) { showToast('❌ Saisissez le nom de l\'article.'); return; }
-    if (parseInt(directDepositQty, 10) <= 0) { showToast('❌ La quantité doit être ≥ 1.'); return; }
+    if (!directDepositVendorId) { showToast(' Sélectionnez le vendeur.'); return; }
+    if (!directDepositProduct.trim()) { showToast(' Saisissez le nom de l\'article.'); return; }
+    if (parseInt(directDepositQty, 10) <= 0) { showToast(' La quantité doit être ≥ 1.'); return; }
 
     setIsSubmittingDeposit(true);
     try {
@@ -533,10 +533,10 @@ export default function AgencyWarehousePage() {
         await loadAgencyWarehouseData();
         // Ne pas fermer le modal — montrer l'étiquette QR à imprimer
       } else {
-        showToast(`❌ ${data.error || 'Erreur lors de l\'enregistrement.'}`);
+        showToast(` ${data.error || 'Erreur lors de l\'enregistrement.'}`);
       }
     } catch {
-      showToast('❌ Erreur réseau.');
+      showToast(' Erreur réseau.');
     } finally {
       setIsSubmittingDeposit(false);
     }
@@ -578,7 +578,7 @@ export default function AgencyWarehousePage() {
               Fulfillment & Logistique
             </div>
             <h1 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '900', color: 'inherit' }}>
-              📦 Entrepôt & Gestion des Stocks
+               Entrepôt & Gestion des Stocks
             </h1>
           </div>
 
@@ -625,7 +625,7 @@ export default function AgencyWarehousePage() {
             }}
           >
             <ClipboardList size={16} />
-            <span>📋 Picking & Expédition ({pickingOrders.filter(o => o.pickingStatus !== 'DELIVERED').length})</span>
+            <span> Picking & Expédition ({pickingOrders.filter(o => o.pickingStatus !== 'DELIVERED').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('inventory')}
@@ -664,7 +664,7 @@ export default function AgencyWarehousePage() {
             }}
           >
             <RotateCcw size={16} />
-            <span>↩️ Retours en Rayon ({returnedPackages.length})</span>
+            <span>↩ Retours en Rayon ({returnedPackages.length})</span>
           </button>
         </div>
 
@@ -705,7 +705,7 @@ export default function AgencyWarehousePage() {
               borderRadius: '20px', padding: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.04)'
             }}>
               <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '0.4rem' }}>
-                🔍 Scanner ou Saisir le Bon de Dépôt Vendeur
+                 Scanner ou Saisir le Bon de Dépôt Vendeur
               </div>
               <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: '1rem' }}>
                 Scannez le QR Code présenté par le vendeur ou saisissez le code du bon (ex: <strong>INB-2026-0042</strong> ou jeton QR).
@@ -904,7 +904,7 @@ export default function AgencyWarehousePage() {
               borderRadius: '20px', padding: '1.5rem'
             }}>
               <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '1rem' }}>
-                📑 Derniers Bons de Dépôt Présentés
+                 Derniers Bons de Dépôt Présentés
               </div>
               {recentBatches.length === 0 ? (
                 <div style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>
@@ -933,7 +933,7 @@ export default function AgencyWarehousePage() {
                         color: b.status === 'RECEIVED' ? '#10b981' : '#f59e0b',
                         fontWeight: '800', fontSize: '0.75rem'
                       }}>
-                        {b.status === 'RECEIVED' ? '✅ Réceptionné' : '⏳ En attente'}
+                        {b.status === 'RECEIVED' ? ' Réceptionné' : ' En attente'}
                       </div>
                     </div>
                   ))}
@@ -1001,7 +1001,7 @@ export default function AgencyWarehousePage() {
                             background: order.pickingStatus === 'ASSIGNED' ? 'rgba(16,185,129,0.15)' : order.pickingStatus === 'PICKED' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
                             color: order.pickingStatus === 'ASSIGNED' ? '#10b981' : order.pickingStatus === 'PICKED' ? '#3b82f6' : '#f59e0b'
                           }}>
-                            {order.pickingStatus === 'ASSIGNED' ? '🚀 Remis au livreur' : order.pickingStatus === 'PICKED' ? '📦 Prélevé (Prêt)' : '⏳ À prélever en rayon'}
+                            {order.pickingStatus === 'ASSIGNED' ? ' Remis au livreur' : order.pickingStatus === 'PICKED' ? ' Prélevé (Prêt)' : ' À prélever en rayon'}
                           </span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>
@@ -1223,7 +1223,7 @@ export default function AgencyWarehousePage() {
                               background: it.isLowStock ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
                               color: it.isLowStock ? '#ef4444' : '#10b981'
                             }}>
-                              {it.isLowStock ? '⚠️ Faible' : 'Normal'}
+                              {it.isLowStock ? ' Faible' : 'Normal'}
                             </span>
                           </td>
                         </tr>
@@ -1280,7 +1280,7 @@ export default function AgencyWarehousePage() {
                 borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem'
               }}>
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  ⏳ Demandes en attente ({pendingSubscriptions.length})
+                   Demandes en attente ({pendingSubscriptions.length})
                 </h2>
                 <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
                   Ces vendeurs attendent votre réponse. Acceptez ou refusez chaque demande — sans réponse sous 48h, elle expire automatiquement.
@@ -1326,13 +1326,13 @@ export default function AgencyWarehousePage() {
                               body: JSON.stringify({ subscriptionId: sub.id, action: 'accept' })
                             });
                             const d = await res.json();
-                            if (res.ok) { showToast('✅ Demande acceptée ! Le vendeur peut maintenant déposer du stock.'); await loadAgencyWarehouseData(); }
-                            else showToast(`❌ ${d.error || 'Échec.'}`)
-                          } catch { showToast('❌ Erreur réseau.'); }
+                            if (res.ok) { showToast(' Demande acceptée ! Le vendeur peut maintenant déposer du stock.'); await loadAgencyWarehouseData(); }
+                            else showToast(` ${d.error || 'Échec.'}`)
+                          } catch { showToast(' Erreur réseau.'); }
                         }}
                         style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                       >
-                        ✅ Accepter
+                         Accepter
                       </button>
                       {isReviewingSub === sub.id ? (
                         <button
@@ -1345,8 +1345,8 @@ export default function AgencyWarehousePage() {
                               });
                               const d = await res.json();
                               if (res.ok) { showToast('Demande refusée.'); setIsReviewingSub(null); setRejectionReasonInput(''); await loadAgencyWarehouseData(); }
-                              else showToast(`❌ ${d.error || 'Échec.'}`)
-                            } catch { showToast('❌ Erreur réseau.'); }
+                              else showToast(` ${d.error || 'Échec.'}`)
+                            } catch { showToast(' Erreur réseau.'); }
                           }}
                           style={{ flex: 1, padding: '0.6rem', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                         >
@@ -1357,7 +1357,7 @@ export default function AgencyWarehousePage() {
                           onClick={() => { setIsReviewingSub(sub.id); setRejectionReasonInput(''); }}
                           style={{ flex: 1, padding: '0.6rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                         >
-                          ❌ Refuser
+                           Refuser
                         </button>
                       )}
                     </div>
@@ -1369,7 +1369,7 @@ export default function AgencyWarehousePage() {
             {/* Abonnements Actifs des Vendeurs */}
             <div>
               <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '0.75rem' }}>
-                📋 Locataires & Abonnements Actifs ({agencySubscriptions.length})
+                 Locataires & Abonnements Actifs ({agencySubscriptions.length})
               </h2>
 
               {agencySubscriptions.length === 0 ? (
@@ -1430,7 +1430,7 @@ export default function AgencyWarehousePage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div>
                   <h2 style={{ fontSize: '1.1rem', fontWeight: '800', margin: 0 }}>
-                    🏢 Vos Espaces de Stockage Mis en Location ({spaces.length})
+                     Vos Espaces de Stockage Mis en Location ({spaces.length})
                   </h2>
                   <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                     Configurez vos étagères, box et tarifs mensuels pour vos vendeurs.
@@ -1492,7 +1492,7 @@ export default function AgencyWarehousePage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <h2 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0 }}>
-                ↩️ Colis Fulfillment Retournés à l'Agence ({returnedPackages.length})
+                ↩ Colis Fulfillment Retournés à l'Agence ({returnedPackages.length})
               </h2>
               <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
                 Lorsqu'un colis expédié depuis votre stock entrepôt n'a pas pu être livré ou a été refusé par le client, réintégrez l'article directement en rayon sans avoir à le renvoyer chez le vendeur.
@@ -1529,7 +1529,7 @@ export default function AgencyWarehousePage() {
                           {pkg.trackingCode}
                         </div>
                         <div style={{ fontSize: '0.82rem', fontWeight: '800', marginTop: '0.2rem' }}>
-                          📦 {pkg.productName}
+                           {pkg.productName}
                         </div>
                       </div>
                       <div style={{
@@ -1687,9 +1687,9 @@ export default function AgencyWarehousePage() {
                 background: 'rgba(0,0,0,0.03)', borderRadius: '12px', padding: '0.8rem',
                 fontSize: '0.8rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.25rem'
               }}>
-                <div>📦 Article : <strong>{selectedReturnForRestock.productName}</strong></div>
-                <div>👤 Destinataire : {selectedReturnForRestock.recipientName}</div>
-                <div>📍 Destination : {selectedReturnForRestock.destination}</div>
+                <div> Article : <strong>{selectedReturnForRestock.productName}</strong></div>
+                <div> Destinataire : {selectedReturnForRestock.recipientName}</div>
+                <div> Destination : {selectedReturnForRestock.destination}</div>
               </div>
 
               <form onSubmit={handleReintegrateReturn} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -1707,7 +1707,7 @@ export default function AgencyWarehousePage() {
                         fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                       }}
                     >
-                      ✅ Intact (Revendable)
+                       Intact (Revendable)
                     </button>
                     <button
                       type="button"
@@ -1720,7 +1720,7 @@ export default function AgencyWarehousePage() {
                         fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                       }}
                     >
-                      ⚠️ Endommagé
+                       Endommagé
                     </button>
                   </div>
                 </div>

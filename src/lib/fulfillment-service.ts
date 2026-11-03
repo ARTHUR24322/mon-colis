@@ -647,7 +647,7 @@ export class FulfillmentService {
     try {
       await db.from('notifications').insert({
         user_id: driverId,
-        title: '📦 Colis remis pour livraison',
+        title: ' Colis remis pour livraison',
         message: `Le colis ${pkg.tracking_code || pkg.short_code || ''} vous a été remis par l’agence. Course active !`,
         type: 'PACKAGE_HANDOVER',
         created_at: nowIso,

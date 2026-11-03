@@ -345,7 +345,7 @@ export default function VendorPackageQuoteAndHandover({
             </span>
             {calculatedDistance && (
               <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#4ade80' }}>
-                📍 {calculatedDistance} km
+                 {calculatedDistance} km
               </span>
             )}
           </div>

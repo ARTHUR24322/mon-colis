@@ -592,7 +592,7 @@ export default function AgencyTeamPage() {
               <CheckCircle2 size={28} />
             </div>
             <h3 style={{ fontSize: '1.15rem', fontWeight: '800', margin: '0 0 6px', color: 'var(--ag-text-primary)' }}>
-              ✅ Compte créé — {newCredentialsModal.name}
+               Compte créé — {newCredentialsModal.name}
             </h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', margin: '0 0 16px' }}>
               Transmettez ces identifiants de connexion à votre collaborateur. Ils ne seront plus affichés ensuite.
@@ -605,7 +605,7 @@ export default function AgencyTeamPage() {
                 borderRadius: '12px', padding: '16px', marginBottom: '12px', textAlign: 'center',
               }}>
                 <div style={{ fontSize: '0.72rem', color: '#818cf8', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>
-                  🪪 Identifiant de connexion
+                   Identifiant de connexion
                 </div>
                 <div style={{
                   fontFamily: 'monospace', fontWeight: '900', fontSize: '1.4rem',
@@ -625,12 +625,12 @@ export default function AgencyTeamPage() {
               display: 'flex', flexDirection: 'column', gap: '8px',
             }}>
               <div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}>📧 E-mail (info seulement)</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}> E-mail (info seulement)</div>
                 <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{newCredentialsModal.email}</div>
               </div>
               {newCredentialsModal.pass && (
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}>🔑 Mot de passe initial</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginBottom: '2px' }}> Mot de passe initial</div>
                   <div style={{ fontFamily: 'monospace', fontWeight: '800', color: 'var(--ag-brand)', fontSize: '1.05rem' }}>
                     {newCredentialsModal.pass}
                   </div>
@@ -643,7 +643,7 @@ export default function AgencyTeamPage() {
               background: 'rgba(245,158,11,0.07)', borderRadius: '8px', padding: '10px',
               marginBottom: '14px', textAlign: 'left',
             }}>
-              ⚠️ Le collaborateur doit utiliser son <strong>identifiant</strong> (pas l'email) pour se connecter à la page <strong>/agence/login</strong> en sélectionnant le mode <em>Personnel</em>.
+               Le collaborateur doit utiliser son <strong>identifiant</strong> (pas l'email) pour se connecter à la page <strong>/agence/login</strong> en sélectionnant le mode <em>Personnel</em>.
             </div>
 
             <button

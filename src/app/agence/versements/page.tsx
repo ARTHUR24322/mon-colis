@@ -733,8 +733,8 @@ export default function AgencyVersementsPage() {
                               {item.reference}
                             </td>
                             <td style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', whiteSpace: 'nowrap' }}>
-                              <div>🟢 Ouv: {new Date(item.openedAt).toLocaleDateString('fr-FR')} {new Date(item.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
-                              <div>🔴 Clôt: {new Date(item.closedAt).toLocaleDateString('fr-FR')} {new Date(item.closedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                              <div> Ouv: {new Date(item.openedAt).toLocaleDateString('fr-FR')} {new Date(item.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                              <div> Clôt: {new Date(item.closedAt).toLocaleDateString('fr-FR')} {new Date(item.closedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
                             </td>
                             <td style={{ fontSize: '0.82rem', fontWeight: '600' }}>
                               {item.closedBy || item.openedBy || 'Agent Caisse'}
@@ -757,7 +757,7 @@ export default function AgencyVersementsPage() {
                                 color: isPerfect ? 'var(--ag-success)' : 'var(--ag-danger)',
                                 fontSize: '0.72rem', whiteSpace: 'nowrap'
                               }}>
-                                {isPerfect ? '✅ 0.00 (Conforme)' : `⚠ USD ${item.diffUSD > 0 ? '+' : ''}${item.diffUSD.toFixed(2)} | CDF ${item.diffCDF > 0 ? '+' : ''}${item.diffCDF}`}
+                                {isPerfect ? ' 0.00 (Conforme)' : ` USD ${item.diffUSD > 0 ? '+' : ''}${item.diffUSD.toFixed(2)} | CDF ${item.diffCDF > 0 ? '+' : ''}${item.diffCDF}`}
                               </span>
                             </td>
                             <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -919,7 +919,7 @@ export default function AgencyVersementsPage() {
                               backgroundColor: isConfirmed ? 'var(--ag-success-bg)' : isPending ? 'var(--ag-warning-bg)' : 'var(--ag-danger-bg)',
                               color: isConfirmed ? 'var(--ag-success)' : isPending ? 'var(--ag-warning)' : 'var(--ag-danger)'
                             }}>
-                              {isConfirmed ? '✅ Confirmé par le vendeur' : isPending ? '⏳ En attente validation OTP' : vh.status}
+                              {isConfirmed ? ' Confirmé par le vendeur' : isPending ? ' En attente validation OTP' : vh.status}
                             </span>
                           </td>
                           <td style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1029,7 +1029,7 @@ export default function AgencyVersementsPage() {
                             backgroundColor: cr.status === 'PAID' ? 'var(--ag-success-bg)' : cr.status === 'PENDING' ? 'var(--ag-warning-bg)' : 'var(--ag-danger-bg)',
                             color: cr.status === 'PAID' ? 'var(--ag-success)' : cr.status === 'PENDING' ? 'var(--ag-warning)' : 'var(--ag-danger)'
                           }}>
-                            {cr.status === 'PAID' ? '✅ Encaissé' : cr.status === 'PENDING' ? '⏳ En attente' : cr.status}
+                            {cr.status === 'PAID' ? ' Encaissé' : cr.status === 'PENDING' ? ' En attente' : cr.status}
                           </span>
                         </td>
                         <td style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', fontFamily: 'monospace' }}>
@@ -1075,7 +1075,7 @@ export default function AgencyVersementsPage() {
             <form onSubmit={handleConfirmOpenSession} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
-                  💵 Fond de caisse initial en Dollars USD ($)
+                   Fond de caisse initial en Dollars USD ($)
                 </label>
                 <input
                   type="number"
@@ -1095,7 +1095,7 @@ export default function AgencyVersementsPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
-                  💴 Fond de caisse initial en Francs Congolais CDF (FC)
+                   Fond de caisse initial en Francs Congolais CDF (FC)
                 </label>
                 <input
                   type="number"
@@ -1115,7 +1115,7 @@ export default function AgencyVersementsPage() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', marginBottom: '4px', color: 'var(--ag-text-primary)' }}>
-                  👤 Responsable de Caisse / Caissier
+                   Responsable de Caisse / Caissier
                 </label>
                 <input
                   type="text"
@@ -1221,7 +1221,7 @@ export default function AgencyVersementsPage() {
                   borderRadius: '10px', padding: '12px'
                 }}>
                   <div style={{ fontSize: '0.8rem', fontWeight: '800', color: 'var(--ag-warning)', marginBottom: '4px' }}>
-                    ⚠ Écart détecté : {diffUSD !== 0 ? `USD ${diffUSD > 0 ? '+' : ''}${diffUSD.toFixed(2)} ` : ''} {diffCDF !== 0 ? `CDF ${diffCDF > 0 ? '+' : ''}${diffCDF} FC` : ''}
+                     Écart détecté : {diffUSD !== 0 ? `USD ${diffUSD > 0 ? '+' : ''}${diffUSD.toFixed(2)} ` : ''} {diffCDF !== 0 ? `CDF ${diffCDF > 0 ? '+' : ''}${diffCDF} FC` : ''}
                   </div>
                   <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '700', color: 'var(--ag-text-secondary)', marginBottom: '4px' }}>
                     Motif obligatoire de l'écart :
@@ -1379,7 +1379,7 @@ export default function AgencyVersementsPage() {
                 borderRadius: '12px', padding: '14px', marginBottom: '16px', textAlign: 'center'
               }}>
                 <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#f59e0b', fontWeight: '800', letterSpacing: '0.05em', display: 'block', marginBottom: '4px' }}>
-                  🔑 Code OTP à communiquer au vendeur
+                   Code OTP à communiquer au vendeur
                 </span>
                 <span style={{ fontSize: '2rem', fontWeight: '900', letterSpacing: '6px', color: '#f59e0b', fontFamily: 'monospace' }}>
                   {paymentSuccessReceipt.otp}

@@ -246,7 +246,7 @@ export default function AgenceDashboardHome() {
           <KpiCard label="À accepter" value={kpis.pending} sub="colis en attente de validation agence" color="#f59e0b" icon={<Clock size={22} />} />
           <KpiCard label="En transit" value={kpis.inTransit} sub="colis pris en charge par vos livreurs" color="#06b6d4" icon={<Truck size={22} />} />
           <KpiCard label="Livrés" value={kpis.delivered} sub="livraisons confirmées avec succès" color="#10b981" icon={<CheckCircle2 size={22} />} />
-          <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? '⚠ Attention requise' : 'Aucun incident en cours'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={22} />} />
+          <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? ' Attention requise' : 'Aucun incident en cours'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={22} />} />
         </div>
 
         {/* ─── Tableau des colis ─── */}

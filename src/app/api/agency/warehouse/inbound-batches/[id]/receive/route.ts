@@ -167,7 +167,7 @@ export async function POST(
     try {
       await supabase.from('notifications').insert({
         user_id: batch.vendor_id,
-        title: '📦 Marchandise réceptionnée en entrepôt',
+        title: ' Marchandise réceptionnée en entrepôt',
         message: `Votre bon de dépôt ${batch.batch_number} (${totalReceived} articles) a été réceptionné et stocké avec succès à l'agence.`,
         type: 'WAREHOUSE_INBOUND_RECEIVED',
         created_at: nowIso

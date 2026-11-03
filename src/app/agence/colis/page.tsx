@@ -447,7 +447,7 @@ export default function AgencyColisPage() {
             }}
           >
             <option value="all">Tous les statuts ({colis.length})</option>
-            <option value="TO_PICKUP_AT_RELAY">📍 À récupérer au relais ({colis.filter(c => c.isToPickupAtRelay).length})</option>
+            <option value="TO_PICKUP_AT_RELAY"> À récupérer au relais ({colis.filter(c => c.isToPickupAtRelay).length})</option>
             <option value="PENDING_AGENCY">En attente de validation</option>
             <option value="ACCEPTED_BY_AGENCY">Accepté par l'agence</option>
             <option value="ASSIGNED_TO_DRIVER">Assigné à un livreur</option>
@@ -547,7 +547,7 @@ export default function AgencyColisPage() {
                         </span>
                         {c.isToPickupAtRelay && c.originDropPoint && (
                           <div style={{ fontSize: '0.7rem', color: '#ea580c', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                            <span>📍 Relais: {c.originDropPoint.name}</span>
+                            <span> Relais: {c.originDropPoint.name}</span>
                           </div>
                         )}
                       </td>
@@ -574,7 +574,7 @@ export default function AgencyColisPage() {
                           {formatPrice(c.prixColis)}
                         </div>
                         {c.isPrepaid ? (
-                          <span style={{ fontSize: '0.68rem', color: 'var(--ag-success)', fontWeight: '700' }}>✓ Payé d'avance</span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--ag-success)', fontWeight: '700' }}> Payé d'avance</span>
                         ) : (
                           <span style={{ fontSize: '0.68rem', color: 'var(--ag-warning)', fontWeight: '700' }}>À encaisser</span>
                         )}
@@ -718,7 +718,7 @@ export default function AgencyColisPage() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', color: '#ea580c', letterSpacing: '0.04em' }}>
-                      📍 À récupérer au Point Relais
+                       À récupérer au Point Relais
                     </span>
                     <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--ag-text-muted)' }}>
                       {selectedColis.originDropPoint.openingHours}
@@ -818,7 +818,7 @@ export default function AgencyColisPage() {
                   </span>
                   {osmDistance && osmDistance.km > 0 && (
                     <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#4ade80' }}>
-                      📍 {osmDistance.km} km
+                       {osmDistance.km} km
                     </span>
                   )}
                 </div>
@@ -871,7 +871,7 @@ export default function AgencyColisPage() {
                           fontSize: '0.7rem', fontWeight: '800', color: '#10b981',
                           backgroundColor: 'rgba(16,185,129,0.12)', padding: '2px 8px', borderRadius: '12px'
                         }}>
-                          ✓ Trajet {q.km} km inclus
+                           Trajet {q.km} km inclus
                         </span>
                       )}
                     </div>
@@ -924,7 +924,7 @@ export default function AgencyColisPage() {
                         color: selectedColis.paidByClient ? '#60a5fa' : '#f59e0b',
                         border: `1px solid ${selectedColis.paidByClient ? 'rgba(96,165,250,0.3)' : 'rgba(245,158,11,0.3)'}`,
                       }}>
-                        {selectedColis.paidByClient ? '🛒 Client (COD)' : '🏪 Vendeur (déduit)'}
+                        {selectedColis.paidByClient ? ' Client (COD)' : ' Vendeur (déduit)'}
                       </span>
                     </div>
 
@@ -945,7 +945,7 @@ export default function AgencyColisPage() {
 
                     {!selectedColis.paidByClient && safeLivraisonUsd > 0 && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontStyle: 'italic' }}>
-                        ⚠️ Les frais de ${safeLivraisonUsd.toFixed(2)} ({safeLivraisonFc.toLocaleString('fr-FR')} Fc) seront déduits du reversement vendeur.
+                         Les frais de ${safeLivraisonUsd.toFixed(2)} ({safeLivraisonFc.toLocaleString('fr-FR')} Fc) seront déduits du reversement vendeur.
                       </div>
                     )}
                   </div>
@@ -1012,7 +1012,7 @@ export default function AgencyColisPage() {
                             <span>Assignation...</span>
                           </span>
                         ) : isAlreadyAssigned ? (
-                          'Déjà assigné ✓'
+                          'Déjà assigné '
                         ) : selectedColis.driverName ? (
                           'Réassigner'
                         ) : (
@@ -1036,7 +1036,7 @@ export default function AgencyColisPage() {
                   backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
                   fontSize: '0.78rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px'
                 }}>
-                  <span style={{ fontSize: '1rem' }}>⚠️</span>
+                  <span style={{ fontSize: '1rem' }}></span>
                   <span>Acceptez d&apos;abord ce colis pour pouvoir assigner un livreur.</span>
                 </div>
               )}
@@ -1067,7 +1067,7 @@ export default function AgencyColisPage() {
                         <span>Calcul & acceptation...</span>
                       </span>
                     ) : (
-                      '✅ Accepter & calculer tarif'
+                      ' Accepter & calculer tarif'
                     )}
                   </button>
                   <button

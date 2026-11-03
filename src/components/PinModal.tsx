@@ -65,7 +65,7 @@ export default function PinModal({ onSuccess, onCancel, destination }: PinModalP
     setError('');
   };
 
-  const digits = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
+  const digits = ['1','2','3','4','5','6','7','8','9','','0',''];
 
   return (
     <div
@@ -181,7 +181,7 @@ export default function PinModal({ onSuccess, onCancel, destination }: PinModalP
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem' }}>
           {digits.map((d, i) => {
             const isEmpty = d === '';
-            const isDelete = d === '⌫';
+            const isDelete = d === '';
             return (
               <button
                 key={i}

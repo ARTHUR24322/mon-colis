@@ -255,7 +255,7 @@ export default function MobilePackageDetailSheet({
                   borderRadius: '14px', padding: '0.85rem'
                 }}>
                   <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
-                    📦 Marchandise
+                     Marchandise
                   </span>
                   <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#ffffff' }}>
                     {formatPrice(colis.prixColis || 0)}
@@ -265,7 +265,7 @@ export default function MobilePackageDetailSheet({
                     color: !colis.isPrepaid ? '#fbbf24' : '#4ade80',
                     display: 'block', marginTop: '2px', fontWeight: '700'
                   }}>
-                    {!colis.isPrepaid ? '🏦 Agence collecte (COD)' : '✅ Déjà réglé par client'}
+                    {!colis.isPrepaid ? ' Agence collecte (COD)' : ' Déjà réglé par client'}
                   </span>
                 </div>
 
@@ -274,7 +274,7 @@ export default function MobilePackageDetailSheet({
                   borderRadius: '14px', padding: '0.85rem'
                 }}>
                   <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
-                    🚚 Frais Livraison
+                     Frais Livraison
                   </span>
                   <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#60a5fa' }}>
                     {formatPrice(colis.deliveryPrice || colis.prixLivraison || 0)}
@@ -284,7 +284,7 @@ export default function MobilePackageDetailSheet({
                     color: colis.paidByClient ? '#93c5fd' : '#94a3b8',
                     display: 'block', marginTop: '2px', fontWeight: '700'
                   }}>
-                    {colis.paidByClient ? '🛒 Payé par le client' : '🏪 Payé par le vendeur'}
+                    {colis.paidByClient ? ' Payé par le client' : ' Payé par le vendeur'}
                   </span>
                 </div>
               </div>
@@ -301,7 +301,7 @@ export default function MobilePackageDetailSheet({
                     fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.04em',
                     color: totalToCollect > 0 ? '#fcd34d' : '#86efac', display: 'block'
                   }}>
-                    {totalToCollect > 0 ? '💵 Total à encaisser chez le client' : '✅ Rien à encaisser'}
+                    {totalToCollect > 0 ? ' Total à encaisser chez le client' : ' Rien à encaisser'}
                   </span>
                   <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
                     {totalToCollect > 0
@@ -360,7 +360,7 @@ export default function MobilePackageDetailSheet({
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#fb923c', textTransform: 'uppercase' }}>
-                  📍 Relais de collecte (Départ)
+                   Relais de collecte (Départ)
                 </span>
                 <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
                   {colis.originDropPoint.openingHours}
@@ -452,7 +452,7 @@ export default function MobilePackageDetailSheet({
                 borderRadius: '14px', padding: '1rem', textAlign: 'center'
               }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#93c5fd', display: 'block' }}>
-                  📍 Colis déposé en Point Relais
+                   Colis déposé en Point Relais
                 </span>
                 <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.4 }}>
                   La session OTP livreur est désactivée : le client retirera son colis directement au point relais avec son code OTP de retrait.
