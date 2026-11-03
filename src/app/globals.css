@@ -290,3 +290,32 @@ button:active, a:active, [role="button"]:active {
 }
 
 
+
+/* ── Animations globales & retour visuel de chargement sur les boutons ── */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 0.85s linear infinite;
+  display: inline-block;
+}
+
+/* Micro-interaction & état actif sur tous les boutons */
+button {
+  transition: transform 0.08s ease, opacity 0.15s ease, filter 0.15s ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(0.92);
+}
+
+button:disabled {
+  cursor: not-allowed !important;
+}

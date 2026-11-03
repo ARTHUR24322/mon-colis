@@ -5,7 +5,7 @@ import AgencyShell from '@/components/agency/AgencyShell';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
 import {
-  Package, Clock, CheckCircle2, AlertTriangle, Truck,
+  Package, Clock, CheckCircle2, AlertTriangle, RotateCw, Truck,
   Search, Filter, RefreshCw, Download, ChevronRight, X,
   MapPin, User, Phone, Check, ShieldAlert, ArrowUpRight,
   ExternalLink, Printer, Calendar
@@ -1006,14 +1006,18 @@ export default function AgencyColisPage() {
                           transition: 'all 0.15s ease'
                         }}
                       >
-                        {actionLoading
-                          ? 'Assignation...'
-                          : isAlreadyAssigned
-                            ? 'Déjà assigné ✓'
-                            : selectedColis.driverName
-                              ? 'Réassigner'
-                              : 'Assigner'
-                        }
+                        {actionLoading ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <RotateCw size={14} className="animate-spin" />
+                            <span>Assignation...</span>
+                          </span>
+                        ) : isAlreadyAssigned ? (
+                          'Déjà assigné ✓'
+                        ) : selectedColis.driverName ? (
+                          'Réassigner'
+                        ) : (
+                          'Assigner'
+                        )}
                       </button>
                     </div>
                     {selectedColis.driverName && (
@@ -1057,7 +1061,14 @@ export default function AgencyColisPage() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                     }}
                   >
-                    {actionLoading ? 'Traitement...' : '✅ Accepter & calculer tarif'}
+                    {actionLoading ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <RotateCw size={15} className="animate-spin" />
+                        <span>Calcul & acceptation...</span>
+                      </span>
+                    ) : (
+                      '✅ Accepter & calculer tarif'
+                    )}
                   </button>
                   <button
                     onClick={() => { setRefusalModalColis(selectedColis); setRefusalReason(''); }}

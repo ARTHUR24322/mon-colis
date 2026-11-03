@@ -8,8 +8,7 @@ import {
   Boxes, QrCode, Search, CheckCircle2, AlertTriangle, Building2,
   Package, Plus, X, RefreshCw, MapPin, Tag, ArrowDownToLine,
   Check, User, Clock, ClipboardList, Truck, Printer,
-  RotateCcw, DollarSign, ShieldCheck
-} from 'lucide-react';
+  RotateCcw, DollarSign, ShieldCheck, RotateCw} from 'lucide-react';
 import { normalizeAgencyRole, hasAgencyPermission } from '@/lib/agencyPermissions';
 
 // ─── Utilitaire dates (fuseau Africa/Kinshasa) ─────────────────────────────
@@ -1612,7 +1611,12 @@ export default function AgencyWarehousePage() {
                     color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer'
                   }}
                 >
-                  {isSubmittingSpace ? 'Création...' : 'Créer l’Espace'}
+                  {isSubmittingSpace ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <RotateCw size={14} className="animate-spin" />
+                      <span>Création...</span>
+                    </span>
+                  ) : "Créer l'Espace"}
                 </button>
               </form>
             </div>
@@ -1707,7 +1711,12 @@ export default function AgencyWarehousePage() {
                     color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer'
                   }}
                 >
-                  {isSubmittingRestock ? 'Traitement...' : 'Confirmer la réintégration'}
+                  {isSubmittingRestock ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <RotateCw size={14} className="animate-spin" />
+                      <span>Traitement...</span>
+                    </span>
+                  ) : 'Confirmer la réintégration'}
                 </button>
               </form>
             </div>
@@ -1983,7 +1992,17 @@ export default function AgencyWarehousePage() {
                       opacity: isSubmittingDeposit ? 0.7 : 1
                     }}
                   >
-                    <QrCode size={17} /> {isSubmittingDeposit ? 'Enregistrement...' : 'Enregistrer & Générer QR'}
+                    {isSubmittingDeposit ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <RotateCw size={14} className="animate-spin" />
+                        <span>Enregistrement...</span>
+                      </span>
+                    ) : (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <QrCode size={17} />
+                        <span>Enregistrer & Générer QR</span>
+                      </span>
+                    )}
                   </button>
                 </div>
               </form>

@@ -8,7 +8,7 @@ import {
   Truck, UserPlus, KeyRound, CheckCircle2, XCircle, RefreshCw,
   Search, Phone, ShieldCheck, AlertCircle, Eye, Lock, Edit2, ShieldAlert,
   Wallet, DollarSign, ArrowUpRight, ArrowDownLeft, Clock, MapPin, X,
-  Package, ChevronRight, Check, AlertTriangle
+  Package, ChevronRight, Check, AlertTriangle, RotateCw
 } from 'lucide-react';
 import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermissions';
 
@@ -888,7 +888,12 @@ export default function AgencyDriversPage() {
                     backgroundColor: 'var(--ag-brand)', color: '#fff', fontWeight: '700', cursor: 'pointer'
                   }}
                 >
-                  {formSubmitting ? 'Enrôlement...' : 'Valider l’enrôlement'}
+                  {formSubmitting ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <RotateCw size={14} className="animate-spin" />
+                      <span>Enrôlement...</span>
+                    </span>
+                  ) : "Valider l'enrôlement"}
                 </button>
               </div>
             </form>
@@ -955,7 +960,12 @@ export default function AgencyDriversPage() {
                     backgroundColor: 'var(--ag-brand)', color: '#fff', fontWeight: '700', cursor: 'pointer'
                   }}
                 >
-                  {pinSubmitting ? 'Mise à jour...' : 'Confirmer le PIN'}
+                  {pinSubmitting ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <RotateCw size={14} className="animate-spin" />
+                      <span>Mise à jour...</span>
+                    </span>
+                  ) : 'Confirmer le PIN'}
                 </button>
               </div>
             </form>

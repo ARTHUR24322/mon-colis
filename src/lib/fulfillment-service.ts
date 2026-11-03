@@ -571,7 +571,7 @@ export class FulfillmentService {
     // 3. Charger le colis
     const { data: pkg, error: pkgErr } = await db
       .from('packages')
-      .select('id, tracking_code, short_code, status, agency_id, driver_id, updated_at, warehouse_inventory_id, warehouse_quantity')
+      .select('id, tracking_code, short_code, status, agency_id, driver_id, updated_at')
       .eq('id', packageId)
       .maybeSingle();
 
@@ -579,28 +579,21 @@ export class FulfillmentService {
       return { success: false, error: 'Colis introuvable.' };
     }
 
-    // Vérifier si déjà remis au livreur
-    if (pkg.driver_id) {
-      const { data: drv } = await db
-        .from('profiles')
-        .select('name')
-        .eq('id', pkg.driver_id)
-        .maybeSingle();
-
-      const driverName = drv?.name || 'un livreur';
-      const formattedDate = pkg.updated_at ? new Date(pkg.updated_at).toLocaleString('fr-FR') : 'une date antérieure';
-      return {
-        success: false,
-        error: `Ce colis a déjà été remis à ${driverName} le ${formattedDate}.`,
-      };
-    }
-
-    // Vérifier l'état éligible
-    const eligibleStatuses = ['ACCEPTED_BY_AGENCY', 'WAITING_FOR_AGENCY_PICKUP', 'CREATED'];
+    // Vérifier l'état éligible (permet aussi la réassignation)
+    const eligibleStatuses = ['ACCEPTED_BY_AGENCY', 'ASSIGNED_TO_DRIVER', 'WAITING_FOR_AGENCY_PICKUP', 'CREATED', 'PENDING_AGENCY'];
     if (!eligibleStatuses.includes(pkg.status)) {
       return {
         success: false,
         error: `Ce colis ne peut pas être remis dans son état actuel (${pkg.status}).`,
+      };
+    }
+
+    // Si déjà assigné au même livreur → idempotent
+    if (pkg.driver_id === driverId) {
+      return {
+        success: true,
+        idempotent: true,
+        message: 'Ce colis est déjà assigné à ce livreur.',
       };
     }
 
@@ -614,7 +607,7 @@ export class FulfillmentService {
 
     const nowIso = new Date().toISOString();
 
-    // 5. Mise à jour conditionnelle stricte (WHERE id = X AND driver_id IS NULL)
+    // 5. Mise à jour du colis (réassignation autorisée)
     const { data: updatedPkg, error: updErr } = await db
       .from('packages')
       .update({
@@ -624,14 +617,13 @@ export class FulfillmentService {
         updated_at: nowIso,
       })
       .eq('id', packageId)
-      .is('driver_id', null)
       .select()
       .maybeSingle();
 
     if (updErr || !updatedPkg) {
       return {
         success: false,
-        error: 'Conflit : ce colis a été assigné en parallèle par un autre utilisateur.',
+        error: 'Impossible de mettre à jour le colis. Veuillez réessayer.',
       };
     }
 

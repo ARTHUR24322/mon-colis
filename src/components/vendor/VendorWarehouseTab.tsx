@@ -1076,7 +1076,12 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                   fontFamily: 'inherit'
                 }}
               >
-                {isSubmittingInbound ? 'Création du bon...' : 'Générer le bon de dépôt & QR'}
+                {isSubmittingInbound ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <RotateCw size={15} className="animate-spin" />
+                    <span>Création du bon...</span>
+                  </span>
+                ) : 'Générer le bon de dépôt & QR'}
               </button>
             </form>
           </div>
@@ -1275,7 +1280,12 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                   cursor: isSubmittingSub ? 'wait' : 'pointer'
                 }}
               >
-                {isSubmittingSub ? 'Envoi...' : 'Envoyer la demande'}
+                {isSubmittingSub ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <RotateCw size={15} className="animate-spin" />
+                    <span>Envoi...</span>
+                  </span>
+                ) : 'Envoyer la demande'}
               </button>
             </form>
           </div>
