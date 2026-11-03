@@ -447,7 +447,7 @@ export default function AgencyColisPage() {
             }}
           >
             <option value="all">Tous les statuts ({colis.length})</option>
-            <option value="TO_PICKUP_AT_RELAY"> À récupérer au relais ({colis.filter(c => c.isToPickupAtRelay).length})</option>
+            <option value="TO_PICKUP_AT_RELAY">À récupérer au relais ({colis.filter(c => c.isToPickupAtRelay).length})</option>
             <option value="PENDING_AGENCY">En attente de validation</option>
             <option value="ACCEPTED_BY_AGENCY">Accepté par l'agence</option>
             <option value="ASSIGNED_TO_DRIVER">Assigné à un livreur</option>

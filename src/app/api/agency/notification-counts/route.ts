@@ -47,15 +47,29 @@ export async function GET(req: NextRequest) {
       .eq('status', 'PENDING');
 
     // ── 5. Colis prêts au picking (fulfillment) ──────────────────────────────
-    const { count: readyPicking } = await supabase
+    // Seuls les colis entrants NON ENCORE TRAITÉS (sans livreur assigné et non livrés)
+    const { data: movements } = await supabase
       .from('warehouse_stock_movements')
-      .select('id', { count: 'exact', head: true })
+      .select('package_id')
       .eq('agency_id', agencyId)
       .eq('type', 'DISPATCH')
       .not('package_id', 'is', null);
 
-    // Parmi ces mouvements, combien ont un colis NON encore livré ?
-    // (approximation : on retourne readyPicking si > 0)
+    const packageIds = [...new Set((movements || []).map((m: any) => m.package_id).filter(Boolean))];
+
+    let readyPicking = 0;
+    if (packageIds.length > 0) {
+      const { data: unhandledPkgs } = await supabase
+        .from('packages')
+        .select('id, driver_id, status')
+        .in('id', packageIds);
+
+      // Statuts qui signifient que le colis a déjà été traité / pris en charge
+      const handledStatuses = ['ASSIGNED_TO_DRIVER', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED', 'RETURNED'];
+      readyPicking = (unhandledPkgs || []).filter(
+        (p: any) => !p.driver_id && !handledStatuses.includes(p.status)
+      ).length;
+    }
 
     // ── 6. Notifications non lues ────────────────────────────────────────────
     const { count: unreadNotifs } = await supabase

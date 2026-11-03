@@ -555,6 +555,11 @@ export default function AgencyWarehousePage() {
     setDirectDepositNotes('');
   };
 
+  // Seules les commandes fulfillment entrantes et NON ENCORE TRAITÉES (sans livreur assigné)
+  const pendingPickingCount = pickingOrders.filter(
+    o => !o.driverId && o.pickingStatus !== 'ASSIGNED' && o.pickingStatus !== 'DELIVERED'
+  ).length;
+
   return (
     <AgencyShell>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
@@ -625,7 +630,7 @@ export default function AgencyWarehousePage() {
             }}
           >
             <ClipboardList size={16} />
-            <span> Picking & Expédition ({pickingOrders.filter(o => o.pickingStatus !== 'DELIVERED').length})</span>
+            <span>Picking & Expédition ({pendingPickingCount})</span>
           </button>
           <button
             onClick={() => setActiveTab('inventory')}
@@ -965,7 +970,7 @@ export default function AgencyWarehousePage() {
                 </div>
               </div>
               <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#334155' }}>
-                {pickingOrders.filter(o => o.pickingStatus !== 'DELIVERED').length} colis à expédier
+                {pendingPickingCount} colis en attente d'expédition
               </div>
             </div>
 
@@ -1001,7 +1006,7 @@ export default function AgencyWarehousePage() {
                             background: order.pickingStatus === 'ASSIGNED' ? 'rgba(16,185,129,0.15)' : order.pickingStatus === 'PICKED' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)',
                             color: order.pickingStatus === 'ASSIGNED' ? '#10b981' : order.pickingStatus === 'PICKED' ? '#3b82f6' : '#f59e0b'
                           }}>
-                            {order.pickingStatus === 'ASSIGNED' ? ' Remis au livreur' : order.pickingStatus === 'PICKED' ? ' Prélevé (Prêt)' : ' À prélever en rayon'}
+                            {order.pickingStatus === 'ASSIGNED' ? 'Remis au livreur' : order.pickingStatus === 'PICKED' ? 'Prélevé (Prêt)' : 'À prélever en rayon'}
                           </span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>
