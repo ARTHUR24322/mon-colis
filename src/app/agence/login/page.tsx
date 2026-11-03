@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Shield, Eye, EyeOff, Lock, Mail, Hash, AlertCircle, Building2, CheckCircle2, Crown, BadgeCheck } from 'lucide-react';
 
 /**
@@ -263,9 +264,22 @@ export default function AgenceLoginPage() {
 
             {/* Mot de passe */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                Mot de passe
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1' }}>
+                  Mot de passe
+                </label>
+                <Link
+                  href="/agence/recuperation"
+                  style={{
+                    fontSize: '0.74rem',
+                    color: '#f59e0b',
+                    textDecoration: 'none',
+                    fontWeight: '600',
+                  }}
+                >
+                  Mot de passe oublié ?
+                </Link>
+              </div>
               <div style={{ position: 'relative' }}>
                 <Lock size={16} color="#475569" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
