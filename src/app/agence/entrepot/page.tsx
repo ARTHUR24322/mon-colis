@@ -90,6 +90,8 @@ interface PickingOrder {
   quantity: number;
   currentStock: number;
   createdAt: string;
+  driverId: string | null;
+  driverName: string | null;
 }
 
 interface DriverOption {
@@ -1066,34 +1068,72 @@ export default function AgencyWarehousePage() {
                       )}
 
                       {/* Remise au livreur */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-                        <select
-                          value={selectedDrivers[order.id] || ''}
-                          onChange={e => setSelectedDrivers({ ...selectedDrivers, [order.id]: e.target.value })}
-                          style={{
-                            padding: '0.55rem 0.75rem', borderRadius: '10px',
-                            border: '1px solid var(--agency-input-border, #cbd5e1)',
-                            fontSize: '0.82rem', fontWeight: '600'
-                          }}
-                        >
-                          <option value="">-- Choisir un livreur --</option>
-                          {drivers.map(d => (
-                            <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
-                          ))}
-                        </select>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.4rem', marginLeft: 'auto' }}>
 
-                        <button
-                          onClick={() => handleExecuteHandover(order.id)}
-                          disabled={processingPickingId === order.id}
-                          style={{
-                            padding: '0.65rem 1.25rem', background: '#10b981', color: '#fff',
-                            border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.85rem',
-                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem'
-                          }}
-                        >
-                          <Truck size={16} />
-                          <span>Remettre au Livreur</span>
-                        </button>
+                        {/* Badge livreur déjà assigné */}
+                        {order.driverId && (
+                          <div style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '6px',
+                            background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)',
+                            borderRadius: '8px', padding: '4px 10px', fontSize: '0.78rem', fontWeight: '700',
+                            color: '#10b981'
+                          }}>
+                            <Check size={13} />
+                            <span>Assigné à {order.driverName}</span>
+                          </div>
+                        )}
+
+                        {/* Select + Bouton */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <select
+                            value={selectedDrivers[order.id] || ''}
+                            onChange={e => setSelectedDrivers({ ...selectedDrivers, [order.id]: e.target.value })}
+                            style={{
+                              padding: '0.55rem 0.75rem', borderRadius: '10px',
+                              border: '1px solid var(--agency-input-border, #cbd5e1)',
+                              fontSize: '0.82rem', fontWeight: '600'
+                            }}
+                          >
+                            <option value="">-- Choisir un livreur --</option>
+                            {drivers.map(d => (
+                              <option key={d.id} value={d.id}>{d.name} ({d.phone})</option>
+                            ))}
+                          </select>
+
+                          <button
+                            onClick={() => handleExecuteHandover(order.id)}
+                            disabled={processingPickingId === order.id || !selectedDrivers[order.id]}
+                            style={{
+                              padding: '0.65rem 1.25rem',
+                              background: order.driverId
+                                ? (selectedDrivers[order.id] ? '#f59e0b' : '#6b7280')
+                                : '#10b981',
+                              color: '#fff',
+                              border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.85rem',
+                              cursor: (processingPickingId === order.id || !selectedDrivers[order.id]) ? 'not-allowed' : 'pointer',
+                              display: 'flex', alignItems: 'center', gap: '0.4rem',
+                              opacity: (processingPickingId === order.id || !selectedDrivers[order.id]) ? 0.6 : 1,
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {processingPickingId === order.id ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                <RotateCw size={14} className="animate-spin" />
+                                <span>Traitement...</span>
+                              </span>
+                            ) : order.driverId ? (
+                              <>
+                                <RefreshCw size={15} />
+                                <span>Changer de livreur</span>
+                              </>
+                            ) : (
+                              <>
+                                <Truck size={16} />
+                                <span>Remettre au Livreur</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

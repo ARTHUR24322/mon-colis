@@ -53,6 +53,20 @@ export async function GET(req: NextRequest) {
       phone: d.profile?.phone || ''
     }));
 
+    // Map driver id → name for quick lookup
+    const driverNameMap = new Map(availableDrivers.map(d => [d.id, d.name]));
+
+    // Récupérer aussi les profils pour les driver_id venant de packages (réassignation possible)
+    const allDriverIds = [...new Set((Array.from(packagesMap.values())).map((p: any) => p.driver_id).filter(Boolean))];
+    let extraDriverNames = new Map<string, string>();
+    if (allDriverIds.length > 0) {
+      const { data: extraProfiles } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .in('id', allDriverIds);
+      (extraProfiles || []).forEach((p: any) => extraDriverNames.set(p.id, p.name));
+    }
+
     // Fusionner pour générer les ordres de picking
     const pickingOrders = (movements || []).map(m => {
       const pkg = packagesMap.get(m.package_id);
@@ -79,7 +93,11 @@ export async function GET(req: NextRequest) {
         shelfLocation: inv?.shelf_location || 'Rayon A',
         quantity: Math.abs(m.quantity || 1),
         currentStock: inv?.quantity_in_stock || 0,
-        createdAt: m.created_at
+        createdAt: m.created_at,
+        driverId: pkg?.driver_id || null,
+        driverName: pkg?.driver_id
+          ? (driverNameMap.get(pkg.driver_id) || extraDriverNames.get(pkg.driver_id) || 'Livreur')
+          : null,
       };
     });
 
