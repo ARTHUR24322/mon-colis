@@ -33,21 +33,24 @@ import {
 import { AGENCY_ROLE_LABELS, normalizeAgencyRole, hasAgencyPermission, AgencyRole } from '@/lib/agencyPermissions';
 import './../../app/agence/agency.css';
 
+// Clé de badge par route href
+type NavBadgeKey = 'colis' | 'reception' | 'entrepot' | 'versements';
+
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
   permission?: keyof typeof import('@/lib/agencyPermissions').AGENCY_ROLE_PERMISSIONS.directeur;
-  badge?: string;
+  badgeKey?: NavBadgeKey;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Tableau de bord', href: '/agence/dashboard', icon: LayoutDashboard },
-  { label: 'Gestion Colis', href: '/agence/colis', icon: Package, permission: 'canViewPackages' },
-  { label: 'Réception & Scan', href: '/agence/reception', icon: QrCode, permission: 'canScanPackages' },
-  { label: 'Entrepôt & Stock', href: '/agence/entrepot', icon: Boxes, permission: 'canScanPackages' },
+  { label: 'Gestion Colis', href: '/agence/colis', icon: Package, permission: 'canViewPackages', badgeKey: 'colis' },
+  { label: 'Réception & Scan', href: '/agence/reception', icon: QrCode, permission: 'canScanPackages', badgeKey: 'reception' },
+  { label: 'Entrepôt & Stock', href: '/agence/entrepot', icon: Boxes, permission: 'canScanPackages', badgeKey: 'entrepot' },
   { label: 'Flotte Livreurs', href: '/agence/livreurs', icon: Truck, permission: 'canManageDrivers' },
-  { label: 'Versements & Caisse', href: '/agence/versements', icon: Wallet, permission: 'canViewFinances' },
+  { label: 'Versements & Caisse', href: '/agence/versements', icon: Wallet, permission: 'canViewFinances', badgeKey: 'versements' },
   { label: 'Équipe & Accès', href: '/agence/equipe', icon: Users, permission: 'canManageTeam' },
   { label: 'Rapports & Exports', href: '/agence/rapports', icon: BarChart3, permission: 'canExportReports' },
   { label: 'Paramètres Agence', href: '/agence/parametres', icon: Settings, permission: 'canManageSettings' },
@@ -79,13 +82,31 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
 
+  // Compteurs de badges par section nav
+  const [navBadges, setNavBadges] = useState<Record<string, number>>({
+    colis: 0, reception: 0, entrepot: 0, versements: 0, notifications: 0,
+  });
+
+  const fetchNavBadges = async () => {
+    try {
+      const res = await fetch('/api/agency/notification-counts');
+      if (res.ok) {
+        const data = await res.json();
+        setNavBadges(data);
+        setUnreadCount(data.notifications || 0);
+      }
+    } catch {
+      // silencieux
+    }
+  };
+
   const fetchAgencyNotifications = async () => {
     try {
       const res = await fetch('/api/notifications');
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
-        setUnreadCount(data.unreadCount || 0);
+        // unreadCount is now driven by fetchNavBadges
       }
     } catch {
       // silencieux
@@ -101,6 +122,7 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
       });
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
+      setNavBadges(prev => ({ ...prev, notifications: 0 }));
     } catch {
       // silencieux
     }
@@ -109,7 +131,11 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (user) {
       fetchAgencyNotifications();
-      const interval = setInterval(fetchAgencyNotifications, 25000);
+      fetchNavBadges();
+      const interval = setInterval(() => {
+        fetchAgencyNotifications();
+        fetchNavBadges();
+      }, 25000);
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -306,6 +332,7 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
           {filteredNav.map(item => {
             const isActive = pathname === item.href || (item.href !== '/agence/dashboard' && pathname.startsWith(item.href));
             const Icon = item.icon;
+            const badgeCount = item.badgeKey ? (navBadges[item.badgeKey] || 0) : 0;
             return (
               <Link
                 key={item.href}
@@ -327,12 +354,41 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
                   position: 'relative',
                 }}
               >
-                <Icon size={19} style={{ flexShrink: 0, color: isActive ? 'var(--ag-brand)' : 'inherit' }} />
+                {/* Icône avec point de notification si réduit */}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <Icon size={19} style={{ color: isActive ? 'var(--ag-brand)' : 'inherit', display: 'block' }} />
+                  {collapsed && badgeCount > 0 && (
+                    <span style={{
+                      position: 'absolute', top: '-4px', right: '-5px',
+                      background: '#ef4444', color: '#fff', borderRadius: '50%',
+                      width: '14px', height: '14px', fontSize: '0.55rem', fontWeight: '800',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: '1.5px solid var(--ag-sidebar-bg)',
+                    }}>
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </div>
+
                 {!collapsed && (
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.label}
-                  </span>
+                  <>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                      {item.label}
+                    </span>
+                    {/* Badge compteur */}
+                    {badgeCount > 0 && (
+                      <span style={{
+                        background: '#ef4444', color: '#fff', borderRadius: '10px',
+                        fontSize: '0.63rem', fontWeight: '800', padding: '1px 6px',
+                        minWidth: '18px', textAlign: 'center', lineHeight: '1.5',
+                        animation: 'agFadeIn 0.2s ease',
+                      }}>
+                        {badgeCount > 99 ? '99+' : badgeCount}
+                      </span>
+                    )}
+                  </>
                 )}
+
                 {isActive && (
                   <div
                     style={{
@@ -607,7 +663,8 @@ export default function AgencyShell({ children }: { children: React.ReactNode })
                     position: 'absolute', top: '-4px', right: '-4px',
                     backgroundColor: '#ef4444', color: '#fff', borderRadius: '10px',
                     fontSize: '0.62rem', fontWeight: '800', padding: '1px 5px',
-                    border: '2px solid var(--ag-topbar-bg)'
+                    border: '2px solid var(--ag-topbar-bg)',
+                    animation: 'agFadeIn 0.2s ease',
                   }}>
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
