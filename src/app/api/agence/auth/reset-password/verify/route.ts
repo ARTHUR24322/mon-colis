@@ -89,3 +89,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur serveur lors de la vérification.' }, { status: 500 });
   }
 }
+

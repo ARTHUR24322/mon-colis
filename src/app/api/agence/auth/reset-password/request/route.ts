@@ -101,12 +101,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!accountId || !accountEmail) {
-      // Pour éviter l'énumération de comptes, on simule une réponse réussie
-      return NextResponse.json({
-        success: true,
-        message: 'Si ce compte existe, un code de récupération vous a été envoyé.',
-        maskedEmail: cleanInput.includes('@') ? maskEmail(cleanInput) : 'votre adresse email',
-      });
+      return NextResponse.json(
+        { error: 'Aucun compte agence trouvé avec cette adresse e-mail.' },
+        { status: 404 }
+      );
     }
 
     // 3. Générer un code OTP à 6 chiffres
@@ -216,3 +214,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur serveur lors de la demande.' }, { status: 500 });
   }
 }
+

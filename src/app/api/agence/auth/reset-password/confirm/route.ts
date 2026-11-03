@@ -143,3 +143,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur inattendue lors de la confirmation.' }, { status: 500 });
   }
 }
+
