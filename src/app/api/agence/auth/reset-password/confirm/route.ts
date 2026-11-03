@@ -79,10 +79,7 @@ export async function POST(req: NextRequest) {
     if (accountType === 'agency_member') {
       const { error: updErr } = await supabase
         .from('agency_members')
-        .update({
-          password_hash: passwordHash,
-          updated_at: nowIso,
-        })
+        .update({ password_hash: passwordHash })
         .eq('id', accountId);
 
       if (updErr) {
@@ -90,13 +87,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Erreur lors de la mise à jour du mot de passe.' }, { status: 500 });
       }
     } else {
-      // Compte agence principal dans profiles
+      // Compte agence principal dans profiles (ne pas inclure updated_at qui n'existe pas dans profiles)
       const { error: updErr } = await supabase
         .from('profiles')
-        .update({
-          password_hash: passwordHash,
-          updated_at: nowIso,
-        })
+        .update({ password_hash: passwordHash })
         .eq('id', accountId);
 
       if (updErr) {
@@ -106,10 +100,14 @@ export async function POST(req: NextRequest) {
 
       // Si présent également dans agency_members pour le même email, synchroniser
       if (accountEmail) {
-        await supabase
-          .from('agency_members')
-          .update({ password_hash: passwordHash, updated_at: nowIso })
-          .ilike('email', accountEmail);
+        try {
+          await supabase
+            .from('agency_members')
+            .update({ password_hash: passwordHash })
+            .ilike('email', accountEmail);
+        } catch {
+          // Silencieux
+        }
       }
     }
 
