@@ -109,6 +109,13 @@ export async function POST(req: NextRequest) {
           // Silencieux
         }
       }
+
+      // Synchroniser avec Supabase Auth si le compte existe dans auth.users
+      try {
+        await supabase.auth.admin.updateUserById(accountId, { password: newPassword });
+      } catch {
+        // Silencieux
+      }
     }
 
     // 3. Journaliser dans security_logs

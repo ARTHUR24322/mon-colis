@@ -15,14 +15,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    // Récupérer les mouvements DISPATCH liés à des colis pour cette agence
+    const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '100'), 250);
+
+    // Récupérer les mouvements DISPATCH récents liés à des colis pour cette agence (limité aux plus récents pour préserver la mémoire)
     const { data: movements, error: movErr } = await supabase
       .from('warehouse_stock_movements')
       .select('*, inventory:warehouse_inventory(*)')
       .eq('agency_id', agencyId)
       .eq('type', 'DISPATCH')
       .not('package_id', 'is', null)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (movErr) {
       console.warn('Picking movements warning:', movErr.message);

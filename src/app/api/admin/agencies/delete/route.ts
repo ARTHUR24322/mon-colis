@@ -14,7 +14,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { agencyId, securityCode } = body as { agencyId: string; securityCode?: string };
+    const {
+      agencyId,
+      securityCode,
+      deletePackages = true,
+      reassignToAgencyId
+    } = body as {
+      agencyId: string;
+      securityCode?: string;
+      deletePackages?: boolean;
+      reassignToAgencyId?: string;
+    };
 
     if (!agencyId) {
       return NextResponse.json({ error: 'Identifiant agence manquant.' }, { status: 400 });
@@ -45,53 +55,135 @@ export async function POST(request: NextRequest) {
 
     const agencyName = (agencyData as any)?.profile?.name || agencyId;
 
-    console.log(`[ADMIN DELETE AGENCY] Suppression définitive de l'agence: ${agencyName} (${agencyId})`);
+    console.log(`[ADMIN DELETE AGENCY] Suppression définitive de l'agence: ${agencyName} (${agencyId}), deletePackages=${deletePackages}`);
 
-    // 4. Nettoyage sécurisé en cascade des dépendances
-    // A. Détacher les colis (remise en attente d'agence) pour ne pas détruire les commandes clients
-    await supabaseAdmin
+    // 4. Déterminer une agence de repli si la réassignation est demandée
+    let fallbackAgencyId: string | null = null;
+    if (!deletePackages) {
+      if (reassignToAgencyId && reassignToAgencyId !== agencyId) {
+        fallbackAgencyId = reassignToAgencyId;
+      } else {
+        const { data: otherAgencies } = await supabaseAdmin
+          .from('agencies')
+          .select('id')
+          .neq('id', agencyId)
+          .limit(1);
+        fallbackAgencyId = otherAgencies?.[0]?.id || null;
+      }
+    }
+
+    // 5. Récupérer tous les colis associés à cette agence
+    const { data: agencyPackages } = await supabaseAdmin
       .from('packages')
-      .update({
-        agency_id: null,
-        assigned_agency_id: null,
-        status: 'PENDING_AGENCY'
-      })
+      .select('id, status')
       .or(`agency_id.eq.${agencyId},assigned_agency_id.eq.${agencyId}`);
 
-    // B. Supprimer les sessions de caisse
+    const pkgIds = (agencyPackages || []).map(p => p.id);
+
+    // A. Traitement des colis pour éviter tout orphelin
+    if (pkgIds.length > 0) {
+      if (deletePackages || !fallbackAgencyId) {
+        // Suppression en cascade complète des colis de cette agence
+        console.log(`[ADMIN DELETE AGENCY] Suppression de ${pkgIds.length} colis de l'agence pour éviter les orphelins.`);
+        await supabaseAdmin.from('package_audit_logs').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('financial_audits').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('package_quotes').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('driver_cash_deposits').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('driver_cash_requests').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('warehouse_stock_movements').delete().in('package_id', pkgIds);
+        await supabaseAdmin.from('packages').delete().in('id', pkgIds);
+      } else {
+        // Réassignation propre à l'agence de repli
+        console.log(`[ADMIN DELETE AGENCY] Réassignation de ${pkgIds.length} colis vers l'agence ${fallbackAgencyId}`);
+        const finishedStatuses = ['DELIVERED', 'CANCELLED', 'RETURNED'];
+        const finishedIds = (agencyPackages || []).filter(p => finishedStatuses.includes(p.status)).map(p => p.id);
+        const activeIds = (agencyPackages || []).filter(p => !finishedStatuses.includes(p.status)).map(p => p.id);
+
+        if (finishedIds.length > 0) {
+          await supabaseAdmin
+            .from('packages')
+            .update({
+              agency_id: fallbackAgencyId,
+              assigned_agency_id: fallbackAgencyId,
+            })
+            .in('id', finishedIds);
+        }
+
+        if (activeIds.length > 0) {
+          await supabaseAdmin
+            .from('packages')
+            .update({
+              agency_id: fallbackAgencyId,
+              assigned_agency_id: fallbackAgencyId,
+              status: 'PENDING_AGENCY',
+              driver_id: null,
+            })
+            .in('id', activeIds);
+        }
+      }
+    }
+
+    // B. Nettoyage des livreurs de l'agence
+    const { data: drivers } = await supabaseAdmin
+      .from('drivers')
+      .select('id')
+      .eq('agency_id', agencyId);
+
+    const driverIds = (drivers || []).map(d => d.id);
+    if (driverIds.length > 0) {
+      await supabaseAdmin.from('driver_cash_deposits').delete().in('driver_id', driverIds);
+      await supabaseAdmin.from('driver_cash_requests').delete().in('driver_id', driverIds);
+      await supabaseAdmin.from('drivers').delete().eq('agency_id', agencyId);
+      await supabaseAdmin.from('profiles').delete().in('id', driverIds).eq('role', 'livreur');
+      for (const dId of driverIds) {
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(dId);
+        } catch {
+          // Silencieux
+        }
+      }
+    }
+
+    // C. Supprimer les sessions de caisse
+    await supabaseAdmin.from('driver_cash_deposits').delete().eq('agency_id', agencyId);
+    await supabaseAdmin.from('driver_cash_requests').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('agency_cash_sessions').delete().eq('agency_id', agencyId);
 
-    // C. Supprimer les abonnements et mouvements entrepôt
+    // D. Supprimer les abonnements et mouvements entrepôt
     await supabaseAdmin.from('vendor_storage_subscriptions').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('warehouse_stock_movements').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('warehouse_inventory').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('warehouse_inbound_batches').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('agency_storage_spaces').delete().eq('agency_id', agencyId);
 
-    // D. Supprimer paramètres, promos et membres d'équipe de l'agence
+    // E. Supprimer paramètres, promos et membres d'équipe de l'agence
     await supabaseAdmin.from('agency_settings').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('agency_promo_codes').delete().eq('agency_id', agencyId);
     await supabaseAdmin.from('agency_members').delete().eq('agency_id', agencyId);
 
-    // E. Détacher les points relais affiliés
-    await supabaseAdmin.from('drop_points').update({ agency_id: null }).eq('agency_id', agencyId);
+    // F. Points relais affiliés : réassigner ou détacher
+    if (fallbackAgencyId) {
+      await supabaseAdmin.from('drop_points').update({ agency_id: fallbackAgencyId }).eq('agency_id', agencyId);
+    } else {
+      await supabaseAdmin.from('drop_points').update({ agency_id: null }).eq('agency_id', agencyId);
+    }
 
-    // F. Supprimer les demandes de versement orphelines
+    // G. Supprimer les demandes de versement de l'agence
     await supabaseAdmin.from('vendor_payout_requests').delete().eq('agency_id', agencyId);
 
-    // G. Supprimer l'entrée agence
+    // H. Supprimer l'entrée agence
     const { error: agencyDeleteError } = await supabaseAdmin.from('agencies').delete().eq('id', agencyId);
     if (agencyDeleteError) {
       console.error('[ADMIN DELETE AGENCY] Erreur lors de la suppression dans agencies:', agencyDeleteError);
     }
 
-    // H. Supprimer le profil utilisateur associé
+    // I. Supprimer le profil utilisateur associé
     const { error: profileDeleteError } = await supabaseAdmin.from('profiles').delete().eq('id', agencyId);
     if (profileDeleteError) {
       console.error('[ADMIN DELETE AGENCY] Erreur lors de la suppression dans profiles:', profileDeleteError);
     }
 
-    // I. Supprimer le compte Supabase Auth si possible
+    // J. Supprimer le compte Supabase Auth
     try {
       await supabaseAdmin.auth.admin.deleteUser(agencyId);
     } catch (authErr) {
@@ -100,11 +192,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `L'agence "${agencyName}" et toutes ses données associées ont été définitivement supprimées.`,
-      agencyId
+      message: `L'agence "${agencyName}" a été définitivement supprimée avec succès${deletePackages ? ' (colis associés supprimés pour éviter les orphelins)' : fallbackAgencyId ? ' (colis réassignés à l\'agence de repli)' : ''}.`
     });
+
   } catch (error: any) {
-    console.error('[ADMIN DELETE AGENCY] Exception:', error);
-    return NextResponse.json({ error: error.message || 'Erreur lors de la suppression de l\'agence' }, { status: 500 });
+    console.error('[ADMIN DELETE AGENCY] Exception critique:', error);
+    return NextResponse.json(
+      { error: error.message || 'Erreur interne du serveur lors de la suppression de l\'agence.' },
+      { status: 500 }
+    );
   }
 }

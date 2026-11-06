@@ -82,6 +82,13 @@ export default function AgencyColisPage() {
     deviseGrille: 'FC' | 'USD';
   } | null>(null);
 
+  // Pagination & Période
+  const [period, setPeriod] = useState<'30d' | 'all'>('30d');
+  const [page, setPage] = useState(1);
+  const [totalColis, setTotalColis] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 50;
+
   // Filtres
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -119,19 +126,35 @@ export default function AgencyColisPage() {
     }
   };
 
-  const fetchColis = async () => {
+  const fetchColis = async (pageToFetch = page, periodToFetch = period) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/agence/colis?limit=250', { credentials: 'same-origin' });
+      const url = `/api/agence/colis?limit=${pageSize}&page=${pageToFetch}&period=${periodToFetch}`;
+      const res = await fetch(url, { credentials: 'same-origin' });
       if (res.ok) {
         const data = await res.json();
         setColis(data.colis || []);
+        setTotalColis(data.total || 0);
+        setTotalPages(data.totalPages || 1);
+        setPage(data.page || pageToFetch);
       }
     } catch {
       // Silencieux
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePeriodChange = (newPeriod: '30d' | 'all') => {
+    setPeriod(newPeriod);
+    setPage(1);
+    fetchColis(1, newPeriod);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setPage(newPage);
+    fetchColis(newPage, period);
   };
 
   const fetchDrivers = async () => {
@@ -379,9 +402,43 @@ export default function AgencyColisPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Sélecteur de période */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '3px',
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '8px', padding: '2px'
+            }}>
+              <button
+                type="button"
+                onClick={() => handlePeriodChange('30d')}
+                style={{
+                  border: 'none',
+                  backgroundColor: period === '30d' ? 'var(--ag-brand)' : 'transparent',
+                  color: period === '30d' ? '#fff' : 'var(--ag-text-secondary)',
+                  padding: '5px 10px', borderRadius: '6px', fontSize: '0.75rem',
+                  fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s ease'
+                }}
+              >
+                30 derniers jours
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePeriodChange('all')}
+                style={{
+                  border: 'none',
+                  backgroundColor: period === 'all' ? 'var(--ag-brand)' : 'transparent',
+                  color: period === 'all' ? '#fff' : 'var(--ag-text-secondary)',
+                  padding: '5px 10px', borderRadius: '6px', fontSize: '0.75rem',
+                  fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s ease'
+                }}
+              >
+                Historique complet
+              </button>
+            </div>
+
             <button
-              onClick={fetchColis}
+              onClick={() => fetchColis(page, period)}
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '8px 14px', borderRadius: '8px',
@@ -645,6 +702,56 @@ export default function AgencyColisPage() {
               )}
             </tbody>
           </table>
+
+          {/* Pagination Footer */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 18px', borderTop: '1px solid var(--ag-border)',
+            backgroundColor: 'var(--ag-surface)', flexWrap: 'wrap', gap: '10px'
+          }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
+              Affichage de {colis.length > 0 ? (page - 1) * pageSize + 1 : 0} à {Math.min(page * pageSize, totalColis)} sur {totalColis} colis
+              {period === '30d' && (
+                <span style={{ marginLeft: '6px', color: 'var(--ag-brand)', fontWeight: '600' }}>
+                  (30 derniers jours)
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page <= 1 || loading}
+                style={{
+                  padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                  fontSize: '0.8rem', fontWeight: '600', cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                  opacity: page <= 1 ? 0.4 : 1
+                }}
+              >
+                Précédent
+              </button>
+
+              <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--ag-text-primary)', padding: '0 6px' }}>
+                Page {page} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page >= totalPages || loading}
+                style={{
+                  padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--ag-border)',
+                  backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                  fontSize: '0.8rem', fontWeight: '600', cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                  opacity: page >= totalPages ? 0.4 : 1
+                }}
+              >
+                Suivant
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

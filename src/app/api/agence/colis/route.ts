@@ -15,10 +15,15 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '50')), 200);
+    const offset = searchParams.has('offset')
+      ? parseInt(searchParams.get('offset') || '0')
+      : (page - 1) * limit;
+
     const status = searchParams.get('status');
     const search = searchParams.get('search');
+    const period = searchParams.get('period') || '30d'; // '30d' | '7d' | '90d' | 'all'
 
     let query = supabaseAdmin
       .from('packages')
@@ -44,7 +49,18 @@ export async function GET(request: NextRequest) {
         driver:drivers!driver_id(id, phone, profile:profiles(name)),
         origin_drop_point:drop_points!origin_drop_point_id(id, name, commune, address, phone, opening_hours)
       `, { count: 'exact' })
-      .eq('agency_id', session.agencyId)
+      .eq('agency_id', session.agencyId);
+
+    // Filtre par période (par défaut les 30 derniers jours pour préserver la mémoire et la rapidité)
+    // Si une recherche textuelle précise est effectuée, on recherche sur tout l'historique
+    if (!search && period !== 'all') {
+      const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+      const dateLimit = new Date();
+      dateLimit.setDate(dateLimit.getDate() - days);
+      query = query.gte('created_at', dateLimit.toISOString());
+    }
+
+    query = query
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -107,7 +123,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ colis, total: count || 0 });
+    const total = count || 0;
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return NextResponse.json({
+      colis,
+      total,
+      page,
+      limit,
+      totalPages,
+      period,
+    });
   } catch (err) {
     console.error('[GET /api/agence/colis]', err);
     return NextResponse.json({ error: 'Erreur interne.' }, { status: 500 });

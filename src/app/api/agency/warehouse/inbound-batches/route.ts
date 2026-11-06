@@ -18,12 +18,14 @@ export async function GET(req: NextRequest) {
     const searchCode = req.nextUrl.searchParams.get('code')?.trim();
     const token = req.nextUrl.searchParams.get('token')?.trim();
     const status = req.nextUrl.searchParams.get('status');
+    const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '60'), 200);
 
     let query = supabase
       .from('warehouse_inbound_batches')
       .select('*')
       .eq('agency_id', agencyId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (token) {
       query = query.eq('qr_token', token);

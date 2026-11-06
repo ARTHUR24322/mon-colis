@@ -48,32 +48,61 @@ export async function POST(request: NextRequest) {
     console.log(`[ADMIN DELETE VENDOR] Suppression définitive du vendeur: ${vendorName} (${vendorId})`);
 
     // 4. Nettoyage sécurisé en cascade des dépendances du vendeur
-    // A. Abonnements d'entrepôt
-    await supabaseAdmin.from('vendor_storage_subscriptions').delete().eq('vendor_id', vendorId);
+    // A. Récupérer et nettoyer tous les colis du vendeur et leurs sous-dépendances
+    const { data: vendorPackages } = await supabaseAdmin
+      .from('packages')
+      .select('id')
+      .eq('vendeur_id', vendorId);
 
-    // B. Mouvements de stock
-    await supabaseAdmin.from('warehouse_stock_movements').delete().eq('vendor_id', vendorId);
+    const pkgIds = (vendorPackages || []).map((p: any) => p.id).filter(Boolean);
 
-    // C. Inventaire entrepôt
-    await supabaseAdmin.from('warehouse_inventory').delete().eq('vendor_id', vendorId);
-
-    // D. Bons de réception de stock (Inbound batches)
-    await supabaseAdmin.from('warehouse_inbound_batches').delete().eq('vendor_id', vendorId);
-
-    // E. Demandes de versement
-    await supabaseAdmin.from('vendor_payout_requests').delete().eq('vendor_id', vendorId);
-
-    // F. Supprimer ou détacher les colis créés par ce vendeur
-    // Note: on supprime les colis créés par le vendeur s'ils sont rattachés
+    if (pkgIds.length > 0) {
+      await supabaseAdmin.from('package_audit_logs').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('financial_audits').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('package_quotes').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('driver_cash_deposits').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('driver_cash_requests').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('warehouse_stock_movements').delete().in('package_id', pkgIds);
+      await supabaseAdmin.from('packages').delete().in('id', pkgIds);
+    }
+    // Filet de sécurité : supprimer tout colis restant avec ce vendeur_id
     await supabaseAdmin.from('packages').delete().eq('vendeur_id', vendorId);
 
-    // G. Supprimer le profil vendeur
+    // B. Abonnements d'entrepôt, mouvements de stock et inventaire
+    await supabaseAdmin.from('vendor_storage_subscriptions').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('warehouse_stock_movements').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('warehouse_inventory').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('warehouse_inbound_batches').delete().eq('vendor_id', vendorId);
+
+    // C. Demandes de versement et paiements
+    await supabaseAdmin.from('vendor_payout_requests').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('vendor_payment_requests').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('payment_otps').delete().eq('vendor_id', vendorId);
+    await supabaseAdmin.from('ledger_entries').delete().eq('vendor_id', vendorId);
+
+    // D. Audits financiers, devis et logs de sécurité
+    await supabaseAdmin.from('financial_audits').delete().or(`actor_id.eq.${vendorId},target_id.eq.${vendorId}`);
+    await supabaseAdmin.from('package_quotes').delete().eq('vendeur_id', vendorId);
+    await supabaseAdmin.from('notifications').delete().eq('user_id', vendorId);
+    await supabaseAdmin.from('security_logs').delete().eq('actor_id', vendorId);
+
+    // E. Table vendors (si présente dans la base)
+    try {
+      await supabaseAdmin.from('vendors').delete().eq('id', vendorId);
+    } catch {
+      // Silencieux si la table vendors n'existe pas
+    }
+
+    // F. Supprimer le profil vendeur dans profiles
     const { error: profileDeleteError } = await supabaseAdmin.from('profiles').delete().eq('id', vendorId);
     if (profileDeleteError) {
       console.error('[ADMIN DELETE VENDOR] Erreur suppression profiles:', profileDeleteError);
+      return NextResponse.json({
+        error: `Impossible de supprimer le profil vendeur : ${profileDeleteError.message}`
+      }, { status: 400 });
     }
 
-    // H. Supprimer le compte Supabase Auth
+    // G. Supprimer le compte Supabase Auth
     try {
       await supabaseAdmin.auth.admin.deleteUser(vendorId);
     } catch (authErr) {

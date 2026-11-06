@@ -232,8 +232,11 @@ export default function AdminDashboard() {
   const [advancedCodeError, setAdvancedCodeError] = useState<string | null>(null);
   const [agencyToDelete, setAgencyToDelete] = useState<Agence | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deleteAgencyPackages, setDeleteAgencyPackages] = useState(true);
+  const [reassignAgencyId, setReassignAgencyId] = useState('');
   const [deletingAgency, setDeletingAgency] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [purgingOrphans, setPurgingOrphans] = useState(false);
 
   const [vendorToDelete, setVendorToDelete] = useState<Vendeur | null>(null);
   const [deleteVendorConfirmInput, setDeleteVendorConfirmInput] = useState('');
@@ -800,12 +803,24 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agencyId: agencyToDelete.id,
-          securityCode: advancedCodeInput.trim()
+          securityCode: advancedCodeInput.trim(),
+          deletePackages: deleteAgencyPackages,
+          reassignToAgencyId: reassignAgencyId || undefined
         })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setAgences(prev => prev.filter(a => a.id !== agencyToDelete.id));
+        if (deleteAgencyPackages) {
+          setColis(prev => prev.filter(c => c.agenceId !== agencyToDelete.id));
+        } else if (reassignAgencyId) {
+          const targetAg = agences.find(a => a.id === reassignAgencyId);
+          setColis(prev => prev.map(c => c.agenceId === agencyToDelete.id ? {
+            ...c,
+            agenceId: reassignAgencyId,
+            agence: targetAg?.name || c.agence
+          } : c));
+        }
         setToast(data.message || 'Agence définitivement supprimée avec succès.');
         setAgencyToDelete(null);
         setDeleteConfirmInput('');
@@ -816,6 +831,31 @@ export default function AdminDashboard() {
       setDeleteError('Erreur de connexion réseau.');
     } finally {
       setDeletingAgency(false);
+    }
+  };
+
+  const handlePurgeOrphans = async () => {
+    if (!window.confirm(`Confirmez-vous la purge définitive de ${orphanColisTotal} colis orphelin(s) sans agence ? Cette action supprimera leurs audits et dépendances pour garder une base saine.`)) {
+      return;
+    }
+    setPurgingOrphans(true);
+    try {
+      const res = await fetch('/api/admin/packages/cleanup-orphans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'purge' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setColis(prev => prev.filter(c => Boolean(c.agenceId) && c.agenceId !== ''));
+        setToast(data.message || 'Colis orphelins purgés avec succès.');
+      } else {
+        alert(data.error || 'Erreur lors de la purge des colis orphelins.');
+      }
+    } catch {
+      alert('Erreur de connexion.');
+    } finally {
+      setPurgingOrphans(false);
     }
   };
 
@@ -1483,19 +1523,32 @@ export default function AdminDashboard() {
                             Dont {orphanColisLivres} livré non commissionné.
                           </p>
                         </div>
-                        <button
-                          onClick={() => {
-                            setColisAgencyFilter('ORPHAN');
-                            setActiveTab('colis');
-                          }}
-                          style={{
-                            padding: '0.55rem 1.35rem', borderRadius: '9999px', border: 'none',
-                            background: '#f97316', color: '#ffffff', fontSize: '0.84rem', fontWeight: '700',
-                            cursor: 'pointer', flexShrink: 0
-                          }}
-                        >
-                          Assigner
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => {
+                              setColisAgencyFilter('ORPHAN');
+                              setActiveTab('colis');
+                            }}
+                            style={{
+                              padding: '0.55rem 1.35rem', borderRadius: '9999px', border: 'none',
+                              background: '#f97316', color: '#ffffff', fontSize: '0.84rem', fontWeight: '700',
+                              cursor: 'pointer', flexShrink: 0
+                            }}
+                          >
+                            Assigner
+                          </button>
+                          <button
+                            onClick={handlePurgeOrphans}
+                            disabled={purgingOrphans}
+                            style={{
+                              padding: '0.55rem 1.1rem', borderRadius: '9999px', border: '1px solid rgba(239,68,68,0.4)',
+                              background: 'rgba(239,68,68,0.15)', color: '#f87171', fontSize: '0.84rem', fontWeight: '700',
+                              cursor: purgingOrphans ? 'not-allowed' : 'pointer', flexShrink: 0
+                            }}
+                          >
+                            {purgingOrphans ? 'Purge en cours...' : 'Purger les orphelins'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -3974,6 +4027,41 @@ export default function AdminDashboard() {
               <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
                 ID: {agencyToDelete.id} · Email: {agencyToDelete.email}
               </div>
+            </div>
+
+            {/* Options de gestion des colis */}
+            <div style={{
+              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '10px', padding: '0.85rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem'
+            }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1' }}>
+                <input
+                  type="checkbox"
+                  checked={deleteAgencyPackages}
+                  onChange={e => setDeleteAgencyPackages(e.target.checked)}
+                  style={{ accentColor: '#ef4444', width: '16px', height: '16px' }}
+                />
+                <span>Supprimer également tous les colis liés à cette agence (évite les colis orphelins)</span>
+              </label>
+
+              {!deleteAgencyPackages && (
+                <div style={{ marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Réassigner les colis vers une agence active :</span>
+                  <select
+                    value={reassignAgencyId}
+                    onChange={e => setReassignAgencyId(e.target.value)}
+                    style={{
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                      color: '#fff', borderRadius: '6px', padding: '0.45rem 0.6rem', fontSize: '0.8rem', outline: 'none'
+                    }}
+                  >
+                    <option value="">-- Choisir une agence de repli --</option>
+                    {agences.filter(a => a.id !== agencyToDelete.id && a.status === 'active').map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.address || 'Kinshasa'})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: '1.25rem' }}>

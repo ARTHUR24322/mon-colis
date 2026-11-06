@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import AgencyShell from '@/components/agency/AgencyShell';
 import { useAuth } from '@/lib/use-auth';
 import { useCurrency } from '@/components/CurrencyContext';
@@ -143,6 +143,7 @@ export default function AgencyWarehousePage() {
 
   // Picking & Préparation
   const [pickingOrders, setPickingOrders] = useState<PickingOrder[]>([]);
+  const [pickingViewFilter, setPickingViewFilter] = useState<'pending' | 'assigned' | 'all'>('pending');
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
   const [selectedDrivers, setSelectedDrivers] = useState<Record<string, string>>({});
   const [processingPickingId, setProcessingPickingId] = useState<string | null>(null);
@@ -560,6 +561,20 @@ export default function AgencyWarehousePage() {
     o => !o.driverId && o.pickingStatus !== 'ASSIGNED' && o.pickingStatus !== 'DELIVERED'
   ).length;
 
+  const assignedPickingCount = pickingOrders.filter(
+    o => Boolean(o.driverId) || o.pickingStatus === 'ASSIGNED' || o.pickingStatus === 'DELIVERED'
+  ).length;
+
+  const displayedPickingOrders: PickingOrder[] = useMemo(() => {
+    if (pickingViewFilter === 'pending') {
+      return pickingOrders.filter(o => !o.driverId && o.pickingStatus !== 'ASSIGNED' && o.pickingStatus !== 'DELIVERED');
+    }
+    if (pickingViewFilter === 'assigned') {
+      return pickingOrders.filter(o => Boolean(o.driverId) || o.pickingStatus === 'ASSIGNED' || o.pickingStatus === 'DELIVERED');
+    }
+    return pickingOrders;
+  }, [pickingOrders, pickingViewFilter]);
+
   return (
     <AgencyShell>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
@@ -974,21 +989,72 @@ export default function AgencyWarehousePage() {
               </div>
             </div>
 
-            {pickingOrders.length === 0 ? (
+            {/* Filtres d'affichage Picking */}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setPickingViewFilter('pending')}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
+                  borderColor: pickingViewFilter === 'pending' ? '#f97316' : 'rgba(0,0,0,0.1)',
+                  background: pickingViewFilter === 'pending' ? 'rgba(249, 115, 22, 0.12)' : 'transparent',
+                  color: pickingViewFilter === 'pending' ? '#ea580c' : 'inherit',
+                  fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                À préparer / expédier ({pendingPickingCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickingViewFilter('assigned')}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
+                  borderColor: pickingViewFilter === 'assigned' ? '#10b981' : 'rgba(0,0,0,0.1)',
+                  background: pickingViewFilter === 'assigned' ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+                  color: pickingViewFilter === 'assigned' ? '#059669' : 'inherit',
+                  fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                Remis au livreur / Expédiés ({assignedPickingCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickingViewFilter('all')}
+                style={{
+                  padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
+                  borderColor: pickingViewFilter === 'all' ? '#64748b' : 'rgba(0,0,0,0.1)',
+                  background: pickingViewFilter === 'all' ? 'rgba(100, 116, 139, 0.12)' : 'transparent',
+                  color: pickingViewFilter === 'all' ? '#334155' : 'inherit',
+                  fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                Tous ({pickingOrders.length})
+              </button>
+            </div>
+
+            {displayedPickingOrders.length === 0 ? (
               <div style={{
                 background: 'var(--agency-card-bg, #fff)', border: '1px dashed var(--agency-card-border, rgba(0,0,0,0.15))',
                 borderRadius: '20px', padding: '3rem 1.5rem', textAlign: 'center',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem'
               }}>
                 <Boxes size={44} color="#94a3b8" />
-                <div style={{ fontWeight: '800', fontSize: '1.1rem' }}>Aucune commande en attente de préparation</div>
+                <div style={{ fontWeight: '800', fontSize: '1.1rem' }}>
+                  {pickingViewFilter === 'pending'
+                    ? 'Aucune commande en attente de préparation'
+                    : pickingViewFilter === 'assigned'
+                    ? 'Aucun colis remis au livreur'
+                    : 'Aucune commande enregistrée'}
+                </div>
                 <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '350px' }}>
-                  Dès qu'un vendeur déclenche une expédition depuis son stock dans votre entrepôt, sa fiche de picking apparaîtra ici.
+                  {pickingViewFilter === 'pending'
+                    ? 'Tous les colis de stock ont été préparés et confiés aux livreurs !'
+                    : 'Dès qu\'un vendeur déclenche une expédition depuis son stock dans votre entrepôt, sa fiche de picking apparaîtra ici.'}
                 </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                {pickingOrders.map(order => (
+                {displayedPickingOrders.map(order => (
                   <div
                     key={order.id}
                     style={{
