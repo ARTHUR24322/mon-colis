@@ -66,7 +66,11 @@ export async function POST(req: NextRequest) {
       const { error: delErr } = await supabase.from('packages').delete().in('id', ids);
       if (delErr) {
         console.error('[CLEANUP ORPHANS] Erreur suppression packages:', delErr);
-        return NextResponse.json({ error: `Erreur lors de la suppression des colis : ${delErr.message}` }, { status: 500 });
+        let userMsg = delErr.message;
+        if (userMsg.includes('IMMUABLE') || userMsg.includes('package_audit_logs') || userMsg.includes('financial_audits')) {
+          userMsg = "La base de données protège les logs d'audit par un déclencheur strict (IMMUABLE). Veuillez exécuter la migration 'migration_fix_immutable_audit_deletion.sql' dans le SQL Editor de Supabase pour autoriser la purge des colis orphelins.";
+        }
+        return NextResponse.json({ error: `Erreur lors de la suppression des colis : ${userMsg}` }, { status: 500 });
       }
 
       return NextResponse.json({

@@ -97,8 +97,12 @@ export async function POST(request: NextRequest) {
     const { error: profileDeleteError } = await supabaseAdmin.from('profiles').delete().eq('id', vendorId);
     if (profileDeleteError) {
       console.error('[ADMIN DELETE VENDOR] Erreur suppression profiles:', profileDeleteError);
+      let userMsg = profileDeleteError.message;
+      if (userMsg.includes('IMMUABLE') || userMsg.includes('package_audit_logs') || userMsg.includes('financial_audits')) {
+        userMsg = "La base de données protège les logs d'audit par un déclencheur strict (IMMUABLE). Veuillez exécuter la migration 'migration_fix_immutable_audit_deletion.sql' dans le SQL Editor de Supabase pour autoriser la suppression administrative.";
+      }
       return NextResponse.json({
-        error: `Impossible de supprimer le profil vendeur : ${profileDeleteError.message}`
+        error: `Impossible de supprimer le profil vendeur : ${userMsg}`
       }, { status: 400 });
     }
 
