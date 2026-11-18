@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Store, Truck, ArrowLeft, Lock, Mail, User, Phone, MapPin, CheckCircle2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Store, Truck, ArrowLeft, Lock, Mail, User, Phone, MapPin, CheckCircle2, ShieldCheck, AlertCircle, Building2 } from 'lucide-react';
+import { DRC_CITIES, sanitizeDrcPhoneDigits, formatDrcPhoneDisplay } from '@/utils/kinshasa';
 
 export default function RegisterPage() {
   const params = useParams();
@@ -17,23 +18,43 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [address, setAddress] = useState('');
+  const [city, setCity] = useState('Kinshasa');
   const [zone, setZone] = useState('');
   const [description, setDescription] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [error, setError] = useState('');
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+
+    if (phoneDigits.length !== 9) {
+      setError('Le numéro de téléphone doit comporter exactement 9 chiffres après +243 (ex: 81 234 56 78).');
+      return;
+    }
+
+    setLoading(true);
+
+    const fullPhone = `+243${phoneDigits}`;
+    const fullAddress = address.trim() ? `${address.trim()}, ${city}` : city;
 
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, phone, address, zone, description, role }),
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          phone: fullPhone,
+          city,
+          address: fullAddress,
+          zone,
+          description,
+          role
+        }),
         credentials: 'same-origin',
       });
 
@@ -159,7 +180,7 @@ export default function RegisterPage() {
             </Link>
 
             <Link
-              href="/auth/agence/register"
+              href="/agence/rejoindre"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -184,7 +205,7 @@ export default function RegisterPage() {
           <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
-                {isAgence ? 'Nom de l\'Agence de livraison' : 'Nom de la Boutique / Vendeur'}
+                {isAgence ? 'Nom de l\'Agence de livraison' : 'Nom de la Boutique / Vendeur *'}
               </label>
               <div style={{ position: 'relative' }}>
                 <User size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
@@ -202,7 +223,7 @@ export default function RegisterPage() {
             
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
-                Adresse Email professionnelle
+                Adresse Email professionnelle *
               </label>
               <div style={{ position: 'relative' }}>
                 <Mail size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
@@ -220,19 +241,60 @@ export default function RegisterPage() {
 
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '500', color: '#cbd5e1' }}>
-                Numéro de Téléphone (WhatsApp/Contact)
+                Numéro de Téléphone (WhatsApp/Contact) *
               </label>
-              <div style={{ position: 'relative' }}>
-                <Phone size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <div style={{
+                display: 'flex', alignItems: 'center', height: '46px', borderRadius: '10px',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '0 0.85rem', height: '100%', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  background: 'rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.12)',
+                  color: '#4ade80', fontWeight: '800', fontSize: '0.9rem', userSelect: 'none', flexShrink: 0
+                }}>
+                  <span style={{ fontSize: '1.1rem' }}>🇨🇩</span>
+                  <span>+243</span>
+                </div>
                 <input 
                   type="tel" 
-                  className="input-field" 
-                  placeholder="+243 81 000 0000" 
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  style={{ paddingLeft: '2.75rem' }}
-                  required 
+                  required
+                  placeholder="81 234 56 78" 
+                  value={formatDrcPhoneDisplay(phoneDigits)}
+                  onChange={(e) => setPhoneDigits(sanitizeDrcPhoneDigits(e.target.value))}
+                  maxLength={12}
+                  style={{
+                    flex: 1, height: '100%', background: 'transparent', border: 'none',
+                    padding: '0 0.85rem', color: '#fff', fontSize: '0.95rem', fontWeight: '600',
+                    letterSpacing: '0.04em', outline: 'none'
+                  }}
                 />
+              </div>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                9 chiffres (l'indicatif +243 remplace le 0)
+              </p>
+            </div>
+
+            {/* Ville */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: '600', color: '#cbd5e1' }}>
+                <span style={{ color: '#ef4444' }}>*</span> Ville principale d'activité
+              </label>
+              <div style={{ position: 'relative' }}>
+                <MapPin size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <select
+                  required
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="input-field"
+                  style={{ paddingLeft: '2.75rem', outline: 'none' }}
+                >
+                  {DRC_CITIES.map(c => (
+                    <option key={c} value={c} style={{ background: '#0d1117', color: '#fff' }}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -243,11 +305,11 @@ export default function RegisterPage() {
                 {isAgence ? 'Adresse du Dépôt / Siège de l\'Agence' : 'Adresse exacte de la Boutique / Lieu d\'activité'}
               </label>
               <div style={{ position: 'relative' }}>
-                <MapPin size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <Building2 size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                 <input 
                   type="text" 
                   className="input-field" 
-                  placeholder={isAgence ? "Boulevard du 30 Juin, Gombe, Kinshasa" : "Avenue Kasa-Vubu, Commune de Kinshasa"} 
+                  placeholder={isAgence ? "Boulevard du 30 Juin, Gombe" : "Avenue Kasa-Vubu, Quartier..."} 
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   style={{ paddingLeft: '2.75rem' }}

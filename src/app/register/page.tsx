@@ -20,27 +20,10 @@ import {
   Building2,
   Check,
   ClipboardList,
-  Lightbulb
+  Lightbulb,
+  Info
 } from 'lucide-react';
-
-const KINSHASA_COMMUNES = [
-  'Gombe',
-  'Limete',
-  'Lemba',
-  'Bandalungwa',
-  'Ngaliema',
-  'Kintambo',
-  'Matete',
-  'Kalamu',
-  'Lingwala',
-  'Barumbu',
-  'Kinshasa',
-  'Ngaba',
-  'Mont-Ngafula',
-  'Selembao',
-  'Masina',
-  'Ndjili',
-];
+import { DRC_CITIES, sanitizeDrcPhoneDigits, formatDrcPhoneDisplay } from '@/utils/kinshasa';
 
 export default function GlobalRegisterPage() {
   const router = useRouter();
@@ -48,31 +31,30 @@ export default function GlobalRegisterPage() {
   const [name, setName] = useState('');
   const [managerName, setManagerName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phoneDigits, setPhoneDigits] = useState('');
+  const [city, setCity] = useState('Kinshasa');
   const [address, setAddress] = useState('');
   const [password, setPassword] = useState('');
   const [fleetSize, setFleetSize] = useState('3');
   const [maxWeightKg, setMaxWeightKg] = useState('30');
-  const [selectedZones, setSelectedZones] = useState<string[]>(['Gombe', 'Limete']);
   
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [agencySubmitted, setAgencySubmitted] = useState(false);
 
-  const toggleZone = (commune: string) => {
-    if (selectedZones.includes(commune)) {
-      if (selectedZones.length > 1) {
-        setSelectedZones(selectedZones.filter(z => z !== commune));
-      }
-    } else {
-      setSelectedZones([...selectedZones, commune]);
-    }
-  };
-
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setErrorMsg('');
+
+    if (phoneDigits.length !== 9) {
+      setErrorMsg('Le numéro de téléphone doit comporter exactement 9 chiffres après +243 (ex: 81 234 56 78).');
+      return;
+    }
+
+    setLoading(true);
+
+    const fullPhone = `+243${phoneDigits}`;
+    const fullAddress = address.trim() ? `${address.trim()}, ${city}` : city;
 
     try {
       const res = await fetch('/api/auth/register', {
@@ -83,10 +65,11 @@ export default function GlobalRegisterPage() {
           name,
           managerName: role === 'agence' ? managerName : undefined,
           email,
-          phone,
-          address: role === 'agence' ? address : undefined,
+          phone: fullPhone,
+          city,
+          address: fullAddress,
           password,
-          coverageZones: role === 'agence' ? selectedZones : undefined,
+          coverageZones: [city],
           fleetSize: role === 'agence' ? parseInt(fleetSize, 10) || 1 : undefined,
           maxWeightKg: role === 'agence' ? parseFloat(maxWeightKg) || 30 : undefined,
         }),
@@ -182,9 +165,9 @@ export default function GlobalRegisterPage() {
             </div>
             <div>• <strong>Agence :</strong> {name}</div>
             <div>• <strong>Email :</strong> {email}</div>
-            <div>• <strong>Téléphone :</strong> {phone}</div>
+            <div>• <strong>Téléphone :</strong> +243 {formatDrcPhoneDisplay(phoneDigits)}</div>
             <div>• <strong>Flotte déclarée :</strong> {fleetSize} livreurs / motos</div>
-            <div>• <strong>Zones couvertes :</strong> {selectedZones.join(', ')}</div>
+            <div>• <strong>Ville :</strong> {city}</div>
           </div>
 
           <div style={{
@@ -469,14 +452,75 @@ export default function GlobalRegisterPage() {
               <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
                 Numéro de Téléphone (WhatsApp/Appels) *
               </label>
-              <div style={{ position: 'relative' }}>
-                <Phone size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <div style={{
+                display: 'flex', alignItems: 'center', height: '44px', borderRadius: '10px',
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '0 0.85rem', height: '100%', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  background: 'rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.12)',
+                  color: role === 'vendeur' ? '#4ade80' : '#60a5fa', fontWeight: '800', fontSize: '0.9rem',
+                  userSelect: 'none', flexShrink: 0
+                }}>
+                  <span style={{ fontSize: '1.1rem' }}>🇨🇩</span>
+                  <span>+243</span>
+                </div>
                 <input
                   type="tel"
+                  required
+                  placeholder="81 234 56 78"
+                  value={formatDrcPhoneDisplay(phoneDigits)}
+                  onChange={(e) => setPhoneDigits(sanitizeDrcPhoneDigits(e.target.value))}
+                  maxLength={12}
+                  style={{
+                    flex: 1, height: '100%', background: 'transparent', border: 'none',
+                    padding: '0 0.85rem', color: '#fff', fontSize: '0.95rem', fontWeight: '600',
+                    letterSpacing: '0.04em', outline: 'none'
+                  }}
+                />
+              </div>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
+                9 chiffres (l'indicatif +243 remplace le 0)
+              </p>
+            </div>
+
+            {/* Ville d'activité / d'implantation */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
+                {role === 'vendeur' ? 'Ville de votre Boutique *' : 'Ville d\'implantation de l\'Agence *'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <MapPin size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <select
+                  required
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
                   className="input-field"
-                  placeholder="+243 81 000 0000"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  style={{ paddingLeft: '2.75rem', outline: 'none' }}
+                >
+                  {DRC_CITIES.map(c => (
+                    <option key={c} value={c} style={{ background: '#0d1117', color: '#fff' }}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Adresse physique */}
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
+                {role === 'vendeur' ? 'Adresse physique de la boutique ou domicile *' : 'Adresse du Siège / Dépôt Principal *'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Building2 size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder={role === 'vendeur' ? 'Ex: Boulevard du 30 Juin, n°14, Quartier...' : 'Ex: Boulevard du 30 Juin, n°14, Gombe'}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
                   style={{ paddingLeft: '2.75rem' }}
                   required
                 />
@@ -485,24 +529,6 @@ export default function GlobalRegisterPage() {
 
             {role === 'agence' && (
               <>
-                <div>
-                  <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                    Adresse du Siège / Dépôt Principal *
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <MapPin size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                    <input
-                      type="text"
-                      className="input-field"
-                      placeholder="Ex: Boulevard du 30 Juin, n°14, Gombe"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      style={{ paddingLeft: '2.75rem' }}
-                      required
-                    />
-                  </div>
-                </div>
-
                 <div>
                   <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
                     Taille estimée de votre flotte (Livreurs / Motos)
@@ -537,49 +563,15 @@ export default function GlobalRegisterPage() {
                   </p>
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                    Communes de Kinshasa desservies ({selectedZones.length} sélectionnée(s))
-                  </label>
-                  <div style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '0.4rem',
-                    maxHeight: '120px',
-                    overflowY: 'auto',
-                    padding: '0.5rem',
-                    background: 'rgba(0,0,0,0.3)',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(255,255,255,0.08)'
-                  }}>
-                    {KINSHASA_COMMUNES.map(commune => {
-                      const selected = selectedZones.includes(commune);
-                      return (
-                        <button
-                          key={commune}
-                          type="button"
-                          onClick={() => toggleZone(commune)}
-                          style={{
-                            padding: '0.3rem 0.6rem',
-                            borderRadius: '20px',
-                            border: 'none',
-                            fontSize: '0.75rem',
-                            fontWeight: '600',
-                            cursor: 'pointer',
-                            background: selected ? '#2563eb' : 'rgba(255,255,255,0.07)',
-                            color: selected ? '#fff' : '#94a3b8',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.25rem',
-                            transition: 'all 0.15s'
-                          }}
-                        >
-                          {selected && <Check size={12} />}
-                          {commune}
-                        </button>
-                      );
-                    })}
-                  </div>
+                {/* Note informative sur les communes */}
+                <div style={{
+                  background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
+                  borderRadius: '10px', padding: '0.75rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.65rem'
+                }}>
+                  <Info size={18} color="#60a5fa" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.78rem', color: '#93c5fd', lineHeight: 1.4 }}>
+                    Les communes spécifiques desservies par votre agence seront configurables dans votre espace de gestion une fois votre dossier approuvé par le Superadmin.
+                  </span>
                 </div>
               </>
             )}

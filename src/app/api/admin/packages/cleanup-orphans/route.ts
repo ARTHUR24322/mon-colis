@@ -135,3 +135,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erreur interne du serveur.' }, { status: 500 });
   }
 }
+

@@ -23,12 +23,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, email, password, phone, address, role, coverageZones, fleetSize, maxWeightKg } = body as {
+    const { name, email, password, phone, address, city, role, coverageZones, fleetSize, maxWeightKg } = body as {
       name: string;
       email: string;
       password: string;
       phone: string;
       address: string;
+      city?: string;
       role: string;
       coverageZones?: string[] | string;
       fleetSize?: number | string;
@@ -43,14 +44,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Rôle invalide.' }, { status: 400 });
     }
 
+    // Normalisation stricte du numéro de téléphone en RDC (+243 + 9 chiffres)
+    let phoneDigits = (phone || '').replace(/\D/g, '');
+    if (phoneDigits.startsWith('243')) {
+      phoneDigits = phoneDigits.slice(3);
+    }
+    phoneDigits = phoneDigits.replace(/^0+/, '');
+    if (phoneDigits.length !== 9) {
+      return NextResponse.json(
+        { error: 'Le numéro de téléphone doit comporter exactement 9 chiffres après +243 (ex: 81 234 56 78).' },
+        { status: 400 }
+      );
+    }
+    const normalizedPhone = `+243${phoneDigits}`;
+
     // 1. Check if email already exists in profiles
-    const { data: existing } = await supabase
+    const { data: existingEmail } = await supabase
       .from('profiles')
       .select('id')
       .eq('email', email.toLowerCase().trim())
       .maybeSingle();
 
-    if (existing) {
+    if (existingEmail) {
       return NextResponse.json({ error: 'Un compte avec cet email existe déjà.' }, { status: 409 });
     }
 
@@ -66,7 +81,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         email: email.toLowerCase().trim(),
         password_hash: passwordHash,
-        phone: phone.trim(),
+        phone: normalizedPhone,
         role,
       })
       .select()
@@ -96,7 +111,7 @@ export async function POST(request: NextRequest) {
 
       let agenceData = {
         id: profile.id,         // 1-to-1 with profiles via shared primary key
-        phone: phone.trim(),
+        phone: normalizedPhone,
         address: address?.trim() || '',
         status: 'PENDING',
         coverage_zones: parsedZones,
@@ -139,7 +154,7 @@ export async function POST(request: NextRequest) {
         id: profile.id,
         name: profile.name,
         email: profile.email,
-        phone: phone.trim(),
+        phone: normalizedPhone,
         address: address?.trim() || '',
         coverageZones: parsedZones,
         fleetSize: parsedFleet,

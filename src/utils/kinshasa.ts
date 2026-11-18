@@ -28,3 +28,56 @@ export const KINSHASA_DATA: Record<string, string[]> = {
 };
 
 export const KINSHASA_COMMUNES = Object.keys(KINSHASA_DATA).sort();
+
+// Principales villes de la République Démocratique du Congo
+export const DRC_CITIES: string[] = [
+  'Kinshasa',
+  'Lubumbashi',
+  'Goma',
+  'Matadi',
+  'Kisangani',
+  'Bukavu',
+  'Kolwezi',
+  'Mbuji-Mayi',
+  'Kananga',
+  'Kikwit',
+  'Boma',
+  'Likasi',
+  'Mbandaka',
+  'Kindu',
+  'Kalemie',
+  'Uvira',
+  'Butembo',
+  'Beni',
+  'Tshikapa',
+  'Mwene-Ditu',
+];
+
+/**
+ * Nettoie la saisie d'un numéro RDC saisi après l'indicatif fixe +243 :
+ * - Supprime tout caractère non numérique
+ * - Supprime le préfixe 243 s'il a été collé
+ * - Supprime le 0 initial car +243 remplace le 0 (ex: 0812345678 -> 812345678)
+ * - Limite strictement à 9 chiffres
+ */
+export function sanitizeDrcPhoneDigits(input: string): string {
+  let digits = (input || '').replace(/\D/g, '');
+  if (digits.startsWith('243')) {
+    digits = digits.slice(3);
+  }
+  // En RDC, le 0 national est remplacé par l'indicatif +243
+  digits = digits.replace(/^0+/, '');
+  return digits.slice(0, 9);
+}
+
+/**
+ * Formate les chiffres du numéro pour un affichage aéré : "81 234 56 78"
+ */
+export function formatDrcPhoneDisplay(digits: string): string {
+  const clean = sanitizeDrcPhoneDigits(digits);
+  if (clean.length <= 2) return clean;
+  if (clean.length <= 5) return `${clean.slice(0, 2)} ${clean.slice(2)}`;
+  if (clean.length <= 7) return `${clean.slice(0, 2)} ${clean.slice(2, 5)} ${clean.slice(5)}`;
+  return `${clean.slice(0, 2)} ${clean.slice(2, 5)} ${clean.slice(5, 7)} ${clean.slice(7, 9)}`;
+}
+
