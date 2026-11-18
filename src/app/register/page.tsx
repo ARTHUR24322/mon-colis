@@ -3,93 +3,193 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Store,
-  Truck,
-  ArrowLeft,
-  ShieldCheck,
-  Lock,
-  Mail,
-  User,
-  Phone,
-  MapPin,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Send,
-  Building2,
-  Check,
-  ClipboardList,
-  Lightbulb,
-  Info
-} from 'lucide-react';
-import { DRC_CITIES, sanitizeDrcPhoneDigits, formatDrcPhoneDisplay } from '@/utils/kinshasa';
+import { Check, Eye, EyeOff } from 'lucide-react';
+import { KINSHASA_COMMUNES, sanitizeDrcPhoneDigits, formatDrcPhoneDisplay } from '@/utils/kinshasa';
 
-export default function GlobalRegisterPage() {
+// ─────────────────────────────────────────────────────────────────────────────
+// Step indicator component
+// ─────────────────────────────────────────────────────────────────────────────
+function StepIndicator({ current }: { current: number }) {
+  const steps = [1, 2, 3];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '0.5rem' }}>
+      {steps.map((s, i) => {
+        const done = s < current;
+        const active = s === current;
+        return (
+          <div key={s} style={{ display: 'flex', alignItems: 'center', flex: i < steps.length - 1 ? 1 : 'none' }}>
+            {/* Circle */}
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: '700',
+              fontSize: '0.9rem',
+              flexShrink: 0,
+              background: done ? '#22c55e' : active ? '#f97316' : 'transparent',
+              border: done || active ? 'none' : '2px solid #374151',
+              color: done || active ? '#fff' : '#6b7280',
+              transition: 'all 0.3s ease',
+            }}>
+              {done ? <Check size={16} strokeWidth={3} /> : s}
+            </div>
+            {/* Dashed line */}
+            {i < steps.length - 1 && (
+              <div style={{
+                flex: 1,
+                height: '2px',
+                background: done ? '#22c55e' : '#374151',
+                backgroundImage: done ? 'none' : 'repeating-linear-gradient(90deg, #374151 0, #374151 6px, transparent 6px, transparent 12px)',
+                margin: '0 4px',
+                transition: 'background 0.3s ease',
+              }} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const STEP_LABELS: Record<number, string> = {
+  1: 'votre boutique',
+  2: 'votre adresse',
+  3: 'mot de passe',
+};
+
+// Password strength checks
+function PasswordChecks({ password }: { password: string }) {
+  const checks = [
+    { label: 'Au moins 8 caractères', ok: password.length >= 8 },
+    { label: 'Une lettre', ok: /[a-zA-Z]/.test(password) },
+    { label: 'Un chiffre', ok: /[0-9]/.test(password) },
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.6rem' }}>
+      {checks.map(({ label, ok }) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem' }}>
+          <div style={{
+            width: '14px', height: '14px', borderRadius: '50%',
+            border: `1.5px solid ${ok ? '#22c55e' : '#4b5563'}`,
+            background: ok ? '#22c55e' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0, transition: 'all 0.2s',
+          }}>
+            {ok && <Check size={9} color="#fff" strokeWidth={3} />}
+          </div>
+          <span style={{ color: ok ? '#d1d5db' : '#6b7280' }}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
+export default function RegisterPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'vendeur' | 'agence'>('vendeur');
+  const [step, setStep] = useState(1);
+
+  // Step 1
   const [name, setName] = useState('');
-  const [managerName, setManagerName] = useState('');
-  const [email, setEmail] = useState('');
   const [phoneDigits, setPhoneDigits] = useState('');
-  const [city, setCity] = useState('Kinshasa');
-  const [address, setAddress] = useState('');
+  const [email, setEmail] = useState('');
+
+  // Step 2
+  const [commune, setCommune] = useState('');
+  const [quartier, setQuartier] = useState('');
+  const [avenue, setAvenue] = useState('');
+  const [numero, setNumero] = useState('');
+
+  // Step 3
   const [password, setPassword] = useState('');
-  const [fleetSize, setFleetSize] = useState('3');
-  const [maxWeightKg, setMaxWeightKg] = useState('30');
-  
-  const [loading, setLoading] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+
   const [errorMsg, setErrorMsg] = useState('');
-  const [agencySubmitted, setAgencySubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ── Step validation ──────────────────────────────────────────────────────
+  const validateStep1 = () => {
+    if (!name.trim()) { setErrorMsg('Le nom de la boutique est requis.'); return false; }
+    if (phoneDigits.length !== 9) { setErrorMsg('Le numéro doit contenir 9 chiffres après +243.'); return false; }
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) { setErrorMsg('Adresse e-mail invalide.'); return false; }
+    return true;
+  };
+
+  const validateStep2 = () => {
+    if (!commune.trim()) { setErrorMsg('Veuillez sélectionner une commune.'); return false; }
+    if (!quartier.trim()) { setErrorMsg('Le quartier est requis.'); return false; }
+    if (!avenue.trim()) { setErrorMsg("L'avenue ou rue est requise."); return false; }
+    return true;
+  };
+
+  const validateStep3 = () => {
+    if (password.length < 8) { setErrorMsg('Le mot de passe doit comporter au moins 8 caractères.'); return false; }
+    if (!/[a-zA-Z]/.test(password)) { setErrorMsg('Le mot de passe doit contenir au moins une lettre.'); return false; }
+    if (!/[0-9]/.test(password)) { setErrorMsg('Le mot de passe doit contenir au moins un chiffre.'); return false; }
+    if (password !== confirmPassword) { setErrorMsg('Les mots de passe ne correspondent pas.'); return false; }
+    if (!acceptTerms) { setErrorMsg('Veuillez accepter les conditions d\'utilisation.'); return false; }
+    return true;
+  };
+
+  const goNext = () => {
     setErrorMsg('');
+    if (step === 1 && !validateStep1()) return;
+    if (step === 2 && !validateStep2()) return;
+    setStep(s => s + 1);
+  };
 
-    if (phoneDigits.length !== 9) {
-      setErrorMsg('Le numéro de téléphone doit comporter exactement 9 chiffres après +243 (ex: 81 234 56 78).');
-      return;
-    }
+  const goBack = () => {
+    setErrorMsg('');
+    if (step === 1) router.push('/');
+    else setStep(s => s - 1);
+  };
 
+  // ── Submit ───────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    setErrorMsg('');
+    if (!validateStep3()) return;
     setLoading(true);
 
     const fullPhone = `+243${phoneDigits}`;
-    const fullAddress = address.trim() ? `${address.trim()}, ${city}` : city;
+    // Build complete address: "N°3 Avenue kinshasa limete, hyr, Makala, Kinshasa"
+    const addressParts = [
+      numero ? `N°${numero} ${avenue.trim()}` : avenue.trim(),
+      quartier.trim(),
+      commune.trim(),
+      'Kinshasa',
+    ].filter(Boolean);
+    const fullAddress = addressParts.join(', ');
 
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          role,
-          name,
-          managerName: role === 'agence' ? managerName : undefined,
-          email,
+          role: 'vendeur',
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
           phone: fullPhone,
-          city,
+          city: 'Kinshasa',
           address: fullAddress,
           password,
-          coverageZones: [city],
-          fleetSize: role === 'agence' ? parseInt(fleetSize, 10) || 1 : undefined,
-          maxWeightKg: role === 'agence' ? parseFloat(maxWeightKg) || 30 : undefined,
+          coverageZones: [commune || 'Kinshasa'],
         }),
       });
 
       const data = await res.json();
-
       if (!res.ok) {
         setErrorMsg(data.error || 'Erreur lors de la création du compte.');
-        setLoading(false);
         return;
       }
-
-      if (role === 'agence') {
-        // Demande soumise avec succès, en attente de validation Superadmin
-        setAgencySubmitted(true);
-      } else {
-        // Vendeur connecté immédiatement
-        router.push('/dashboard/vendeur');
-      }
+      router.push('/dashboard/vendeur');
     } catch {
       setErrorMsg('Une erreur réseau est survenue. Vérifiez votre connexion.');
     } finally {
@@ -97,581 +197,406 @@ export default function GlobalRegisterPage() {
     }
   };
 
-  // -------------------------------------------------------------
-  // Écran de confirmation de demande d'adhésion agence
-  // -------------------------------------------------------------
-  if (agencySubmitted) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem 1rem',
-        background: 'radial-gradient(circle at 50% 20%, rgba(59, 130, 246, 0.12), transparent 60%), #07090e'
-      }}>
-        <div style={{
-          maxWidth: '520px',
-          width: '100%',
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid rgba(59, 130, 246, 0.3)',
-          borderRadius: '24px',
-          padding: '2.5rem',
-          backdropFilter: 'blur(20px)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
-          textAlign: 'center',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.5rem'
-        }}>
-          <div style={{
-            width: '68px',
-            height: '68px',
-            borderRadius: '20px',
-            background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto',
-            color: '#fff',
-            boxShadow: '0 10px 25px rgba(37, 99, 235, 0.4)'
-          }}>
-            <Clock size={36} />
-          </div>
+  // ── Shared styles ────────────────────────────────────────────────────────
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '0.85rem 1rem',
+    borderRadius: '10px',
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: '#1e2433',
+    color: '#fff',
+    fontSize: '0.95rem',
+    outline: 'none',
+    boxSizing: 'border-box',
+  };
 
-          <div>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff', marginBottom: '0.5rem' }}>
-              Demande d'Adhésion Transmise !
-            </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
-              Merci d'avoir postulé pour devenir Agence Partenaire Moncolis. Votre dossier a été enregistré et est en attente de vérification par le <strong style={{ color: '#60a5fa' }}>Superadmin</strong>.
-            </p>
-          </div>
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    marginBottom: '0.4rem',
+    fontSize: '0.88rem',
+    fontWeight: '600',
+    color: '#e5e7eb',
+  };
 
-          <div style={{
-            background: 'rgba(59, 130, 246, 0.08)',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
-            borderRadius: '16px',
-            padding: '1.25rem',
-            textAlign: 'left',
-            fontSize: '0.85rem',
-            color: '#cbd5e1',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.6rem'
-          }}>
-            <div style={{ fontWeight: '700', color: '#93c5fd', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <ClipboardList size={16} /> Récapitulatif de votre candidature :
-            </div>
-            <div>• <strong>Agence :</strong> {name}</div>
-            <div>• <strong>Email :</strong> {email}</div>
-            <div>• <strong>Téléphone :</strong> +243 {formatDrcPhoneDisplay(phoneDigits)}</div>
-            <div>• <strong>Flotte déclarée :</strong> {fleetSize} livreurs / motos</div>
-            <div>• <strong>Ville :</strong> {city}</div>
-          </div>
-
-          <div style={{
-            background: 'rgba(234, 179, 8, 0.08)',
-            border: '1px solid rgba(234, 179, 8, 0.25)',
-            borderRadius: '12px',
-            padding: '0.85rem 1rem',
-            fontSize: '0.8rem',
-            color: '#fde047',
-            textAlign: 'left'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-              <Lightbulb size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-              <span>Vous recevrez un appel ou un message de confirmation une fois la validation effectuée. Vous pourrez ensuite vous connecter avec vos identifiants pour gérer vos tournées.</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Link
-              href="/"
-              style={{
-                flex: 1,
-                padding: '0.85rem',
-                borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                background: 'rgba(255, 255, 255, 0.05)',
-                color: '#cbd5e1',
-                textDecoration: 'none',
-                fontWeight: '600',
-                fontSize: '0.9rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              Retour à l'accueil
-            </Link>
-
-            <Link
-              href="/auth/agence/login"
-              style={{
-                flex: 1,
-                padding: '0.85rem',
-                borderRadius: '12px',
-                border: 'none',
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                color: '#fff',
-                textDecoration: 'none',
-                fontWeight: '700',
-                fontSize: '0.9rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
-              }}
-            >
-              Page de Connexion
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // Formulaire d'inscription
-  // -------------------------------------------------------------
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{
       minHeight: '100vh',
+      background: '#0e1117',
       display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '2rem 1rem',
-      background: 'radial-gradient(circle at 50% 20%, rgba(34, 197, 94, 0.08), transparent 60%), radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.06), transparent 50%), #07090e'
+      flexDirection: 'column',
     }}>
+      {/* ── Top bar ── */}
       <div style={{
-        maxWidth: '540px',
-        width: '100%',
         display: 'flex',
-        flexDirection: 'column',
-        gap: '1.5rem'
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '1rem 1.25rem',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
       }}>
-        {/* Back Link */}
-        <Link href="/" style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          fontSize: '0.9rem',
-          color: '#94a3b8',
-          textDecoration: 'none',
-          transition: 'color 0.2s ease',
-          alignSelf: 'flex-start'
-        }}>
-          <ArrowLeft size={16} />
-          Retour à l'accueil
-        </Link>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: 'linear-gradient(135deg, #f97316, #ea580c)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            </svg>
+          </div>
+          <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>Moncolis</span>
+        </div>
 
-        {/* Card */}
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.03)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '24px',
-          padding: '2.5rem',
-          backdropFilter: 'blur(20px)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)'
-        }}>
-          {/* Brand header */}
-          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '14px',
-              background: role === 'vendeur' 
-                ? 'linear-gradient(135deg, #22c55e, #10b981)' 
-                : 'linear-gradient(135deg, #2563eb, #3b82f6)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              margin: '0 auto 1rem auto',
-              boxShadow: role === 'vendeur' 
-                ? '0 8px 20px rgba(34, 197, 94, 0.35)' 
-                : '0 8px 20px rgba(37, 99, 235, 0.35)',
-              transition: 'all 0.3s ease'
-            }}>
-              {role === 'vendeur' ? <Store size={26} /> : <Truck size={26} />}
-            </div>
-            
-            <h1 style={{ fontSize: '1.65rem', fontWeight: '800', color: '#fff', marginBottom: '0.5rem' }}>
-              {role === 'vendeur' ? 'Compte Vendeur & Boutique' : 'Demande d\'Adhésion Agence'}
-            </h1>
-            <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0, lineHeight: 1.5 }}>
-              {role === 'vendeur'
-                ? 'Expédiez et encaissez vos commandes en toute sécurité à Kinshasa.'
-                : 'Les comptes agence sont activés après validation par le Superadmin.'}
+        {/* Back */}
+        <button
+          onClick={goBack}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: '#9ca3af', fontSize: '0.9rem', fontWeight: '500',
+            padding: '0.25rem 0',
+          }}
+        >
+          Retour
+        </button>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        padding: '1.5rem 1rem 2rem',
+      }}>
+        <div style={{ width: '100%', maxWidth: '440px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Step indicator + label */}
+          <div>
+            <StepIndicator current={step} />
+            <p style={{ color: '#9ca3af', fontSize: '0.82rem', margin: '0.4rem 0 0' }}>
+              Étape {step} sur 3 : {STEP_LABELS[step]}
             </p>
           </div>
 
-          {/* Role selector tabs */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '0.5rem',
-            background: 'rgba(255, 255, 255, 0.05)',
-            padding: '0.35rem',
-            borderRadius: '14px',
-            marginBottom: '1.5rem',
-            border: '1px solid rgba(255, 255, 255, 0.08)'
-          }}>
-            <button
-              type="button"
-              onClick={() => { setRole('vendeur'); setErrorMsg(''); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                padding: '0.65rem',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.88rem',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-                background: role === 'vendeur' ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
-                color: role === 'vendeur' ? '#4ade80' : '#94a3b8',
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                borderColor: role === 'vendeur' ? 'rgba(34, 197, 94, 0.4)' : 'transparent'
-              }}
-            >
-              <Store size={16} />
-              Boutique / Vendeur
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setRole('agence'); setErrorMsg(''); }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                padding: '0.65rem',
-                borderRadius: '10px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.88rem',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-                background: role === 'agence' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                color: role === 'agence' ? '#60a5fa' : '#94a3b8',
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                borderColor: role === 'agence' ? 'rgba(59, 130, 246, 0.4)' : 'transparent'
-              }}
-            >
-              <Truck size={16} />
-              Agence (Sur Demande)
-            </button>
-          </div>
-
-          {/* Error Banner */}
+          {/* Error banner */}
           {errorMsg && (
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.6rem',
-              padding: '0.85rem 1rem',
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
-              borderRadius: '12px',
+              padding: '0.75rem 1rem',
+              background: 'rgba(239,68,68,0.12)',
+              border: '1px solid rgba(239,68,68,0.3)',
+              borderRadius: '10px',
               color: '#fca5a5',
-              fontSize: '0.85rem',
-              marginBottom: '1.25rem'
+              fontSize: '0.84rem',
             }}>
-              <AlertCircle size={18} style={{ flexShrink: 0 }} />
-              <span>{errorMsg}</span>
+              {errorMsg}
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                {role === 'vendeur' ? 'Nom de la Boutique / Entreprise *' : 'Nom Commercial de l\'Agence *'}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <User size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder={role === 'vendeur' ? 'Ex: Mode & Chic Kinshasa' : 'Ex: Swift Express Logistics'}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  style={{ paddingLeft: '2.75rem' }}
-                  required
-                />
-              </div>
-            </div>
+          {/* ───────────────── STEP 1 ───────────────── */}
+          {step === 1 && (
+            <div style={{
+              background: '#161b27',
+              borderRadius: '20px',
+              padding: '1.75rem 1.5rem',
+              border: '1px solid rgba(255,255,255,0.07)',
+            }}>
+              <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff', marginBottom: '0.4rem', lineHeight: 1.25 }}>
+                Créez votre compte vendeur
+              </h1>
+              <p style={{ color: '#9ca3af', fontSize: '0.88rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+                Expédiez vos colis à Kinshasa et suivez-les jusqu'à la remise.
+              </p>
 
-            {role === 'agence' && (
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                  Nom complet du Gérant / Responsable *
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Building2 size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                {/* Nom boutique */}
+                <div>
+                  <label style={labelStyle}>Nom de la boutique</label>
                   <input
                     type="text"
-                    className="input-field"
-                    placeholder="Ex: Christian Mukendi"
-                    value={managerName}
-                    onChange={(e) => setManagerName(e.target.value)}
-                    style={{ paddingLeft: '2.75rem' }}
-                    required
+                    placeholder="Ex: Mode & Chic"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    style={inputStyle}
+                    onKeyDown={e => e.key === 'Enter' && goNext()}
+                  />
+                </div>
+
+                {/* Téléphone */}
+                <div>
+                  <label style={labelStyle}>Téléphone WhatsApp</label>
+                  <div style={{
+                    display: 'flex', alignItems: 'center',
+                    borderRadius: '10px', overflow: 'hidden',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: '#1e2433',
+                    height: '48px',
+                  }}>
+                    <div style={{
+                      padding: '0 1rem', height: '100%',
+                      display: 'flex', alignItems: 'center',
+                      background: '#252d3d',
+                      borderRight: '1px solid rgba(255,255,255,0.08)',
+                      color: '#fff', fontWeight: '700', fontSize: '0.95rem',
+                      flexShrink: 0,
+                    }}>
+                      +243
+                    </div>
+                    <input
+                      type="tel"
+                      placeholder="834 590 319"
+                      value={formatDrcPhoneDisplay(phoneDigits)}
+                      onChange={e => setPhoneDigits(sanitizeDrcPhoneDigits(e.target.value))}
+                      maxLength={12}
+                      style={{
+                        flex: 1, height: '100%', background: 'transparent', border: 'none',
+                        padding: '0 1rem', color: '#fff', fontSize: '0.95rem',
+                        fontWeight: '500', letterSpacing: '0.03em', outline: 'none',
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && goNext()}
+                    />
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label style={labelStyle}>E-mail</label>
+                  <input
+                    type="email"
+                    placeholder="contact@boutique.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    style={inputStyle}
+                    onKeyDown={e => e.key === 'Enter' && goNext()}
                   />
                 </div>
               </div>
-            )}
 
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                Adresse Email professionnelle *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="email"
-                  className="input-field"
-                  placeholder="contact@votre-entreprise.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={{ paddingLeft: '2.75rem' }}
-                  required
-                />
-              </div>
-            </div>
+              {/* CTA */}
+              <button
+                onClick={goNext}
+                style={{
+                  marginTop: '1.5rem', width: '100%', padding: '1rem',
+                  borderRadius: '12px', border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #f97316, #ea580c)',
+                  color: '#fff', fontWeight: '700', fontSize: '1rem',
+                  boxShadow: '0 4px 20px rgba(249,115,22,0.35)',
+                }}
+              >
+                Continuer
+              </button>
 
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                Numéro de Téléphone (WhatsApp/Appels) *
-              </label>
-              <div style={{
-                display: 'flex', alignItems: 'center', height: '44px', borderRadius: '10px',
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  padding: '0 0.85rem', height: '100%', display: 'flex', alignItems: 'center', gap: '0.4rem',
-                  background: 'rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.12)',
-                  color: role === 'vendeur' ? '#4ade80' : '#60a5fa', fontWeight: '800', fontSize: '0.9rem',
-                  userSelect: 'none', flexShrink: 0
-                }}>
-                  <span style={{ fontSize: '1.1rem' }}>🇨🇩</span>
-                  <span>+243</span>
-                </div>
-                <input
-                  type="tel"
-                  required
-                  placeholder="81 234 56 78"
-                  value={formatDrcPhoneDisplay(phoneDigits)}
-                  onChange={(e) => setPhoneDigits(sanitizeDrcPhoneDigits(e.target.value))}
-                  maxLength={12}
-                  style={{
-                    flex: 1, height: '100%', background: 'transparent', border: 'none',
-                    padding: '0 0.85rem', color: '#fff', fontSize: '0.95rem', fontWeight: '600',
-                    letterSpacing: '0.04em', outline: 'none'
-                  }}
-                />
-              </div>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
-                9 chiffres (l'indicatif +243 remplace le 0)
+              {/* Login link */}
+              <p style={{ textAlign: 'center', marginTop: '1.25rem', color: '#9ca3af', fontSize: '0.88rem' }}>
+                Déjà un compte ?{' '}
+                <Link href="/auth/vendeur/login" style={{ color: '#fff', fontWeight: '700', textDecoration: 'underline' }}>
+                  Se connecter
+                </Link>
               </p>
             </div>
+          )}
 
-            {/* Ville d'activité / d'implantation */}
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                {role === 'vendeur' ? 'Ville de votre Boutique *' : 'Ville d\'implantation de l\'Agence *'}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <MapPin size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <select
-                  required
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="input-field"
-                  style={{ paddingLeft: '2.75rem', outline: 'none' }}
-                >
-                  {DRC_CITIES.map(c => (
-                    <option key={c} value={c} style={{ background: '#0d1117', color: '#fff' }}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+          {/* ───────────────── STEP 2 ───────────────── */}
+          {step === 2 && (
+            <div style={{
+              background: '#161b27',
+              borderRadius: '20px',
+              padding: '1.75rem 1.5rem',
+              border: '1px solid rgba(255,255,255,0.07)',
+            }}>
+              <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff', marginBottom: '0.4rem', lineHeight: 1.25 }}>
+                Où se trouve votre boutique ?
+              </h1>
+              <p style={{ color: '#9ca3af', fontSize: '0.88rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+                Les agences utilisent cette adresse pour venir récupérer vos colis.
+              </p>
 
-            {/* Adresse physique */}
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                {role === 'vendeur' ? 'Adresse physique de la boutique ou domicile *' : 'Adresse du Siège / Dépôt Principal *'}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Building2 size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder={role === 'vendeur' ? 'Ex: Boulevard du 30 Juin, n°14, Quartier...' : 'Ex: Boulevard du 30 Juin, n°14, Gombe'}
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  style={{ paddingLeft: '2.75rem' }}
-                  required
-                />
-              </div>
-            </div>
-
-            {role === 'agence' && (
-              <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                {/* Commune */}
                 <div>
-                  <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                    Taille estimée de votre flotte (Livreurs / Motos)
-                  </label>
+                  <label style={labelStyle}>Commune</label>
+                  <select
+                    value={commune}
+                    onChange={e => setCommune(e.target.value)}
+                    style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}
+                  >
+                    <option value="" style={{ background: '#1e2433' }}>Sélectionner une commune</option>
+                    {KINSHASA_COMMUNES.map(c => (
+                      <option key={c} value={c} style={{ background: '#1e2433' }}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quartier */}
+                <div>
+                  <label style={labelStyle}>Quartier</label>
                   <input
-                    type="number"
-                    min="1"
-                    className="input-field"
-                    placeholder="Ex: 5"
-                    value={fleetSize}
-                    onChange={(e) => setFleetSize(e.target.value)}
-                    required
+                    type="text"
+                    placeholder="Ex: Matonge"
+                    value={quartier}
+                    onChange={e => setQuartier(e.target.value)}
+                    style={inputStyle}
                   />
                 </div>
 
+                {/* Avenue + Numéro côte à côte */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.75rem', alignItems: 'end' }}>
+                  <div>
+                    <label style={labelStyle}>Avenue ou rue</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Avenue du Commerce"
+                      value={avenue}
+                      onChange={e => setAvenue(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Numéro</label>
+                    <input
+                      type="text"
+                      placeholder="3"
+                      value={numero}
+                      onChange={e => setNumero(e.target.value)}
+                      style={{ ...inputStyle, width: '80px', textAlign: 'center' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={goNext}
+                style={{
+                  marginTop: '1.5rem', width: '100%', padding: '1rem',
+                  borderRadius: '12px', border: 'none', cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #f97316, #ea580c)',
+                  color: '#fff', fontWeight: '700', fontSize: '1rem',
+                  boxShadow: '0 4px 20px rgba(249,115,22,0.35)',
+                }}
+              >
+                Continuer
+              </button>
+            </div>
+          )}
+
+          {/* ───────────────── STEP 3 ───────────────── */}
+          {step === 3 && (
+            <div style={{
+              background: '#161b27',
+              borderRadius: '20px',
+              padding: '1.75rem 1.5rem',
+              border: '1px solid rgba(255,255,255,0.07)',
+            }}>
+              <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#fff', marginBottom: '0.4rem', lineHeight: 1.25 }}>
+                Choisissez un mot de passe
+              </h1>
+              <p style={{ color: '#9ca3af', fontSize: '0.88rem', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+                Il protège vos colis et vos paiements.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                {/* Password */}
                 <div>
-                  <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                    Poids maximum pris en charge par colis (en kg) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.5"
-                    className="input-field"
-                    placeholder="Ex: 30"
-                    value={maxWeightKg}
-                    onChange={(e) => setMaxWeightKg(e.target.value)}
-                    required
-                  />
-                  <p style={{ margin: '0.3rem 0 0', fontSize: '0.74rem', color: '#94a3b8' }}>
-                    Jusqu'à combien de kilos votre agence traite. Si un vendeur a un colis qui dépasse cette limite, votre agence ne lui sera pas affichée.
-                  </p>
+                  <label style={labelStyle}>Mot de passe</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder=""
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      style={{ ...inputStyle, paddingRight: '5rem' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      style={{
+                        position: 'absolute', right: '1rem', top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: '#9ca3af', fontSize: '0.84rem', fontWeight: '600',
+                        display: 'flex', alignItems: 'center', gap: '0.3rem',
+                      }}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPassword ? 'Masquer' : 'Afficher'}
+                    </button>
+                  </div>
+                  <PasswordChecks password={password} />
                 </div>
 
-                {/* Note informative sur les communes */}
-                <div style={{
-                  background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
-                  borderRadius: '10px', padding: '0.75rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.65rem'
+                {/* Confirm password */}
+                <div>
+                  <label style={labelStyle}>Confirmez le mot de passe</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showConfirm ? 'text' : 'password'}
+                      placeholder=""
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      style={{ ...inputStyle, paddingRight: '5rem' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm(v => !v)}
+                      style={{
+                        position: 'absolute', right: '1rem', top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: '#9ca3af', fontSize: '0.84rem', fontWeight: '600',
+                        display: 'flex', alignItems: 'center', gap: '0.3rem',
+                      }}
+                    >
+                      {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showConfirm ? 'Masquer' : 'Afficher'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Terms */}
+                <label style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                  cursor: 'pointer', fontSize: '0.84rem', color: '#9ca3af', lineHeight: 1.5,
                 }}>
-                  <Info size={18} color="#60a5fa" style={{ flexShrink: 0 }} />
-                  <span style={{ fontSize: '0.78rem', color: '#93c5fd', lineHeight: 1.4 }}>
-                    Les communes spécifiques desservies par votre agence seront configurables dans votre espace de gestion une fois votre dossier approuvé par le Superadmin.
+                  <div
+                    onClick={() => setAcceptTerms(v => !v)}
+                    style={{
+                      width: '18px', height: '18px', borderRadius: '4px',
+                      border: `2px solid ${acceptTerms ? '#f97316' : '#4b5563'}`,
+                      background: acceptTerms ? '#f97316' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0, marginTop: '1px', cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {acceptTerms && <Check size={11} color="#fff" strokeWidth={3} />}
+                  </div>
+                  <span>
+                    J'accepte les{' '}
+                    <span style={{ color: '#fff', textDecoration: 'underline', cursor: 'pointer' }}>conditions d'utilisation</span>
+                    {' '}et la{' '}
+                    <span style={{ color: '#fff', textDecoration: 'underline', cursor: 'pointer' }}>politique de confidentialité</span>.
                   </span>
-                </div>
-              </>
-            )}
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: '500', color: '#cbd5e1' }}>
-                Mot de passe sécurisé *
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="password"
-                  className="input-field"
-                  placeholder="Minimum 6 caractères"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{ paddingLeft: '2.75rem' }}
-                  required
-                />
+                </label>
               </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                style={{
+                  marginTop: '1.5rem', width: '100%', padding: '1rem',
+                  borderRadius: '12px', border: 'none',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  background: loading
+                    ? 'rgba(249,115,22,0.5)'
+                    : 'linear-gradient(135deg, #f97316, #ea580c)',
+                  color: '#fff', fontWeight: '700', fontSize: '1rem',
+                  boxShadow: loading ? 'none' : '0 4px 20px rgba(249,115,22,0.35)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {loading ? 'Création du compte...' : 'Créer mon compte'}
+              </button>
             </div>
-
-            {role === 'agence' && (
-              <div style={{
-                background: 'rgba(59, 130, 246, 0.08)',
-                border: '1px solid rgba(59, 130, 246, 0.25)',
-                borderRadius: '12px',
-                padding: '0.75rem 1rem',
-                fontSize: '0.78rem',
-                color: '#93c5fd',
-                lineHeight: 1.5
-              }}>
-                 <strong>Protocole de sécurité :</strong> Pour garantir la traçabilité des fonds encaissés, toute nouvelle agence fait l'objet d'un examen par le Superadmin avant d'obtenir son habilitation.
-              </div>
-            )}
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-              <CheckCircle2 size={16} color="#22c55e" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <span>En vous inscrivant, vous acceptez les conditions générales d'utilisation et la politique de Moncolis.</span>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                marginTop: '0.5rem',
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '12px',
-                border: 'none',
-                fontWeight: '700',
-                fontSize: '0.98rem',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                color: '#fff',
-                background: role === 'vendeur'
-                  ? 'linear-gradient(135deg, #22c55e, #16a34a)'
-                  : 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                boxShadow: role === 'vendeur'
-                  ? '0 4px 14px rgba(34, 197, 94, 0.4)'
-                  : '0 4px 14px rgba(37, 99, 235, 0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {loading ? (
-                'Traitement du dossier...'
-              ) : role === 'vendeur' ? (
-                'Créer mon compte Vendeur'
-              ) : (
-                <>
-                  <Send size={16} />
-                  Soumettre ma demande d'adhésion
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Login switch */}
-          <div style={{ textAlign: 'center', marginTop: '1.75rem', fontSize: '0.88rem', color: '#94a3b8' }}>
-            Vous avez déjà un compte ?{' '}
-            <Link
-              href={role === 'vendeur' ? '/auth/vendeur/login' : '/auth/agence/login'}
-              style={{
-                color: role === 'vendeur' ? '#4ade80' : '#60a5fa',
-                fontWeight: '600',
-                textDecoration: 'none'
-              }}
-            >
-              Se connecter
-            </Link>
-          </div>
-        </div>
-
-        {/* Security badge */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.8rem' }}>
-          <ShieldCheck size={16} />
-          <span>Plateforme certifiée Moncolis RDC</span>
+          )}
         </div>
       </div>
     </div>
