@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import CommuneSelect from '@/components/CommuneSelect';
 import {
@@ -34,6 +35,7 @@ export function getVendorBadge(livres: number) {
 }
 
 export default function VendeurDashboard() {
+  const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth('vendeur');
   const { formatPrice, exchangeRate } = useCurrency();
   const { theme, isDark, toggleTheme } = useTheme();
@@ -572,7 +574,7 @@ export default function VendeurDashboard() {
 
           {/* ACTION PRINCIPALE UNIQUE : Expédier un colis */}
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => router.push('/dashboard/vendeur/nouveau-colis')}
             style={{
               width: '100%',
               minHeight: '48px',
