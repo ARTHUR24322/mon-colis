@@ -312,7 +312,7 @@ function TrackingPage() {
               {isAvailableAtRelais ? 'Code Secret de Retrait en Point Relais (OTP)' : 'Votre Code Secret de Livraison (OTP)'}
             </p>
             <p style={{ fontSize: '2.5rem', fontWeight: '900', letterSpacing: '8px', color: '#3b82f6', margin: '0 0 0.5rem' }}>
-              {colis.otp}
+              {colis.otp || colis.pickupCode || '—'}
             </p>
             <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: 0, lineHeight: 1.5 }}>
               {isAvailableAtRelais

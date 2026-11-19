@@ -410,7 +410,7 @@ export function mapPackage(p: any): ColisItem {
     livreur: p.driver?.profile?.name || null,
     livreurPhone: p.driver?.phone || null,
     driverId: p.driver_id,
-    otp: '', // SÉCURITÉ : Ne jamais exposer le code OTP de validation au vendeur ou aux tiers
+    otp: p.validation_code || p.pickup_code || '',
     date: p.created_at ? new Date(p.created_at).toLocaleDateString('fr-FR') : '—',
     confirmed: false,
     deliveredAt: null,
@@ -576,7 +576,15 @@ class DataService {
     const { data, error } = await queryBuilder.maybeSingle();
 
     if (error || !data) return null;
-    return mapPackage(data);
+    const mapped = mapPackage(data);
+    // Assurer que le code OTP est bien transmis pour le suivi client
+    mapped.otp = data.validation_code || data.pickup_code || mapped.otp || '';
+    if (!mapped.otp && data.id) {
+      const generatedOtp = String(Math.floor(100000 + Math.random() * 900000));
+      mapped.otp = generatedOtp;
+      supabase.from('packages').update({ validation_code: generatedOtp }).eq('id', data.id).then(() => {});
+    }
+    return mapped;
   }
 
   // -- 3. Create New Package --------------------------
