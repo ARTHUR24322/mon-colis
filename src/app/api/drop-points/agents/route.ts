@@ -59,14 +59,28 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { agentId, isActive } = body as { agentId: string; isActive: boolean };
+    const { agentId, isActive, newPin } = body as { agentId: string; isActive?: boolean; newPin?: string };
 
-    if (!agentId || typeof isActive !== 'boolean') {
-      return NextResponse.json({ error: 'agentId et isActive requis.' }, { status: 400 });
+    if (!agentId) {
+      return NextResponse.json({ error: 'agentId requis.' }, { status: 400 });
     }
 
-    await dataService.setDropPointAgentStatus(agentId, isActive);
-    return NextResponse.json({ success: true, message: `Statut agent mis à jour.` });
+    if (newPin) {
+      const res = await dataService.resetDropPointAgentPin({ agentId }, newPin);
+      return NextResponse.json({
+        success: true,
+        message: 'Code PIN mis à jour avec succès.',
+        agent: res.agent,
+        plainPin: res.plainPin,
+      });
+    }
+
+    if (typeof isActive === 'boolean') {
+      await dataService.setDropPointAgentStatus(agentId, isActive);
+      return NextResponse.json({ success: true, message: `Statut agent mis à jour.` });
+    }
+
+    return NextResponse.json({ error: 'Action non reconnue (isActive ou newPin requis).' }, { status: 400 });
   } catch (err: any) {
     console.error('[PATCH /api/drop-points/agents]', err);
     return NextResponse.json({ error: err?.message || 'Erreur interne.' }, { status: 500 });

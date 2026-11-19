@@ -317,7 +317,7 @@ export default function AdminDashboard() {
   // Credentials affichés après création du point relais + son premier agent
   const [newDpCredentials, setNewDpCredentials] = useState<{ dropPointName: string; agentNumber: string; plainPin: string; agentName: string } | null>(null);
   const [copiedDpCredentials, setCopiedDpCredentials] = useState(false);
-  const [securityModalDp, setSecurityModalDp] = useState<{ dp: DropPoint; mode: 'EDIT_CODE' | 'REGEN_QR' } | null>(null);
+  const [securityModalDp, setSecurityModalDp] = useState<{ dp: DropPoint & { agentId?: string; agentNumber?: string; managerName?: string }; mode: 'EDIT_CODE' | 'REGEN_QR' | 'RESET_PIN' } | null>(null);
   const [qrModalDp, setQrModalDp] = useState<DropPoint | null>(null);
 
   const loadAgents = useCallback(async () => {
@@ -2178,9 +2178,9 @@ export default function AdminDashboard() {
                     <div><Clock size={14} style={{ display: "inline", marginRight: "4px" }} /> <strong>Horaires :</strong> <span style={{ color: '#fcd34d' }}>{dp.openingHours}</span></div>
                   </div>
 
-                  {/* Actions de Sécurité Super Admin (Code & QR Code) */}
+                  {/* Actions de Sécurité Super Admin (Code & QR Code & PIN) */}
                   <div style={{
-                    display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.45rem',
+                    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem',
                     padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px',
                     border: '1px solid rgba(255,255,255,0.06)'
                   }}>
@@ -2188,36 +2188,48 @@ export default function AdminDashboard() {
                       onClick={() => setSecurityModalDp({ dp, mode: 'EDIT_CODE' })}
                       title="Modifier le code public unique du point relais"
                       style={{
-                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.3)',
+                        padding: '0.4rem 0.25rem', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.3)',
                         background: 'rgba(59,130,246,0.1)', color: '#60a5fa', fontSize: '0.72rem',
-                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem'
                       }}
                     >
                       <KeyRound size={13} /> Code
                     </button>
 
                     <button
+                      onClick={() => setSecurityModalDp({ dp, mode: 'RESET_PIN' })}
+                      title="Changer le code PIN (6 chiffres) de connexion du point relais"
+                      style={{
+                        padding: '0.4rem 0.25rem', borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)',
+                        background: 'rgba(234,179,8,0.1)', color: '#facc15', fontSize: '0.72rem',
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem'
+                      }}
+                    >
+                      <Lock size={13} /> PIN
+                    </button>
+
+                    <button
                       onClick={() => setSecurityModalDp({ dp, mode: 'REGEN_QR' })}
                       title="Régénérer un nouveau QR Code aléatoire (invalide l'ancien)"
                       style={{
-                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)',
+                        padding: '0.4rem 0.25rem', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)',
                         background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.72rem',
-                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem'
                       }}
                     >
-                      <RefreshCw size={13} /> Régénérer QR
+                      <RefreshCw size={13} /> QR
                     </button>
 
                     <button
                       onClick={() => setQrModalDp(dp)}
                       title="Afficher, télécharger et imprimer le QR Code officiel"
                       style={{
-                        padding: '0.4rem 0.3rem', borderRadius: '8px', border: '1px solid rgba(34,197,94,0.3)',
+                        padding: '0.4rem 0.25rem', borderRadius: '8px', border: '1px solid rgba(34,197,94,0.3)',
                         background: 'rgba(34,197,94,0.1)', color: '#4ade80', fontSize: '0.72rem',
-                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem'
+                        fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem'
                       }}
                     >
-                      <Printer size={13} /> Imprimer QR
+                      <Printer size={13} /> Imprimer
                     </button>
                   </div>
 
@@ -2554,6 +2566,43 @@ export default function AdminDashboard() {
                         <span>Créé le {safeFormatDate(ag.createdAt)}</span>
                         <span style={{ color: '#94a3b8' }}>Réf: {ag.dropPointId}</span>
                       </div>
+
+                      {/* Bouton Changer PIN 6 chiffres */}
+                      <button
+                        onClick={() => {
+                          const dp: DropPoint = dropPoints.find(d => d.id === ag.dropPointId) || {
+                            id: ag.dropPointId,
+                            name: ag.dropPointName || 'Point Relais',
+                            commune: ag.dropPointCommune || 'Kinshasa',
+                            address: '',
+                            phone: '',
+                            managerName: ag.name,
+                            openingHours: '8h - 18h',
+                            isActive: true,
+                            credits: 0,
+                          };
+                          setSecurityModalDp({
+                            dp: {
+                              ...dp,
+                              agentId: ag.id,
+                              agentNumber: ag.agentNumber,
+                              managerName: ag.name,
+                            },
+                            mode: 'RESET_PIN',
+                          });
+                        }}
+                        title="Changer le code PIN (6 chiffres) de cet agent"
+                        style={{
+                          width: '100%', padding: '0.55rem', borderRadius: '8px',
+                          border: '1px solid rgba(234, 179, 8, 0.4)',
+                          background: 'rgba(234, 179, 8, 0.1)',
+                          color: '#facc15', fontSize: '0.8rem', fontWeight: '700',
+                          cursor: 'pointer', fontFamily: 'inherit',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
+                        }}
+                      >
+                        <KeyRound size={14} style={{ display: "inline", marginRight: "4px" }} /> Changer le code PIN (6 chiffres)
+                      </button>
 
                       {/* Bouton Voir accès — visible si PIN encore en session */}
                       {sessionPins.has(ag.agentNumber) && (
@@ -3898,6 +3947,10 @@ export default function AdminDashboard() {
               }
               return d;
             }));
+            if (updatedData.plainPin && updatedData.agentNumber) {
+              setSessionPins(prev => new Map(prev).set(updatedData.agentNumber!, updatedData.plainPin!));
+              loadAgents();
+            }
             setToast(`[OK] Opération réussie sur le point relais ${securityModalDp.dp.name}`);
             setTimeout(() => setToast(null), 3500);
           }}

@@ -1686,6 +1686,157 @@ class DataService {
     return true;
   }
 
+  /** Update / Reset 6-digit PIN of a drop point agent (Superadmin). */
+  async resetDropPointAgentPin(
+    identifier: { agentId?: string; dropPointId?: string; agentNumber?: string },
+    newPin?: string
+  ): Promise<{ success: boolean; agent: DropPointAgent; plainPin: string }> {
+    const plainPin = newPin && /^\d{6}$/.test(newPin.trim())
+      ? newPin.trim()
+      : String(secureRandomInt(100_000, 1_000_000));
+
+    let agentRecord: {
+      id: string;
+      agent_number: string;
+      pin_hash: string;
+      name: string;
+      drop_point_id: string;
+      is_active: boolean;
+      created_at: string;
+    } | null = null;
+
+    // 1. Search by agentId
+    if (identifier.agentId) {
+      const { data } = await supabase
+        .from('drop_point_agents')
+        .select('*')
+        .eq('id', identifier.agentId)
+        .maybeSingle();
+      if (data) agentRecord = data;
+    }
+
+    // 2. Search by agentNumber
+    if (!agentRecord && identifier.agentNumber) {
+      const { data } = await supabase
+        .from('drop_point_agents')
+        .select('*')
+        .eq('agent_number', identifier.agentNumber)
+        .maybeSingle();
+      if (data) agentRecord = data;
+    }
+
+    // 3. Search by dropPointId (find first active agent, or any agent)
+    if (!agentRecord && identifier.dropPointId) {
+      const { data } = await supabase
+        .from('drop_point_agents')
+        .select('*')
+        .eq('drop_point_id', identifier.dropPointId)
+        .order('is_active', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) agentRecord = data;
+    }
+
+    // 4. Fallback search in memory cache
+    if (!agentRecord) {
+      for (const [, c] of dropPointAgentCache) {
+        if (
+          (identifier.agentId && c.id === identifier.agentId) ||
+          (identifier.agentNumber && c.agentNumber === identifier.agentNumber) ||
+          (identifier.dropPointId && c.dropPointId === identifier.dropPointId)
+        ) {
+          agentRecord = {
+            id: c.id,
+            agent_number: c.agentNumber,
+            pin_hash: c.pinHash,
+            name: c.name,
+            drop_point_id: c.dropPointId,
+            is_active: c.isActive,
+            created_at: c.createdAt,
+          };
+          break;
+        }
+      }
+    }
+
+    // 5. If not found and dropPointId is provided, create a default agent for this drop point
+    if (!agentRecord && identifier.dropPointId) {
+      const { data: dp } = await supabase
+        .from('drop_points')
+        .select('id, name, manager_name, commune')
+        .eq('id', identifier.dropPointId)
+        .maybeSingle();
+
+      const dpName = dp?.manager_name || dp?.name || 'Gérant Relais';
+      const created = await this.createDropPointAgent({
+        name: dpName,
+        dropPointId: identifier.dropPointId,
+      });
+
+      const bcrypt = await import('bcryptjs');
+      const pinHash = await bcrypt.hash(plainPin, 10);
+      await supabase.from('drop_point_agents').update({ pin_hash: pinHash }).eq('id', created.agent.id);
+      dropPointAgentCache.set(created.agent.agentNumber, {
+        id: created.agent.id,
+        agentNumber: created.agent.agentNumber,
+        pinHash,
+        name: created.agent.name,
+        dropPointId: created.agent.dropPointId,
+        isActive: true,
+        createdAt: created.agent.createdAt,
+      });
+      return { success: true, agent: created.agent, plainPin };
+    }
+
+    if (!agentRecord) {
+      throw new Error('Agent ou point relais introuvable.');
+    }
+
+    // Hash the new 6-digit PIN with bcrypt
+    const bcrypt = await import('bcryptjs');
+    const pinHash = await bcrypt.hash(plainPin, 10);
+
+    // Persist to Supabase
+    const { error: updateErr } = await supabase
+      .from('drop_point_agents')
+      .update({ pin_hash: pinHash })
+      .eq('id', agentRecord.id);
+
+    if (updateErr) {
+      console.warn('[resetDropPointAgentPin] Supabase update failed:', updateErr);
+    }
+
+    // Update in memory cache
+    dropPointAgentCache.set(agentRecord.agent_number, {
+      id: agentRecord.id,
+      agentNumber: agentRecord.agent_number,
+      pinHash,
+      name: agentRecord.name,
+      dropPointId: agentRecord.drop_point_id,
+      isActive: agentRecord.is_active,
+      createdAt: agentRecord.created_at,
+    });
+
+    // Clear brute-force lockout if any
+    agentLockoutMap.delete(agentRecord.agent_number);
+
+    const dp = this.getDropPointById(agentRecord.drop_point_id);
+
+    const agent: DropPointAgent = {
+      id: agentRecord.id,
+      agentNumber: agentRecord.agent_number,
+      name: agentRecord.name,
+      dropPointId: agentRecord.drop_point_id,
+      dropPointName: dp?.name || agentRecord.drop_point_id,
+      dropPointCommune: dp?.commune || '',
+      isActive: agentRecord.is_active,
+      createdAt: agentRecord.created_at,
+    };
+
+    return { success: true, agent, plainPin };
+  }
+
   /** Driver assigns a parcel to a drop point via agent number. */
   async assignColisToDropPoint(
     colisId: string,

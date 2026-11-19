@@ -55,3 +55,4 @@ DROP TRIGGER IF EXISTS trg_immutable_warehouse_stock_movements ON warehouse_stoc
 CREATE TRIGGER trg_immutable_warehouse_stock_movements
 BEFORE UPDATE OR DELETE ON warehouse_stock_movements
 FOR EACH ROW EXECUTE FUNCTION prevent_warehouse_stock_movements_tampering();
+
