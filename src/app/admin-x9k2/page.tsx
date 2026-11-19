@@ -36,8 +36,12 @@ export default function AdminLoginPage() {
   const lockTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const otpTimer  = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated, or display expiry warning
   useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search.includes('expired=1')) {
+      setError('Votre session Super Admin a expiré (délai de 8h atteint). Veuillez vous reconnecter.');
+      return;
+    }
     if (isAuthenticated()) router.replace('/admin-x9k2/dashboard');
   }, [router]);
 

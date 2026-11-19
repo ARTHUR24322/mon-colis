@@ -922,14 +922,22 @@ class DataService {
 
   // Superadmin adds credits to a drop point
   async addDropPointCredits(dropPointId: string, amount: number): Promise<boolean> {
-    const idx = DEFAULT_DROP_POINTS.findIndex(dp => dp.id === dropPointId);
+    const idx = DEFAULT_DROP_POINTS.findIndex(dp => dp.id === dropPointId || dp.code === dropPointId);
     if (idx !== -1) {
       DEFAULT_DROP_POINTS[idx].credits = (DEFAULT_DROP_POINTS[idx].credits || 0) + amount;
     }
     try {
-      const { data: dp } = await supabase.from('drop_points').select('credits').eq('id', dropPointId).maybeSingle();
+      const { supabaseAdmin } = await import('@/utils/supabase/admin');
+      const { data: dp } = await supabaseAdmin
+        .from('drop_points')
+        .select('id, credits')
+        .or(`id.eq.${dropPointId},code.eq.${dropPointId}`)
+        .limit(1)
+        .maybeSingle();
+
+      const targetId = dp?.id || dropPointId;
       const newCredits = ((dp as any)?.credits || 0) + amount;
-      await supabase.from('drop_points').update({ credits: newCredits }).eq('id', dropPointId);
+      await supabaseAdmin.from('drop_points').update({ credits: newCredits }).eq('id', targetId);
       if (idx !== -1) DEFAULT_DROP_POINTS[idx].credits = newCredits;
     } catch (e) {
       console.warn('Could not update credits in DB, updated in memory only:', e);

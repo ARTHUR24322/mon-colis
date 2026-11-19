@@ -11,9 +11,11 @@ export function getAdminPasswordHash(): string {
   return hash;
 }
 
-// Session key stored in sessionStorage (clears when tab is closed)
+// Session key stored in sessionStorage (clears when tab is closed, max 8 hours)
 const SESSION_KEY = '__moncolis_admin_session__';
+const SESSION_EXPIRY_KEY = '__moncolis_admin_session_exp__';
 const SESSION_VALUE = 'authenticated_superadmin_v1';
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 heures strictes
 
 // OTP stored in memory only (not in localStorage / sessionStorage)
 let _memoryOTP: string | null = null;
@@ -63,15 +65,28 @@ export function clearOTP(): void {
 // --- Session ------------------------------------------------------------------
 export function createSession(): void {
   sessionStorage.setItem(SESSION_KEY, SESSION_VALUE);
+  sessionStorage.setItem(SESSION_EXPIRY_KEY, String(Date.now() + ADMIN_SESSION_TTL_MS));
 }
 
 export function isAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
-  return sessionStorage.getItem(SESSION_KEY) === SESSION_VALUE;
+  const isAuth = sessionStorage.getItem(SESSION_KEY) === SESSION_VALUE;
+  if (!isAuth) return false;
+
+  const expStr = sessionStorage.getItem(SESSION_EXPIRY_KEY);
+  if (expStr) {
+    const exp = parseInt(expStr, 10);
+    if (!isNaN(exp) && Date.now() > exp) {
+      destroySession();
+      return false;
+    }
+  }
+  return true;
 }
 
 export function destroySession(): void {
   sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_EXPIRY_KEY);
 }
 
 // --- Brute-force protection ---------------------------------------------------

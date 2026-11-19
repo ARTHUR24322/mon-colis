@@ -35,7 +35,24 @@ if (!SECRET || SECRET.length < 32) {
 }
 
 const COOKIE_NAME = 'mc_session';
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
+
+/**
+ * Durée de session par rôle :
+ * - Superadmin : 8 heures strictes (déconnexion automatique)
+ * - Agences : 24 heures strictes
+ * - Autres (vendeurs, livreurs, relais) : 7 jours
+ */
+export function getSessionDurationMs(role?: UserRole): number {
+  if (role === 'superadmin') {
+    return 8 * 60 * 60 * 1000; // 8 heures
+  }
+  if (role === 'agence') {
+    return 24 * 60 * 60 * 1000; // 24 heures
+  }
+  return 7 * 24 * 60 * 60 * 1000; // 7 jours
+}
+
+const DEFAULT_SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // -- Encode base64url (URL-safe)
 function b64url(buf: ArrayBuffer): string {
@@ -75,12 +92,16 @@ async function verify(data: string, signature: string): Promise<boolean> {
 }
 
 // -- Create a signed session token: payload.signature
-export async function createToken(payload: Omit<SessionPayload, 'iat' | 'exp'>): Promise<string> {
+export async function createToken(
+  payload: Omit<SessionPayload, 'iat' | 'exp'>,
+  customDurationMs?: number
+): Promise<string> {
   const now = Date.now();
+  const duration = customDurationMs || getSessionDurationMs(payload.role);
   const full: SessionPayload = {
     ...payload,
     iat: now,
-    exp: now + SESSION_DURATION_MS,
+    exp: now + duration,
   };
   const encoded = Buffer.from(JSON.stringify(full)).toString('base64url');
   const sig = await sign(encoded);
@@ -119,14 +140,32 @@ export async function getSession(): Promise<SessionPayload | null> {
 }
 
 // -- Set the session cookie (used in API Route Handlers)
-export async function setSessionCookie(token: string) {
+export async function setSessionCookie(token: string, customMaxAgeSeconds?: number) {
   const cookieStore = await cookies();
+  let maxAge = DEFAULT_SESSION_DURATION_MS / 1000;
+
+  if (typeof customMaxAgeSeconds === 'number') {
+    maxAge = customMaxAgeSeconds;
+  } else {
+    try {
+      const dotIdx = token.lastIndexOf('.');
+      if (dotIdx > 0) {
+        const payload: SessionPayload = JSON.parse(
+          Buffer.from(token.substring(0, dotIdx), 'base64url').toString('utf-8')
+        );
+        if (payload.exp) {
+          maxAge = Math.max(1, Math.floor((payload.exp - Date.now()) / 1000));
+        }
+      }
+    } catch {}
+  }
+
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: SESSION_DURATION_MS / 1000, // seconds
+    maxAge,
   });
 }
 

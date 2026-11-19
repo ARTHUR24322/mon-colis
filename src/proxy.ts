@@ -10,7 +10,7 @@ const PROTECTED_ROUTES: { prefix: string; roles: string[]; redirect: string }[] 
     redirect: '/auth/vendeur/login',
   },
   {
-    prefix: '/agence/dashboard',
+    prefix: '/agence',
     roles: ['agence'],
     redirect: '/agence/login',
   },
@@ -188,6 +188,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // -- 3. VÉRIFICATION DES ROUTES PROTÉGÉES ---------------------------------
+  // Exclure les pages publiques de l'espace agence
+  if (pathname.startsWith('/agence/login') || pathname.startsWith('/agence/rejoindre')) {
+    return applySecurityHeaders(NextResponse.next(), pathname);
+  }
+
   const matched = PROTECTED_ROUTES.find((r) => pathname.startsWith(r.prefix));
 
   if (!matched) {

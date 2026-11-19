@@ -17,7 +17,7 @@ const ipAttempts = new Map<string, { count: number; resetAt: number; lockedUntil
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;      // 15 minutes
 const LOCKOUT_MS = 15 * 60 * 1000;     // 15 minutes de blocage
-const SESSION_DURATION_MS = 4 * 60 * 60 * 1000; // 4 heures
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 heures strictes
 
 function getClientIp(req: NextRequest): string {
   return (
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
       agencyRole: memberData.role,
     });
 
-    // Override de la durée de session à 4h pour les agences
+    // Durée de session à 24h pour les agences
     const cookieStore = await cookies();
     cookieStore.set('mc_session', token, {
       httpOnly: true,

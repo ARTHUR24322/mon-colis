@@ -516,9 +516,22 @@ export default function AdminDashboard() {
   const [diagRefreshing, setDiagRefreshing] = useState(false);
   const logIdRef = useRef(INITIAL_LOGS.length + 1);
 
-  // Auth guard
+  // Auth guard & Déconnexion automatique après 8 heures strictes
   useEffect(() => {
-    if (!isAuthenticated()) router.replace('/admin-x9k2');
+    if (!isAuthenticated()) {
+      router.replace('/admin-x9k2');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (!isAuthenticated()) {
+        destroySession();
+        fetch('/api/auth/admin-logout', { method: 'POST' }).catch(() => {});
+        router.replace('/admin-x9k2?expired=1');
+      }
+    }, 15_000); // vérifie toutes les 15s
+
+    return () => clearInterval(interval);
   }, [router]);
 
   // Uptime ticker
@@ -2254,19 +2267,28 @@ export default function AdminDashboard() {
                       onClick={async () => {
                         const amountStr = prompt(`Combien de crédits ajouter à "${dp.name}" ? (1 crédit = 1 colis)`, '100');
                         if (!amountStr) return;
-                        const amount = parseInt(amountStr);
-                        if (!amount || amount <= 0) return alert('Montant invalide');
-                        const res = await fetch('/api/admin/drop-points/credits', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', },
-                          body: JSON.stringify({ dropPointId: dp.id, amount }),
-                        });
-                        if (res.ok) {
-                          setDropPoints(prev => prev.map(d => d.id === dp.id ? { ...d, credits: (d.credits || 0) + amount } : d));
-                          setToast(`[OK] +${amount} crédits ajoutés à ${dp.name}`);
-                          setTimeout(() => setToast(null), 3000);
-                        } else {
-                          alert('Erreur lors du rechargement');
+                        const amount = parseInt(amountStr.trim(), 10);
+                        if (!amount || amount <= 0 || isNaN(amount)) {
+                          alert('Montant invalide (veuillez saisir un nombre supérieur à 0).');
+                          return;
+                        }
+                        try {
+                          const res = await fetch('/api/admin/drop-points/credits', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ dropPointId: dp.id, amount }),
+                          });
+                          const json = await res.json().catch(() => ({}));
+                          if (res.ok && json.success) {
+                            const newTotal = typeof json.newCredits === 'number' ? json.newCredits : (dp.credits || 0) + amount;
+                            setDropPoints(prev => prev.map(d => d.id === dp.id ? { ...d, credits: newTotal } : d));
+                            setToast(`+${amount} crédits ajoutés à ${dp.name} (Solde : ${newTotal})`);
+                            setTimeout(() => setToast(null), 3000);
+                          } else {
+                            alert(json.error || 'Erreur lors du rechargement des crédits.');
+                          }
+                        } catch {
+                          alert('Erreur réseau lors du rechargement des crédits.');
                         }
                       }}
                       style={{
