@@ -5,9 +5,10 @@ import AgencyShell from '@/components/agency/AgencyShell';
 import { useAuth } from '@/lib/use-auth';
 import {
   Building2, Clock, Lock, Save, CheckCircle2,
-  Plus, Trash2, DollarSign, Truck, MapPin, RefreshCw
+  Plus, Trash2, DollarSign, Truck, MapPin, RefreshCw, ChevronDown
 } from 'lucide-react';
 import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermissions';
+import { KINSHASA_COMMUNES } from '@/utils/kinshasa';
 
 interface CommunePrice {
   commune: string;
@@ -101,11 +102,23 @@ export default function AgencyParametresPage() {
   }, [loadPricingSettings]);
 
   // ── Ajout d'une commune ────────────────────────────────────────────────
+  const handleSelectCommune = (selected: string) => {
+    setNewCommune(selected);
+    const existing = communePrices.find(cp => cp.commune.toLowerCase() === selected.toLowerCase());
+    if (existing) {
+      setNewCommunePrice(String(existing.price));
+    }
+  };
+
   const handleAddCommune = () => {
     const trimmed = newCommune.trim();
     const price = parseFloat(newCommunePrice);
-    if (!trimmed || isNaN(price) || price < 0) {
-      showToast('Saisissez un nom de commune et un prix valide.', 'error');
+    if (!trimmed) {
+      showToast('Veuillez sélectionner une commune dans la liste.', 'error');
+      return;
+    }
+    if (isNaN(price) || price < 0) {
+      showToast('Saisissez un prix valide pour cette commune.', 'error');
       return;
     }
     const already = communePrices.findIndex(cp => cp.commune.toLowerCase() === trimmed.toLowerCase());
@@ -114,6 +127,7 @@ export default function AgencyParametresPage() {
       const updated = [...communePrices];
       updated[already] = { commune: trimmed, price };
       setCommunePrices(updated);
+      showToast(`Tarif de la commune ${trimmed} mis à jour.`, 'success');
     } else {
       setCommunePrices(prev => [...prev, { commune: trimmed, price }]);
     }
@@ -456,14 +470,47 @@ export default function AgencyParametresPage() {
             {/* Ajouter une commune */}
             {canManageSettings && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px auto', gap: '8px', marginTop: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="Nom de la commune (ex : Gombe)"
-                  value={newCommune}
-                  onChange={e => setNewCommune(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCommune())}
-                  style={{ ...inputStyle, height: '38px' }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <select
+                    value={newCommune}
+                    onChange={e => handleSelectCommune(e.target.value)}
+                    style={{
+                      ...inputStyle,
+                      height: '38px',
+                      cursor: 'pointer',
+                      paddingRight: '32px',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                    }}
+                  >
+                    <option value="" style={{ background: '#161b26', color: '#9ca3af' }}>
+                      Sélectionner une commune...
+                    </option>
+                    {KINSHASA_COMMUNES.map(c => {
+                      const isConfigured = communePrices.some(cp => cp.commune.toLowerCase() === c.toLowerCase());
+                      return (
+                        <option
+                          key={c}
+                          value={c}
+                          style={{ background: '#161b26', color: isConfigured ? '#f59e0b' : '#fff' }}
+                        >
+                          {c} {isConfigured ? '✓ (déjà configurée)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <ChevronDown
+                    size={15}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--ag-text-muted)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                </div>
                 <div style={{ position: 'relative' }}>
                   <input
                     type="number"
