@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import {
   Bell,
   CheckCircle2,
@@ -38,6 +39,8 @@ export default function TelegramNotificationSettings() {
   // Génération de lien / QR code
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkData, setLinkData] = useState<{ link: string; expiresAt: number } | null>(null);
+  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   // Envoi message test
@@ -67,6 +70,17 @@ export default function TelegramNotificationSettings() {
     loadSettings();
   }, []);
 
+  useEffect(() => {
+    if (linkData?.link) {
+      QRCode.toString(linkData.link, { type: 'svg', margin: 1 })
+        .then(setQrSvg)
+        .catch((err) => console.warn('QR SVG error:', err));
+      QRCode.toDataURL(linkData.link, { width: 200, margin: 1 })
+        .then(setQrDataUrl)
+        .catch((err) => console.warn('QR DataURL error:', err));
+    }
+  }, [linkData]);
+
   const showToast = (message: string, type: 'success' | 'error') => {
     setFeedback({ type, message });
     setTimeout(() => setFeedback(null), 4500);
@@ -86,6 +100,21 @@ export default function TelegramNotificationSettings() {
         link: data.link,
         expiresAt: Date.now() + 10 * 60 * 1000,
       });
+
+      // Génération locale immédiate du QR Code
+      try {
+        const svg = await QRCode.toString(data.link, { type: 'svg', margin: 1 });
+        setQrSvg(svg);
+        const url = await QRCode.toDataURL(data.link, {
+          width: 200,
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+        setQrDataUrl(url);
+      } catch (qrErr) {
+        console.warn('Erreur génération locale QR code:', qrErr);
+      }
+
       showToast('Lien de liaison généré. Vous avez 10 minutes pour ouvrir Telegram.', 'success');
     } catch {
       showToast('Erreur de connexion au serveur.', 'error');
@@ -387,16 +416,30 @@ export default function TelegramNotificationSettings() {
                   background: '#fff',
                   padding: '8px',
                   borderRadius: '10px',
-                  display: 'inline-block',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '150px',
+                  height: '150px',
+                  boxSizing: 'border-box',
                 }}
               >
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(linkData.link)}&margin=4`}
-                  alt="QR Code de liaison Telegram"
-                  width={150}
-                  height={150}
-                  style={{ display: 'block', borderRadius: '6px' }}
-                />
+                {qrSvg ? (
+                  <div
+                    style={{ width: '134px', height: '134px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    dangerouslySetInnerHTML={{ __html: qrSvg }}
+                  />
+                ) : qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt="QR Code de liaison Telegram"
+                    width={134}
+                    height={134}
+                    style={{ display: 'block', borderRadius: '4px' }}
+                  />
+                ) : (
+                  <Loader2 size={32} className="animate-spin" style={{ color: '#f97316' }} />
+                )}
               </div>
 
               {/* Instructions et lien */}
