@@ -205,24 +205,49 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     // Upsert du canal Telegram (liaison ou réactivation)
-    const { error: upsertError } = await supabaseAdmin
+    // 1. Déconnecter si ce chatId était déjà associé à un autre compte (sécurité)
+    await supabaseAdmin
       .from('notification_channels')
-      .upsert(
-        {
+      .delete()
+      .eq('channel', 'telegram')
+      .eq('address', chatIdStr);
+
+    // 2. Vérifier si l'utilisateur a déjà un canal existant
+    const { data: existingChannel } = await supabaseAdmin
+      .from('notification_channels')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('channel', 'telegram')
+      .maybeSingle();
+
+    let channelError;
+    if (existingChannel) {
+      const { error } = await supabaseAdmin
+        .from('notification_channels')
+        .update({
+          address: chatIdStr,
+          verified_at: now,
+          enabled: true,
+          updated_at: now,
+        })
+        .eq('id', existingChannel.id);
+      channelError = error;
+    } else {
+      const { error } = await supabaseAdmin
+        .from('notification_channels')
+        .insert({
           user_id: userId,
           channel: 'telegram',
           address: chatIdStr,
           verified_at: now,
           enabled: true,
           updated_at: now,
-        },
-        {
-          onConflict: 'user_id,channel',
-          ignoreDuplicates: false,
-        }
-      );
+        });
+      channelError = error;
+    }
 
-    if (upsertError) {
+    if (channelError) {
+      console.error('[Telegram Webhook] Erreur sauvegarde canal:', channelError);
       await sendBotMessage(
         chatId,
         '❌ Une erreur est survenue lors de la liaison. Réessayez dans quelques instants.'
