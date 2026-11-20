@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermissions';
 import { KINSHASA_COMMUNES } from '@/utils/kinshasa';
+import TelegramNotificationSettings from '@/components/TelegramNotificationSettings';
 
 interface CommunePrice {
   commune: string;
@@ -726,6 +727,11 @@ export default function AgencyParametresPage() {
             </button>
           </div>
         </form>
+
+        {/* ── Section 5 : Notifications Telegram (Par Utilisateur Agence) ── */}
+        <div style={{ marginTop: '0.5rem' }}>
+          <TelegramNotificationSettings />
+        </div>
       </div>
 
       {/* Toast */}

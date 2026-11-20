@@ -9,6 +9,7 @@ import { requireAdminSession } from '@/lib/adminSession';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { logFinancialAudit } from '@/utils/auditLogger';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 export async function POST(request: NextRequest) {
   try {

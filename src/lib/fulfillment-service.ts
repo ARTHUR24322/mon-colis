@@ -10,6 +10,7 @@
 
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { supabase as supabaseAnon } from '@/utils/supabase/client';
+import { enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 const db = supabaseAdmin || supabaseAnon;
 
@@ -176,6 +177,18 @@ export class FulfillmentService {
         message: `Un vendeur souhaite louer ${slots} emplacement(s) (${space.name}). Veuillez accepter ou décliner.`,
         type: 'INFO',
         created_at: startDate,
+      });
+
+      // ── Notification Telegram Agence : DEMANDE_STOCKAGE_FULFILLMENT ────────
+      await enqueueNotificationForAgencyMembers({
+        agencyId: space.agency_id,
+        eventType: 'DEMANDE_STOCKAGE_FULFILLMENT',
+        payload: {
+          reference: space.name,
+          id: newSub.id,
+          amount: `${slots} emplacement(s)`,
+        },
+        dedupeKey: `DEMANDE_STOCKAGE_FULFILLMENT:${newSub.id}`,
       });
     } catch {}
 

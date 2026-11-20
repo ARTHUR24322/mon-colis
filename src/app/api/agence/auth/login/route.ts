@@ -11,6 +11,7 @@ import { supabaseAdmin } from '@/utils/supabase/admin';
 import bcrypt from 'bcryptjs';
 import { createToken } from '@/lib/session-server';
 import { cookies } from 'next/headers';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 // ─── Rate-limit en mémoire (IP → { count, resetAt }) ────────────────────────
 const ipAttempts = new Map<string, { count: number; resetAt: number; lockedUntil?: number }>();
@@ -98,6 +99,19 @@ export async function POST(request: NextRequest) {
       success: false,
       details: `Trop de tentatives. Blocage ${retryAfter}s.`,
     });
+
+    // ── Notification Telegram Super Admin : CONNEXION_SUSPECTE ───────────────
+    await enqueueNotification({
+      userId: 'superadmin-master-id',
+      eventType: 'CONNEXION_SUSPECTE',
+      payload: {
+        identifier: 'Espace Agence',
+        attempts: `${MAX_ATTEMPTS}+ échouées`,
+        ip,
+      },
+      dedupeKey: `CONNEXION_SUSPECTE:agence:${ip}:${Math.floor(Date.now() / (15 * 60 * 1000))}`,
+    });
+
     return NextResponse.json(
       { error: 'Trop de tentatives de connexion. Réessayez plus tard.', retryAfter },
       { status: 429, headers: { 'Retry-After': String(retryAfter) } }

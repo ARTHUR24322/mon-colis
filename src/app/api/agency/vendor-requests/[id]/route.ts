@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin as supabase } from '@/utils/supabase/admin';
 import { logFinancialAudit } from '@/utils/auditLogger';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 export async function PATCH(
   request: NextRequest,
@@ -119,6 +120,21 @@ export async function PATCH(
         ? `Motif: ${rejectReason}`
         : `Reversement de ${req.amount.toLocaleString('fr-FR')} FC (~${amountUsd} USD) au vendeur ${realVendorName} effectué.`
     });
+
+    // ── Notification Telegram Super Admin : PAIEMENT_ECHEC si rejeté ────────
+    if (action === 'REJECTED') {
+      await enqueueNotification({
+        userId: 'superadmin-master-id',
+        eventType: 'PAIEMENT_ECHEC',
+        payload: {
+          reference: `VR-${id.slice(0, 8).toUpperCase()}`,
+          id,
+          amount: `${req.amount.toLocaleString('fr-FR')} FC`,
+          reason: rejectReason || 'Rejet par l\'agence',
+        },
+        dedupeKey: `PAIEMENT_ECHEC:${id}`,
+      });
+    }
 
     return NextResponse.json({ success: true, action, requestId: id, vendorId: req.vendor_id, amount: req.amount });
   } catch (err) {

@@ -6,6 +6,7 @@
 import { supabase as supabaseClient } from '@/utils/supabase/client';
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { fulfillmentService } from '@/lib/fulfillment-service';
+import { enqueueNotification, enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 // Utilise le client admin sur le serveur si disponible, sinon le client par défaut
 const db = typeof window === 'undefined' ? (supabaseAdmin || supabaseClient) : supabaseClient;
@@ -426,6 +427,19 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
         `Votre colis ${pkgCode} a été refusé par le point relais. Motif : "${reason}". Le livreur le prend en charge.`
       );
     }
+    // ── Notification Telegram Agence : COLIS_REFUSE_RELAIS ───────────────────
+    if (pkg.agency_id) {
+      await enqueueNotificationForAgencyMembers({
+        agencyId: pkg.agency_id,
+        eventType: 'COLIS_REFUSE_RELAIS',
+        payload: {
+          reference: pkgCode,
+          id: packageId,
+          drop_point_name: (metadata?.drop_point_name as string) || 'Point Relais',
+        },
+        dedupeKey: `COLIS_REFUSE_RELAIS:${packageId}:${Date.now()}`,
+      });
+    }
   } else if (targetStatus === 'IN_DISPUTE') {
     // Notifier le livreur et l'agence
     if (pkg.driver_id) {
@@ -441,6 +455,30 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
         'WARNING',
         `Réclamation vendeur ouverte sur le colis ${pkgCode} : "${reason}".`
       );
+    }
+    // ── Notification Telegram Super Admin : RECLAMATION_VENDEUR ──────────────
+    await enqueueNotification({
+      userId: 'superadmin-master-id',
+      eventType: 'RECLAMATION_VENDEUR',
+      payload: {
+        reference: pkgCode,
+        id: packageId,
+      },
+      dedupeKey: `RECLAMATION_VENDEUR:${packageId}`,
+    });
+  } else if (targetStatus === 'DEPOSITED_AT_DROP_POINT') {
+    // ── Notification Telegram Agence : COLIS_A_RECUPERER_RELAIS ─────────────
+    if (pkg.agency_id) {
+      await enqueueNotificationForAgencyMembers({
+        agencyId: pkg.agency_id,
+        eventType: 'COLIS_A_RECUPERER_RELAIS',
+        payload: {
+          reference: pkgCode,
+          id: packageId,
+          drop_point_name: (metadata?.drop_point_name as string) || 'Point Relais',
+        },
+        dedupeKey: `COLIS_A_RECUPERER_RELAIS:${packageId}`,
+      });
     }
   } else if (targetStatus === 'AVAILABLE_AT_PICKUP_POINT' && currentStatus === 'IN_DISPUTE') {
     // Réclamation levée par le Super Admin

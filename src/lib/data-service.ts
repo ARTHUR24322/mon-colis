@@ -8,6 +8,7 @@
  */
 
 import { supabase } from '@/utils/supabase/client';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 export type AgencyStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
@@ -966,7 +967,21 @@ class DataService {
       const { data: dp } = await supabase.from('drop_points').select('credits').eq('id', dropPointId).maybeSingle();
       const currentCredits = (dp as any)?.credits || 0;
       if (currentCredits <= 0) throw new Error('Crédits insuffisants.');
-      await supabase.from('drop_points').update({ credits: currentCredits - 1 }).eq('id', dropPointId);
+      const newCredits = currentCredits - 1;
+      await supabase.from('drop_points').update({ credits: newCredits }).eq('id', dropPointId);
+
+      // ── Notification Telegram : CREDIT_RELAIS_BAS (seuil = 5 crédits) ───
+      const LOW_CREDIT_THRESHOLD = 5;
+      if (newCredits <= LOW_CREDIT_THRESHOLD) {
+        // Récupérer le nom du relais pour le payload (sans données personnelles)
+        const dpName = DEFAULT_DROP_POINTS[idx]?.name || dropPointId;
+        await enqueueNotification({
+          userId: 'superadmin-master-id',
+          eventType: 'CREDIT_RELAIS_BAS',
+          payload: { reference: dpName, id: dropPointId, amount: `${newCredits} crédit(s)` },
+          dedupeKey: `CREDIT_RELAIS_BAS:${dropPointId}:${Math.floor(Date.now() / (3600_000))}`, // 1 alerte max/h
+        });
+      }
     } catch (e: any) {
       if (e.message?.includes('insuffisants')) throw e;
       console.warn('Could not update credits in DB:', e);

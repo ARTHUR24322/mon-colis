@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
+import { enqueueNotification, enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 export async function GET() {
   try {
@@ -289,6 +290,40 @@ export async function POST(request: NextRequest) {
         await supabaseAdmin.from('financial_audits').insert(auditPayload);
       } catch (auditErr) {
         console.warn('[financial_audits cash-session close error]', auditErr);
+      }
+
+      // ── Notifications Telegram : Écarts de caisse (Super Admin & Agence) ───
+      const hasDiscrepancy = (receipt.diffUSD && receipt.diffUSD !== 0) || (receipt.diffCDF && receipt.diffCDF !== 0);
+      if (hasDiscrepancy) {
+        const diffText = [
+          receipt.diffUSD ? `${receipt.diffUSD > 0 ? '+' : ''}${receipt.diffUSD}$` : null,
+          receipt.diffCDF ? `${receipt.diffCDF > 0 ? '+' : ''}${receipt.diffCDF} FC` : null,
+        ].filter(Boolean).join(' / ');
+
+        // 1. Alerte Agence (directeur, gestionnaire, comptable)
+        await enqueueNotificationForAgencyMembers({
+          agencyId: session.agencyId,
+          eventType: 'ECART_CAISSE_AGENCE',
+          payload: {
+            reference: pvReference,
+            amount: diffText,
+            reason: receipt.reason || 'Écart constaté à la clôture',
+          },
+          dedupeKey: `ECART_CAISSE_AGENCE:${pvReference}`,
+        });
+
+        // 2. Alerte Super Admin
+        await enqueueNotification({
+          userId: 'superadmin-master-id',
+          eventType: 'ECART_VERSEMENT_SUPERADMIN',
+          payload: {
+            reference: pvReference,
+            amount: diffText,
+            agency_name: session.name || 'Agence',
+            id: session.agencyId,
+          },
+          dedupeKey: `ECART_VERSEMENT_SUPERADMIN:${pvReference}`,
+        });
       }
 
       return NextResponse.json({ success: true, reference: pvReference });

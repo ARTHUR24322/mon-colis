@@ -16,6 +16,7 @@ import {
 import PinModal from '@/components/PinModal';
 import QRCodeModal from '@/components/QRCodeModal';
 import AdminDropPointSecurityModal from '@/components/AdminDropPointSecurityModal';
+import TelegramNotificationSettings from '@/components/TelegramNotificationSettings';
 import { safeFormatDate, safeFormatDateTime } from '@/utils/dateUtils';
 
 // --- Types -----------------------------------------------------------------
@@ -3880,6 +3881,9 @@ export default function AdminDashboard() {
               >Sauvegarder</button>
             </div>
           </div>
+
+          {/* 🔔 Notifications & Alertes Telegram (Super Admin) */}
+          <TelegramNotificationSettings />
         </div>
       )}
 

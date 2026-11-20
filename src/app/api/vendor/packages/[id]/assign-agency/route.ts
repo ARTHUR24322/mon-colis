@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
+import { enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 export async function POST(
   request: NextRequest,
@@ -128,6 +129,15 @@ export async function POST(
         message: `Nouveau colis à accepter (vendeur: ${session.name}) — MC-${packageId.slice(0, 8).toUpperCase()}`,
         is_read: false,
         created_at: new Date().toISOString(),
+      });
+
+      // ── Notification Telegram : NOUVEAU_COLIS_AGENCE ──────────────────────
+      const ref = `MC-${packageId.slice(0, 8).toUpperCase()}`;
+      await enqueueNotificationForAgencyMembers({
+        agencyId,
+        eventType: 'NOUVEAU_COLIS_AGENCE',
+        payload: { reference: ref, id: packageId },
+        dedupeKey: `NOUVEAU_COLIS_AGENCE:${packageId}:assign`,
       });
     }
 

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabase } from '@/utils/supabase/client';
+import { enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,6 +61,20 @@ export async function POST(request: NextRequest) {
     if (insertErr || !cashRequest) {
       console.error('Cash request insert error:', insertErr);
       return NextResponse.json({ error: 'Erreur lors de la création de la demande.' }, { status: 500 });
+    }
+
+    // ── Notification Telegram Agence : VERSEMENT_EN_ATTENTE ─────────────────
+    if (driver.agency_id) {
+      await enqueueNotificationForAgencyMembers({
+        agencyId: driver.agency_id,
+        eventType: 'VERSEMENT_EN_ATTENTE',
+        payload: {
+          reference: `CR-${cashRequest.id.slice(0, 8).toUpperCase()}`,
+          id: cashRequest.id,
+          amount: `${amount} FC`,
+        },
+        dedupeKey: `VERSEMENT_EN_ATTENTE:${cashRequest.id}`,
+      });
     }
 
     return NextResponse.json({ success: true, requestId: cashRequest.id });

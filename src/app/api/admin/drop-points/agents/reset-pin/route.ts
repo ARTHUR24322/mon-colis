@@ -9,6 +9,7 @@ import { getSession } from '@/lib/session-server';
 import { dataService } from '@/lib/data-service';
 import { logFinancialAudit } from '@/utils/auditLogger';
 import { z } from 'zod';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 const schema = z.object({
   agentId: z.string().trim().optional(),
@@ -86,6 +87,18 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       console.warn('[agents/reset-pin] Audit log warning:', e);
     }
+
+    // ── Notification Telegram super admin : PIN_RELAIS_REINITIALISE ─────────
+    await enqueueNotification({
+      userId: 'superadmin-master-id',
+      eventType: 'PIN_RELAIS_REINITIALISE',
+      payload: {
+        reference: result.agent.dropPointName,
+        action: 'reset',
+        id: result.agent.agentNumber,
+      },
+      dedupeKey: `PIN_RELAIS_REINITIALISE:${result.agent.agentNumber}:${Date.now()}`,
+    });
 
     return NextResponse.json({
       success: true,

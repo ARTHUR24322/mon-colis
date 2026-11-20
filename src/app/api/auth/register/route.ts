@@ -10,6 +10,7 @@ import { supabase } from '@/utils/supabase/client';
 import bcrypt from 'bcryptjs';
 import { dataService } from '@/lib/data-service';
 import { rateLimit } from '@/lib/rateLimit';
+import { enqueueNotification } from '@/lib/notification-outbox';
 
 export async function POST(request: NextRequest) {
   try {
@@ -158,6 +159,14 @@ export async function POST(request: NextRequest) {
         address: address?.trim() || '',
         coverageZones: parsedZones,
         fleetSize: parsedFleet,
+      });
+
+      // ── Notification Telegram super admin : DEMANDE_ADHESION_AGENCE ───────
+      await enqueueNotification({
+        userId: 'superadmin-master-id',
+        eventType: 'DEMANDE_ADHESION_AGENCE',
+        payload: { reference: profile.id.slice(0, 8).toUpperCase(), id: profile.id },
+        dedupeKey: `DEMANDE_ADHESION_AGENCE:${profile.id}`,
       });
 
       // Crucial: do NOT set session cookie for pending agency!
