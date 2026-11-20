@@ -16,19 +16,19 @@ describe('Étape 9 : Critères d\'acceptation Sécurité Webhook & Liaison', () 
 
   describe('Validation du Secret Webhook', () => {
     it('refuse immédiatement (403) un appel sans en-tête de secret', () => {
-      const incomingSecret = null;
+      const incomingSecret: string | null = null;
       const isValid = incomingSecret === WEBHOOK_SECRET;
       expect(isValid).toBe(false);
     });
 
     it('refuse (403) un secret falsifié ou incorrect', () => {
-      const incomingSecret = 'mauvais-secret-invalide';
+      const incomingSecret: string | null = 'mauvais-secret-invalide';
       const isValid = incomingSecret === WEBHOOK_SECRET;
       expect(isValid).toBe(false);
     });
 
     it('accepte uniquement le secret token légitime configuré', () => {
-      const incomingSecret = WEBHOOK_SECRET;
+      const incomingSecret: string | null = WEBHOOK_SECRET;
       const isValid = incomingSecret === WEBHOOK_SECRET;
       expect(isValid).toBe(true);
     });

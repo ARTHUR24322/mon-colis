@@ -14,6 +14,8 @@
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { NotificationEventType, AGENCY_EVENTS, SUPERADMIN_EVENTS } from '@/types/telegram-notifications';
 import type { AgencyRole } from '@/lib/agencyPermissions';
+import { sendTelegram } from '@/lib/telegram';
+import { buildNotificationHtml } from '@/lib/telegram-format';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +91,7 @@ export async function enqueueNotification(params: EnqueueParams): Promise<void> 
     // 2. Vérifier que l'utilisateur a un canal Telegram actif et vérifié
     const { data: channel } = await supabaseAdmin
       .from('notification_channels')
-      .select('id, enabled, verified_at')
+      .select('id, address, enabled, verified_at')
       .eq('user_id', userId)
       .eq('channel', 'telegram')
       .maybeSingle();
@@ -134,6 +136,28 @@ export async function enqueueNotification(params: EnqueueParams): Promise<void> 
     if (error && error.code !== '23505') {
       // 23505 = unique_violation → déduplication OK, pas une erreur
       console.error('[Outbox] Erreur insertion:', error.code, eventType);
+    }
+
+    // 5. Dispatch instantané (non-bloquant) si l'insertion est acceptée
+    if (!error && channel?.address) {
+      try {
+        const { html, buttonUrl, buttonLabel } = buildNotificationHtml(eventType, payload);
+        const button = buttonUrl ? { label: buttonLabel ?? 'Voir', url: buttonUrl } : undefined;
+        sendTelegram(channel.address, html, button)
+          .then(async () => {
+            await supabaseAdmin
+              .from('notification_outbox')
+              .update({ status: 'sent', updated_at: new Date().toISOString() })
+              .eq('user_id', userId)
+              .eq('event_type', eventType)
+              .eq('dedupe_key', dedupeKey);
+          })
+          .catch(() => {
+            // En cas d'échec transitoire, la ligne reste 'pending' pour le cron
+          });
+      } catch {
+        // Ignorer pour ne jamais impacter le flux métier
+      }
     }
 
   } catch (err) {
