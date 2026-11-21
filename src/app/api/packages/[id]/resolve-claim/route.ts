@@ -64,7 +64,10 @@ export async function POST(
     }
 
     const adminName = adminSession?.email || mcSession?.name || 'Super Admin';
-    const adminId = mcSession?.userId || 'admin';
+    // userId doit être un UUID valide pour Postgres — chaîne vide si absent/invalide
+    const rawAdminId = mcSession?.userId || '';
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const adminId = UUID_RE.test(rawAdminId) ? rawAdminId : '';
 
     const result = await executePackageTransition({
       packageId,

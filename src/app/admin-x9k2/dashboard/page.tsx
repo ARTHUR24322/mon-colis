@@ -1874,11 +1874,11 @@ export default function AdminDashboard() {
               </div>
             )}
 
-        {/* ── Modal Arbitrage Réclamations ──────────────────────────────── */}
+        {/* Modal Arbitrage Réclamations */}
         {arbitrationModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
             <div style={{ background: '#111', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '500px' }}>
-              <h3 style={{ color: '#f87171', fontWeight: '800', fontSize: '1.1rem', margin: '0 0 0.3rem' }}>⚖️ Arbitrage du litige</h3>
+              <h3 style={{ color: '#f87171', fontWeight: '800', fontSize: '1.1rem', margin: '0 0 0.3rem' }}>Arbitrage du litige</h3>
               <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', margin: '0 0 1.25rem' }}>
                 Colis <strong style={{ color: '#fff' }}>{arbitrationModal.colis.trackingCode}</strong> — {arbitrationModal.colis.vendeur}
               </p>
@@ -1886,10 +1886,10 @@ export default function AdminDashboard() {
               <div style={{ marginBottom: '1.25rem' }}>
                 <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Décision d&apos;arbitrage</div>
                 {([
-                  { key: 'RESTORE_AVAILABLE', label: '✅ Remettre en disponible', desc: 'Le colis est à nouveau accessible' },
-                  { key: 'RETURN_DRIVER', label: '🔄 Retour au livreur', desc: 'Réassigner pour nouvelle tentative' },
-                  { key: 'CANCEL', label: '❌ Annuler définitivement', desc: 'Clore le colis sans livraison' },
-                  { key: 'CONFIRM_DELIVERED', label: '📦 Confirmer livraison', desc: 'Valider la livraison malgré litige' },
+                  { key: 'RESTORE_AVAILABLE', label: 'Remettre en disponible', desc: 'Le colis est à nouveau accessible pour retrait' },
+                  { key: 'RETURN_DRIVER', label: 'Retour au livreur', desc: 'Réassigner pour une nouvelle tentative de livraison' },
+                  { key: 'CANCEL', label: 'Annuler définitivement', desc: 'Clore le colis sans livraison' },
+                  { key: 'CONFIRM_DELIVERED', label: 'Confirmer la livraison', desc: 'Valider la livraison malgré le litige' },
                 ] as const).map(opt => (
                   <label key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.65rem 0.9rem', borderRadius: '8px', marginBottom: '0.4rem', background: arbitrationModal.resolution === opt.key ? 'rgba(249,115,22,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${arbitrationModal.resolution === opt.key ? 'rgba(249,115,22,0.4)' : 'rgba(255,255,255,0.08)'}`, cursor: 'pointer' }}>
                     <input
@@ -1913,7 +1913,7 @@ export default function AdminDashboard() {
                 <textarea
                   value={arbitrationModal.note}
                   onChange={e => setArbitrationModal(prev => prev ? { ...prev, note: e.target.value } : null)}
-                  placeholder="Expliquez la décision prise…"
+                  placeholder="Expliquez la décision prise..."
                   rows={3}
                   style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '0.65rem 0.9rem', color: '#fff', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }}
                 />
@@ -1938,7 +1938,7 @@ export default function AdminDashboard() {
                   disabled={arbitrationModal.submitting || !arbitrationModal.note.trim()}
                   style={{ flex: 2, height: '42px', borderRadius: '8px', border: 'none', background: arbitrationModal.submitting ? '#555' : '#ef4444', color: '#fff', fontSize: '0.85rem', fontWeight: '800', cursor: arbitrationModal.submitting ? 'not-allowed' : 'pointer' }}
                 >
-                  {arbitrationModal.submitting ? '⏳ Traitement…' : '⚖️ Confirmer l\'arbitrage'}
+                  {arbitrationModal.submitting ? 'Traitement en cours...' : 'Confirmer l\'arbitrage'}
                 </button>
               </div>
             </div>
@@ -3745,22 +3745,21 @@ export default function AdminDashboard() {
                 onClick={reloadColisData}
                 style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#fff', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
               >
-                🔄 Actualiser
+                Actualiser
               </button>
             </div>
 
             {/* KPI Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
               {[
-                { label: 'Litiges vendeurs', value: colis.filter(c => c.status === 'En réclamation' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN').length, color: '#ef4444', icon: '⚠️' },
-                { label: 'Refus points relais', value: colis.filter(c => c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT').length, color: '#f97316', icon: '🚫' },
-                { label: 'Sans mouvement >48h', value: staleColis.length, color: '#eab308', icon: '⏰' },
-                { label: 'Tous les incidents', value: filteredReclamations.length === 0 ? disputeColis.length + staleColis.length : filteredReclamations.length, color: '#a855f7', icon: '📋' },
+                { label: 'Litiges vendeurs', value: colis.filter(c => c.status === 'En réclamation' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN').length, color: '#ef4444' },
+                { label: 'Refus points relais', value: colis.filter(c => c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT').length, color: '#f97316' },
+                { label: 'Sans mouvement +48h', value: staleColis.length, color: '#eab308' },
+                { label: 'Tous les incidents', value: disputeColis.length + staleColis.length, color: '#a855f7' },
               ].map(kpi => (
                 <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${kpi.color}33`, borderRadius: '12px', padding: '1rem 1.25rem' }}>
-                  <div style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>{kpi.icon}</div>
                   <div style={{ fontSize: '1.75rem', fontWeight: '800', color: kpi.color }}>{kpi.value}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)', marginTop: '0.2rem' }}>{kpi.label}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)', marginTop: '0.3rem' }}>{kpi.label}</div>
                 </div>
               ))}
             </div>
@@ -3769,9 +3768,9 @@ export default function AdminDashboard() {
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
               {([
                 { key: 'all', label: 'Tous' },
-                { key: 'disputes', label: '⚠️ Litiges' },
-                { key: 'refused', label: '🚫 Refusés' },
-                { key: 'stale', label: '⏰ Bloqués' },
+                { key: 'disputes', label: 'Litiges' },
+                { key: 'refused', label: 'Refusés' },
+                { key: 'stale', label: 'Bloqués' },
               ] as const).map(st => (
                 <button
                   key={st.key}
@@ -3787,7 +3786,7 @@ export default function AdminDashboard() {
               ))}
               <input
                 className="input-field"
-                placeholder="Rechercher (tracking, client, vendeur…)"
+                placeholder="Rechercher (tracking, client, vendeur...)"
                 value={searchReclamation}
                 onChange={e => setSearchReclamation(e.target.value)}
                 style={{ flex: 1, minWidth: '220px', padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
@@ -3797,7 +3796,6 @@ export default function AdminDashboard() {
             {/* Liste des dossiers */}
             {filteredReclamations.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '4rem 2rem', color: 'rgba(255,255,255,0.3)' }}>
-                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✅</div>
                 <div style={{ fontSize: '1rem', fontWeight: '600' }}>Aucun incident en cours</div>
                 <div style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Tous les colis sont dans un état normal.</div>
               </div>
@@ -3809,15 +3807,15 @@ export default function AdminDashboard() {
                   const badgeStyle = getStatusBadgeStyle(c.status);
                   return (
                     <div key={c.id} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${isDispute ? 'rgba(239,68,68,0.3)' : isRefused ? 'rgba(249,115,22,0.3)' : 'rgba(234,179,8,0.25)'}`, borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
-                      {/* Row 1: tracking + badges */}
+                      {/* Tracking + badges */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
                         <span style={{ fontFamily: 'monospace', fontWeight: '800', fontSize: '0.9rem', color: '#fff' }}>{c.trackingCode || c.id.slice(0, 12).toUpperCase()}</span>
                         <span style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', background: badgeStyle.bg, color: badgeStyle.text, border: `1px solid ${badgeStyle.border}` }}>{c.status}</span>
-                        {isDispute && <span style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)' }}>🔒 Retrait bloqué</span>}
+                        {isDispute && <span style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)' }}>Retrait bloqué</span>}
                         <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>{c.date}</span>
                       </div>
 
-                      {/* Alerte réclamation */}
+                      {/* Motif */}
                       {(c.claimReason || c.refusalComment) && (
                         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '0.6rem 0.9rem', marginBottom: '0.75rem', fontSize: '0.8rem', color: '#fca5a5' }}>
                           <strong>Motif :</strong> {c.claimReason || c.refusalComment}
@@ -3830,7 +3828,7 @@ export default function AdminDashboard() {
                           { label: 'Vendeur', val: c.vendeur, sub: c.vendeurPhone },
                           { label: 'Agence', val: c.agence },
                           { label: 'Client', val: c.clientName, sub: c.clientPhone },
-                          { label: 'Montants', val: `Livraison: ${c.montant.toFixed(2)}$`, sub: c.prixColis ? `Colis: ${c.prixColis.toFixed(2)}$` : undefined },
+                          { label: 'Montants', val: `Livraison: ${c.montant.toFixed(2)} $`, sub: c.prixColis ? `Colis: ${c.prixColis.toFixed(2)} $` : undefined },
                         ].map(item => (
                           <div key={item.label}>
                             <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.15rem' }}>{item.label}</div>
@@ -3846,13 +3844,13 @@ export default function AdminDashboard() {
                           onClick={() => setSelectedPackage(c)}
                           style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '0.78rem', cursor: 'pointer' }}
                         >
-                          👁 Voir détails
+                          Voir détails
                         </button>
                         <button
                           onClick={() => setArbitrationModal({ colis: c, resolution: 'RESTORE_AVAILABLE', note: '', submitting: false, error: null })}
                           style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: 'none', background: isDispute ? '#ef4444' : '#f97316', color: '#fff', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
                         >
-                          ⚖️ Arbitrer ce litige
+                          Arbitrer ce litige
                         </button>
                       </div>
                     </div>

@@ -208,7 +208,8 @@ export async function logPackageAudit(data: {
     const { error } = await db.from('package_audit_logs').insert({
       package_id: data.packageId,
       package_code: data.packageCode || null,
-      actor_id: data.actorId || null,
+      // actor_id est UUID en base — ne stocker que si format valide, sinon null
+      actor_id: (data.actorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.actorId)) ? data.actorId : null,
       actor_name: data.actorName,
       actor_role: data.actorRole,
       from_status: data.fromStatus,
@@ -361,7 +362,9 @@ export async function executePackageTransition(req: TransitionRequest): Promise<
   } else if (pkg.claim_status === 'OPEN') {
     updateData.claim_status = 'RESOLVED';
     updateData.resolved_at = new Date().toISOString();
-    updateData.resolved_by = actor.userId;
+    // resolved_by est UUID en base — ne stocker que si format valide
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    updateData.resolved_by = (actor.userId && UUID_RE.test(actor.userId)) ? actor.userId : null;
     updateData.resolution_note = reason || 'Réclamation levée par le Super Admin';
   }
 
