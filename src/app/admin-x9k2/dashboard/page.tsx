@@ -57,16 +57,23 @@ interface ColisAdmin {
   clientName: string;
   clientPhone?: string;
   clientAddress?: string;
+  clientCommune?: string;
   vendeur: string;
   vendeurId?: string;
+  vendeurPhone?: string;
   agence: string;
   agenceId: string;
   status: string;
+  rawStatus?: string;
+  claimStatus?: string;
+  claimReason?: string | null;
+  refusalComment?: string | null;
   date: string;
   rawDate?: string;
   montant: number;
   prixColis?: number;
   livreur?: string;
+  livreurPhone?: string;
   deliveryMode?: string;
 }
 
@@ -86,6 +93,10 @@ const statusColor: Record<string, string> = {
   'Livré': '#4ade80',
   'Annule': '#94a3b8',
   'Annulé': '#94a3b8',
+  'En réclamation': '#ef4444',
+  'IN_DISPUTE': '#ef4444',
+  'Refusé par le point relais': '#f97316',
+  'REFUSED_BY_DROP_POINT': '#f97316',
 };
 
 function getStatusBadgeStyle(status: string) {
@@ -97,6 +108,12 @@ function getStatusBadgeStyle(status: string) {
     case 'Accepte':
     case 'Accepté':
       return { bg: 'rgba(168, 85, 247, 0.15)', text: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' };
+    case 'En réclamation':
+    case 'IN_DISPUTE':
+      return { bg: 'rgba(239, 68, 68, 0.2)', text: '#f87171', border: 'rgba(239, 68, 68, 0.5)' };
+    case 'Refusé par le point relais':
+    case 'REFUSED_BY_DROP_POINT':
+      return { bg: 'rgba(249, 115, 22, 0.2)', text: '#fb923c', border: 'rgba(249, 115, 22, 0.5)' };
     case 'En attente':
     case 'PENDING_AGENCY':
     case "En attente d'agence":
@@ -200,7 +217,7 @@ const INITIAL_LOGS: LogEntry[] = [
 ];
 
 // Type des onglets du dashboard
-type TabKey = 'overview' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'fulfillment' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
+type TabKey = 'overview' | 'reclamations' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'fulfillment' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -238,6 +255,17 @@ export default function AdminDashboard() {
   const [deletingAgency, setDeletingAgency] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [purgingOrphans, setPurgingOrphans] = useState(false);
+
+  // -- Réclamations & Litiges ---------------------------------------------------
+  const [reclamationSubTab, setReclamationSubTab] = useState<'all'|'disputes'|'refused'|'stale'>('all');
+  const [searchReclamation, setSearchReclamation] = useState('');
+  const [arbitrationModal, setArbitrationModal] = useState<{
+    colis: ColisAdmin;
+    resolution: 'RESTORE_AVAILABLE'|'RETURN_DRIVER'|'CANCEL'|'CONFIRM_DELIVERED';
+    note: string;
+    submitting: boolean;
+    error: string | null;
+  } | null>(null);
 
   const [vendorToDelete, setVendorToDelete] = useState<Vendeur | null>(null);
   const [deleteVendorConfirmInput, setDeleteVendorConfirmInput] = useState('');
@@ -405,16 +433,23 @@ export default function AdminDashboard() {
             clientName: p.clientName,
             clientPhone: p.clientPhone,
             clientAddress: p.clientAddress,
+            clientCommune: (p as any).clientCommune,
             vendeur: p.vendeurName || '—',
             vendeurId: p.vendeurId,
+            vendeurPhone: (p as any).vendeurPhone,
             agence: p.agence || '—',
             agenceId: p.agencyId || '',
             status: p.status,
+            rawStatus: (p as any).rawStatus,
+            claimStatus: (p as any).claimStatus,
+            claimReason: (p as any).claimReason ?? null,
+            refusalComment: (p as any).refusalComment ?? null,
             date: safeFormatDate(p.date || (p as any).created_at),
             rawDate: p.date,
             montant: p.prixLivraison || 0,
             prixColis: p.prixColis || 0,
             livreur: p.livreur || '—',
+            livreurPhone: (p as any).livreurPhone,
             deliveryMode: p.deliveryMode,
           })));
         }
@@ -668,7 +703,10 @@ export default function AdminDashboard() {
       }
 
       // 2. Filtre statut
-      const matchStatus = colisFilter === 'Tous' || c.status === colisFilter;
+      const matchStatus = colisFilter === 'Tous' ||
+        c.status === colisFilter ||
+        (colisFilter === 'En réclamation' && (c.status === 'EN_DISPUTE' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN')) ||
+        (colisFilter === 'Refusé par le point relais' && c.status === 'REFUSED_BY_DROP_POINT');
 
       // 3. Filtre agence
       let matchAgency = true;
@@ -698,6 +736,104 @@ export default function AdminDashboard() {
     const start = (colisPage - 1) * pageSize;
     return filteredColis.slice(start, start + pageSize);
   }, [filteredColis, colisPage]);
+
+  // -- Réclamations & Litiges ---------------------------------------------------
+  const disputeColis = useMemo(() => colis.filter(c =>
+    c.status === 'En réclamation' || c.status === 'IN_DISPUTE' ||
+    c.claimStatus === 'OPEN' ||
+    c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT'
+  ), [colis]);
+
+  const staleColis = useMemo(() => colis.filter(c => {
+    if (['Livré','Annulé','DELIVERED','CANCELLED'].includes(c.status)) return false;
+    const rawMs = c.rawDate ? new Date(c.rawDate).getTime() : NaN;
+    if (isNaN(rawMs)) return false;
+    return (Date.now() - rawMs) > 48 * 3600 * 1000;
+  }), [colis]);
+
+  const filteredReclamations = useMemo(() => {
+    const pool: ColisAdmin[] = reclamationSubTab === 'disputes'
+      ? colis.filter(c => c.status === 'En réclamation' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN')
+      : reclamationSubTab === 'refused'
+      ? colis.filter(c => c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT')
+      : reclamationSubTab === 'stale'
+      ? staleColis
+      : [...disputeColis, ...staleColis.filter(s => !disputeColis.some(d => d.id === s.id))];
+    const q = searchReclamation.toLowerCase().trim();
+    if (!q) return pool;
+    return pool.filter(c =>
+      (c.trackingCode || '').toLowerCase().includes(q) ||
+      c.clientName.toLowerCase().includes(q) ||
+      c.vendeur.toLowerCase().includes(q) ||
+      c.status.toLowerCase().includes(q)
+    );
+  }, [colis, disputeColis, staleColis, reclamationSubTab, searchReclamation]);
+
+
+  // Recharger les colis depuis la source
+  const reloadColisData = async () => {
+    try {
+      const allPackages = await dataService.getAllPackages();
+      setColis(allPackages.map(p => ({
+        id: p.id,
+        trackingCode: p.trackingCode || ('MC-' + p.id.slice(0, 8).toUpperCase()),
+        clientName: p.clientName,
+        clientPhone: p.clientPhone,
+        clientAddress: p.clientAddress,
+        clientCommune: (p as any).clientCommune,
+        vendeur: p.vendeurName || '—',
+        vendeurId: p.vendeurId,
+        vendeurPhone: (p as any).vendeurPhone,
+        agence: p.agence || '—',
+        agenceId: p.agencyId || '',
+        status: p.status,
+        rawStatus: (p as any).rawStatus,
+        claimStatus: (p as any).claimStatus,
+        claimReason: (p as any).claimReason ?? null,
+        refusalComment: (p as any).refusalComment ?? null,
+        date: safeFormatDate(p.date || (p as any).created_at),
+        rawDate: p.date,
+        montant: p.prixLivraison || 0,
+        prixColis: p.prixColis || 0,
+        livreur: p.livreur || '—',
+        livreurPhone: (p as any).livreurPhone,
+        deliveryMode: p.deliveryMode,
+      })));
+    } catch (e) {
+      console.error('reloadColisData error', e);
+    }
+  };
+
+  // Arbitrage d'une réclamation (super admin)
+  const handleResolveClaim = async () => {
+    if (!arbitrationModal) return;
+    if (!arbitrationModal.note || arbitrationModal.note.trim().length < 3) {
+      setArbitrationModal(prev => prev ? { ...prev, error: 'Veuillez saisir une note d\'arbitrage (min. 3 caractères).' } : null);
+      return;
+    }
+    setArbitrationModal(prev => prev ? { ...prev, submitting: true, error: null } : null);
+    try {
+      const idempotencyKey = `arb-${arbitrationModal.colis.id}-${Date.now()}`;
+      const res = await fetch(`/api/packages/${arbitrationModal.colis.id}/resolve-claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resolution: arbitrationModal.resolution,
+          note: arbitrationModal.note.trim(),
+          idempotencyKey,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erreur HTTP ${res.status}`);
+      }
+      setArbitrationModal(null);
+      setToast('✅ Arbitrage enregistré avec succès.');
+      await reloadColisData();
+    } catch (e: any) {
+      setArbitrationModal(prev => prev ? { ...prev, submitting: false, error: e.message || 'Une erreur est survenue.' } : null);
+    }
+  };
 
   // Assigner une agence à un colis orphelin
   const handleAssignAgency = async (colisId: string, agencyId: string) => {
@@ -1179,6 +1315,7 @@ export default function AdminDashboard() {
       items: [
         { key: 'overview', label: 'Vue globale', icon: <LayoutDashboard size={15} /> },
         { key: 'colis', label: 'Tous les colis', icon: <Package size={15} />, count: colis.length },
+        { key: 'reclamations', label: 'Réclamations & Litiges', icon: <AlertTriangle size={15} />, count: disputeColis.length, badgeColor: disputeColis.length > 0 ? '#ef4444' : undefined, permission: 'canManageAgences' },
         { key: 'agences', label: 'Agences actives', icon: <Building2 size={15} />, count: activeAgences, permission: 'canManageAgences' },
         { key: 'fulfillment', label: 'Entrepôts', icon: <Boxes size={15} />, count: fulfillmentData?.subscriptions?.length, permission: 'canManageAgences' },
         { key: 'demandes', label: 'Adhésions', icon: <UserPlus size={15} />, count: pendingAgencesCount, badgeColor: pendingAgencesCount > 0 ? '#f97316' : undefined, permission: 'canManageAgences' },
@@ -1736,6 +1873,77 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
+
+        {/* ── Modal Arbitrage Réclamations ──────────────────────────────── */}
+        {arbitrationModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div style={{ background: '#111', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '500px' }}>
+              <h3 style={{ color: '#f87171', fontWeight: '800', fontSize: '1.1rem', margin: '0 0 0.3rem' }}>⚖️ Arbitrage du litige</h3>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', margin: '0 0 1.25rem' }}>
+                Colis <strong style={{ color: '#fff' }}>{arbitrationModal.colis.trackingCode}</strong> — {arbitrationModal.colis.vendeur}
+              </p>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Décision d&apos;arbitrage</div>
+                {([
+                  { key: 'RESTORE_AVAILABLE', label: '✅ Remettre en disponible', desc: 'Le colis est à nouveau accessible' },
+                  { key: 'RETURN_DRIVER', label: '🔄 Retour au livreur', desc: 'Réassigner pour nouvelle tentative' },
+                  { key: 'CANCEL', label: '❌ Annuler définitivement', desc: 'Clore le colis sans livraison' },
+                  { key: 'CONFIRM_DELIVERED', label: '📦 Confirmer livraison', desc: 'Valider la livraison malgré litige' },
+                ] as const).map(opt => (
+                  <label key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.65rem 0.9rem', borderRadius: '8px', marginBottom: '0.4rem', background: arbitrationModal.resolution === opt.key ? 'rgba(249,115,22,0.1)' : 'rgba(255,255,255,0.03)', border: `1px solid ${arbitrationModal.resolution === opt.key ? 'rgba(249,115,22,0.4)' : 'rgba(255,255,255,0.08)'}`, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="arbitration-resolution"
+                      value={opt.key}
+                      checked={arbitrationModal.resolution === opt.key}
+                      onChange={() => setArbitrationModal(prev => prev ? { ...prev, resolution: opt.key } : null)}
+                      style={{ marginTop: '2px', accentColor: '#f97316' }}
+                    />
+                    <div>
+                      <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: '600' }}>{opt.label}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>{opt.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.45)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Note d&apos;arbitrage *</div>
+                <textarea
+                  value={arbitrationModal.note}
+                  onChange={e => setArbitrationModal(prev => prev ? { ...prev, note: e.target.value } : null)}
+                  placeholder="Expliquez la décision prise…"
+                  rows={3}
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '0.65rem 0.9rem', color: '#fff', fontSize: '0.85rem', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {arbitrationModal.error && (
+                <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '0.6rem 0.9rem', color: '#f87171', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                  {arbitrationModal.error}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => setArbitrationModal(null)}
+                  disabled={arbitrationModal.submitting}
+                  style={{ flex: 1, height: '42px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '0.85rem', cursor: 'pointer' }}
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleResolveClaim}
+                  disabled={arbitrationModal.submitting || !arbitrationModal.note.trim()}
+                  style={{ flex: 2, height: '42px', borderRadius: '8px', border: 'none', background: arbitrationModal.submitting ? '#555' : '#ef4444', color: '#fff', fontSize: '0.85rem', fontWeight: '800', cursor: arbitrationModal.submitting ? 'not-allowed' : 'pointer' }}
+                >
+                  {arbitrationModal.submitting ? '⏳ Traitement…' : '⚖️ Confirmer l\'arbitrage'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Toast notification */}
         {toast && (
@@ -3524,6 +3732,137 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* -- TAB: Réclamations & Litiges --------------------------------------- */}
+        {activeTab === 'reclamations' && (
+          <div className="animate-fade-in">
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#fff', margin: 0 }}>Réclamations &amp; Litiges</h2>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>Arbitrage des litiges vendeurs, refus points relais et colis bloqués</p>
+              </div>
+              <button
+                onClick={reloadColisData}
+                style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#fff', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                🔄 Actualiser
+              </button>
+            </div>
+
+            {/* KPI Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+              {[
+                { label: 'Litiges vendeurs', value: colis.filter(c => c.status === 'En réclamation' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN').length, color: '#ef4444', icon: '⚠️' },
+                { label: 'Refus points relais', value: colis.filter(c => c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT').length, color: '#f97316', icon: '🚫' },
+                { label: 'Sans mouvement >48h', value: staleColis.length, color: '#eab308', icon: '⏰' },
+                { label: 'Tous les incidents', value: filteredReclamations.length === 0 ? disputeColis.length + staleColis.length : filteredReclamations.length, color: '#a855f7', icon: '📋' },
+              ].map(kpi => (
+                <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${kpi.color}33`, borderRadius: '12px', padding: '1rem 1.25rem' }}>
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>{kpi.icon}</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '800', color: kpi.color }}>{kpi.value}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)', marginTop: '0.2rem' }}>{kpi.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Sub-tabs + Search */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              {([
+                { key: 'all', label: 'Tous' },
+                { key: 'disputes', label: '⚠️ Litiges' },
+                { key: 'refused', label: '🚫 Refusés' },
+                { key: 'stale', label: '⏰ Bloqués' },
+              ] as const).map(st => (
+                <button
+                  key={st.key}
+                  onClick={() => setReclamationSubTab(st.key)}
+                  style={{
+                    padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid',
+                    borderColor: reclamationSubTab === st.key ? '#f97316' : 'rgba(255,255,255,0.1)',
+                    background: reclamationSubTab === st.key ? 'rgba(249,115,22,0.15)' : 'transparent',
+                    color: reclamationSubTab === st.key ? '#f97316' : 'rgba(255,255,255,0.5)',
+                    fontSize: '0.8rem', cursor: 'pointer', fontWeight: reclamationSubTab === st.key ? '700' : '400',
+                  }}
+                >{st.label}</button>
+              ))}
+              <input
+                className="input-field"
+                placeholder="Rechercher (tracking, client, vendeur…)"
+                value={searchReclamation}
+                onChange={e => setSearchReclamation(e.target.value)}
+                style={{ flex: 1, minWidth: '220px', padding: '0.45rem 0.9rem', fontSize: '0.8rem' }}
+              />
+            </div>
+
+            {/* Liste des dossiers */}
+            {filteredReclamations.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '4rem 2rem', color: 'rgba(255,255,255,0.3)' }}>
+                <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✅</div>
+                <div style={{ fontSize: '1rem', fontWeight: '600' }}>Aucun incident en cours</div>
+                <div style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Tous les colis sont dans un état normal.</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {filteredReclamations.map(c => {
+                  const isDispute = c.status === 'En réclamation' || c.status === 'IN_DISPUTE' || c.claimStatus === 'OPEN';
+                  const isRefused = c.status === 'Refusé par le point relais' || c.status === 'REFUSED_BY_DROP_POINT';
+                  const badgeStyle = getStatusBadgeStyle(c.status);
+                  return (
+                    <div key={c.id} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${isDispute ? 'rgba(239,68,68,0.3)' : isRefused ? 'rgba(249,115,22,0.3)' : 'rgba(234,179,8,0.25)'}`, borderRadius: '14px', padding: '1.25rem 1.5rem' }}>
+                      {/* Row 1: tracking + badges */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: '800', fontSize: '0.9rem', color: '#fff' }}>{c.trackingCode || c.id.slice(0, 12).toUpperCase()}</span>
+                        <span style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', background: badgeStyle.bg, color: badgeStyle.text, border: `1px solid ${badgeStyle.border}` }}>{c.status}</span>
+                        {isDispute && <span style={{ padding: '0.2rem 0.65rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '700', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.4)' }}>🔒 Retrait bloqué</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'rgba(255,255,255,0.35)' }}>{c.date}</span>
+                      </div>
+
+                      {/* Alerte réclamation */}
+                      {(c.claimReason || c.refusalComment) && (
+                        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '0.6rem 0.9rem', marginBottom: '0.75rem', fontSize: '0.8rem', color: '#fca5a5' }}>
+                          <strong>Motif :</strong> {c.claimReason || c.refusalComment}
+                        </div>
+                      )}
+
+                      {/* Parties */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.5rem 1.5rem', marginBottom: '0.9rem' }}>
+                        {[
+                          { label: 'Vendeur', val: c.vendeur, sub: c.vendeurPhone },
+                          { label: 'Agence', val: c.agence },
+                          { label: 'Client', val: c.clientName, sub: c.clientPhone },
+                          { label: 'Montants', val: `Livraison: ${c.montant.toFixed(2)}$`, sub: c.prixColis ? `Colis: ${c.prixColis.toFixed(2)}$` : undefined },
+                        ].map(item => (
+                          <div key={item.label}>
+                            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.15rem' }}>{item.label}</div>
+                            <div style={{ fontSize: '0.82rem', color: '#fff', fontWeight: '600' }}>{item.val}</div>
+                            {item.sub && <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)' }}>{item.sub}</div>}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Actions */}
+                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => setSelectedPackage(c)}
+                          style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: '#fff', fontSize: '0.78rem', cursor: 'pointer' }}
+                        >
+                          👁 Voir détails
+                        </button>
+                        <button
+                          onClick={() => setArbitrationModal({ colis: c, resolution: 'RESTORE_AVAILABLE', note: '', submitting: false, error: null })}
+                          style={{ padding: '0.45rem 1rem', borderRadius: '8px', border: 'none', background: isDispute ? '#ef4444' : '#f97316', color: '#fff', fontSize: '0.78rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          ⚖️ Arbitrer ce litige
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* -- TAB: Colis ----------------------------------------------------- */}
         {activeTab === 'colis' && (
           <div className="animate-fade-in">
@@ -3542,7 +3881,7 @@ export default function AdminDashboard() {
                 className="input-field"
                 style={{ padding: '0.55rem 0.9rem', width: 'auto', fontSize: '0.875rem' }}
               >
-                {['Tous', 'En attente', 'Accepte', 'En transit', 'Livré', 'Refuse', 'Annule'].map(s => (
+                {['Tous', 'En attente', 'Accepte', 'En transit', 'Livré', 'En réclamation', 'Refusé par le point relais', 'Refuse', 'Annule'].map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
