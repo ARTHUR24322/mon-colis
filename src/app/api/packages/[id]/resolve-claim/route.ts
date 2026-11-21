@@ -14,7 +14,7 @@ import { executePackageTransition, PackageDbStatus } from '@/lib/package-state-m
 import { z } from 'zod';
 
 const resolveSchema = z.object({
-  resolution: z.enum(['RESTORE_AVAILABLE', 'RETURN_DRIVER', 'CANCEL']),
+  resolution: z.enum(['RESTORE_AVAILABLE', 'RETURN_DRIVER', 'CANCEL', 'CONFIRM_DELIVERED']),
   note: z.string().min(3, 'Une note explicative de la résolution est obligatoire.'),
   idempotencyKey: z.string().optional(),
 });
@@ -58,6 +58,9 @@ export async function POST(
     } else if (resolution === 'CANCEL') {
       targetStatus = 'CANCELLED';
       action = 'RESOLVE_CLAIM_CANCEL';
+    } else if (resolution === 'CONFIRM_DELIVERED') {
+      targetStatus = 'DELIVERED';
+      action = 'RESOLVE_CLAIM_DELIVERED';
     }
 
     const adminName = adminSession?.email || mcSession?.name || 'Super Admin';

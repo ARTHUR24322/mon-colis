@@ -13,17 +13,70 @@ export async function GET() {
       return NextResponse.json({ error: 'Non autorisé.' }, { status: 403 });
     }
 
-    // Soldes par agence
-    const { data: balances, error: balErr } = await supabase
+    // 1. Lire les soldes existants dans la table balances (si elle existe/est peuplée)
+    const { data: dbBalances, error: balErr } = await supabase
       .from('balances')
       .select('agency_id, amount_owed_to_vendor, amount_owed_by_vendor, total_delivered, last_updated')
-      .eq('vendor_id', session.userId)
-      .order('amount_owed_to_vendor', { ascending: false });
+      .eq('vendor_id', session.userId);
 
     if (balErr) {
-      console.error('Balance fetch error:', balErr);
-      return NextResponse.json({ error: 'Erreur lors du chargement des soldes.' }, { status: 500 });
+      console.warn('Balance fetch warning:', balErr);
     }
+
+    // 2. Calcul dynamique basé sur les colis livrés réels (source de vérité)
+    const { data: deliveredPackages, error: pkgErr } = await supabase
+      .from('packages')
+      .select('id, agency_id, package_price, status, is_prepaid, vendor_paid')
+      .eq('vendeur_id', session.userId)
+      .eq('status', 'DELIVERED');
+
+    if (pkgErr) {
+      console.warn('Delivered packages fetch warning:', pkgErr);
+    }
+
+    const agencyBalanceMap = new Map<string, {
+      agency_id: string;
+      amount_owed_to_vendor: number;
+      amount_owed_by_vendor: number;
+      total_delivered: number;
+      last_updated: string;
+    }>();
+
+    // Initialiser avec la table balances si dispo
+    (dbBalances || []).forEach(b => {
+      if (b.agency_id) {
+        agencyBalanceMap.set(b.agency_id, {
+          agency_id: b.agency_id,
+          amount_owed_to_vendor: Number(b.amount_owed_to_vendor) || 0,
+          amount_owed_by_vendor: Number(b.amount_owed_by_vendor) || 0,
+          total_delivered: Number(b.total_delivered) || 0,
+          last_updated: b.last_updated || new Date().toISOString(),
+        });
+      }
+    });
+
+    // Compléter avec les colis réels livrés non encore reversés
+    (deliveredPackages || []).forEach(pkg => {
+      if (!pkg.agency_id) return;
+      if (!agencyBalanceMap.has(pkg.agency_id)) {
+        agencyBalanceMap.set(pkg.agency_id, {
+          agency_id: pkg.agency_id,
+          amount_owed_to_vendor: 0,
+          amount_owed_by_vendor: 0,
+          total_delivered: 0,
+          last_updated: new Date().toISOString(),
+        });
+      }
+      const item = agencyBalanceMap.get(pkg.agency_id)!;
+      item.total_delivered += 1;
+      if (!pkg.is_prepaid && !pkg.vendor_paid) {
+        item.amount_owed_to_vendor += Number(pkg.package_price) || 0;
+      }
+    });
+
+    const enrichedBalancesRaw = Array.from(agencyBalanceMap.values()).sort(
+      (a, b) => b.amount_owed_to_vendor - a.amount_owed_to_vendor
+    );
 
     // Paiements en attente de confirmation (OTP reçu, pas encore confirmé)
     const { data: pending, error: pendingErr } = await supabase
@@ -39,10 +92,10 @@ export async function GET() {
     }
 
     // Récupérer les profils des agences pour les soldes et OTPs
-    const rawBalances = balances ?? [];
+    const balancesList = enrichedBalancesRaw;
     const rawPending = pending ?? [];
     const allAgencyIds = [...new Set([
-      ...rawBalances.map(b => b.agency_id),
+      ...balancesList.map(b => b.agency_id),
       ...rawPending.map(p => p.agency_id),
     ].filter(Boolean))];
 
@@ -55,7 +108,7 @@ export async function GET() {
       (profiles ?? []).forEach(p => agencyMap.set(p.id, { name: p.name || 'Agence', phone: p.phone || '' }));
     }
 
-    const enrichedBalances = rawBalances.map(b => ({
+    const enrichedBalances = balancesList.map(b => ({
       ...b,
       agency: {
         profile: agencyMap.get(b.agency_id) || { name: 'Agence', phone: '' }

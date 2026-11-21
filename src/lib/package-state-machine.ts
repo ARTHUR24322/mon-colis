@@ -178,9 +178,10 @@ const TRANSITIONS_RULES: Partial<Record<PackageDbStatus, Partial<Record<PackageD
     AVAILABLE_AT_PICKUP_POINT: { allowedRoles: ['superadmin'], description: 'Super Admin lève la réclamation : remis à disposition' },
     REFUSED_BY_DROP_POINT: { allowedRoles: ['superadmin'], description: 'Super Admin renvoie le colis vers le livreur' },
     CANCELLED: { allowedRoles: ['superadmin'], description: 'Super Admin annule définitivement le colis pour retour' },
+    DELIVERED: { allowedRoles: ['superadmin'], description: 'Super Admin clôture la réclamation et confirme la livraison' },
   },
   DELIVERED: {
-    // État final : aucune transition autorisée
+    IN_DISPUTE: { allowedRoles: ['vendeur', 'superadmin'], description: 'Réclamation vendeur après livraison (litige sur versement ou livraison)' },
   },
   CANCELLED: {
     // État final

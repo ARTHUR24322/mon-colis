@@ -19,6 +19,7 @@ interface MobilePackageDetailSheetProps {
   role: 'vendeur' | 'livreur';
   onClaimSubmitted?: () => void;
   onRefresh?: () => void;
+  onRequestPayout?: (agencyId: string, agencyName: string, amountUsd: number) => void;
   // Actions livreur
   onValidateOtp?: (otp: string) => Promise<boolean>;
   onRerouteRelais?: () => void;
@@ -33,6 +34,7 @@ export default function MobilePackageDetailSheet({
   role,
   onClaimSubmitted,
   onRefresh,
+  onRequestPayout,
   onValidateOtp,
   onRerouteRelais,
   onCollectRelais,
@@ -442,6 +444,123 @@ export default function MobilePackageDetailSheet({
             >
               <AlertTriangle size={18} /> Poser une réclamation (Bloquer le retrait)
             </button>
+          )}
+
+          {/* Vendeur : Colis livré — Ce qui lui revient et possibilité de réclamer son versement */}
+          {role === 'vendeur' && isDelivered && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {colis.vendorPaid ? (
+                <div style={{
+                  background: 'rgba(34, 197, 94, 0.12)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  borderRadius: '14px',
+                  padding: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                }}>
+                  <CheckCircle2 size={24} style={{ color: '#4ade80', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: '800', color: '#4ade80', fontSize: '0.9rem' }}>
+                      Fonds reversés ({formatPrice(colis.prixColis)})
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>
+                      Le montant de ce colis vous a été intégralement reversé par l&apos;agence.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(15, 23, 42, 0.6) 100%)',
+                  border: '1px solid rgba(34, 197, 94, 0.4)',
+                  borderRadius: '14px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Ce qui vous revient sur ce colis
+                      </span>
+                      <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#ffffff', marginTop: '2px' }}>
+                        {formatPrice(colis.prixColis)}
+                      </div>
+                    </div>
+                    <span style={{
+                      background: 'rgba(234, 179, 8, 0.15)',
+                      color: '#facc15',
+                      border: '1px solid rgba(234, 179, 8, 0.3)',
+                      fontSize: '0.7rem',
+                      fontWeight: '800',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                    }}>
+                      Disponible
+                    </span>
+                  </div>
+
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#cbd5e1', lineHeight: '1.4' }}>
+                    Colis livré avec succès. Vous pouvez réclamer le versement de vos fonds auprès de l&apos;agence{' '}
+                    <strong style={{ color: '#fff' }}>{colis.agence || 'partenaire'}</strong>.
+                  </p>
+
+                  {onRequestPayout && colis.agencyId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onRequestPayout(colis.agencyId!, colis.agence || 'Agence', colis.prixColis);
+                      }}
+                      style={{
+                        width: '100%',
+                        minHeight: '44px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: '#22c55e',
+                        color: '#000000',
+                        fontWeight: '800',
+                        fontSize: '0.88rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        boxShadow: '0 4px 12px rgba(34, 197, 94, 0.3)',
+                      }}
+                    >
+                      <DollarSign size={18} /> Réclamer mon versement ({formatPrice(colis.prixColis)})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Réclamation litige après livraison si problème */}
+              {!isDispute && (
+                <button
+                  type="button"
+                  onClick={() => setShowClaimModal(true)}
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    background: 'rgba(239, 68, 68, 0.06)',
+                    color: '#f87171',
+                    fontWeight: '700',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <AlertTriangle size={14} /> Poser une réclamation sur ce colis livré
+                </button>
+              )}
+            </div>
           )}
 
           {/* Livreur : Saisie de l'OTP si en cours de livraison directe (désactivé si colis en point relais) */}

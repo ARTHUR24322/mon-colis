@@ -2184,6 +2184,14 @@ export default function VendeurDashboard() {
         formatPrice={formatPrice}
         role="vendeur"
         onRefresh={refreshColis}
+        onRequestPayout={(agencyId, agencyName, amountUsd) => {
+          setVendorRequestModal({
+            agencyId,
+            agencyName,
+            agencyPhone: '',
+            amountUsd,
+          });
+        }}
         onClaimSubmitted={() => {
           refreshColis();
           showToast('Réclamation enregistrée !');
