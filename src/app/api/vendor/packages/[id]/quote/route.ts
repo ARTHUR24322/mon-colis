@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
+import { isSameCommune } from '@/utils/kinshasa';
 
 const QUOTE_VALIDITY_HOURS = 24; // Le devis est valide 24 heures
 
@@ -28,10 +29,16 @@ function calculateDeliveryPrice(params: {
   const { communePrices, commune, poids, distance, pricePerKg, pricePerKm, tauxChange, deviseGrille } = params;
 
   const communeEntry = communePrices.find(cp =>
-    cp.commune?.toLowerCase() === commune?.toLowerCase()
+    isSameCommune(cp.commune, commune)
   );
 
-  const rawCommune = communeEntry?.price || 0;
+  let rawCommune = communeEntry?.price || 0;
+  if (!rawCommune || rawCommune <= 0) {
+    const validPrices = communePrices.filter(cp => typeof cp.price === 'number' && cp.price > 0).map(cp => cp.price);
+    if (validPrices.length > 0) {
+      rawCommune = Math.round(validPrices.reduce((a, b) => a + b, 0) / validPrices.length);
+    }
+  }
   const rawPoids = Math.round(poids * pricePerKg);
   const rawDistance = Math.round(distance * pricePerKm);
   const rawTotal = rawCommune + rawPoids + rawDistance;

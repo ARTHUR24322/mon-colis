@@ -117,9 +117,15 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    // Synchroniser coverage_zones avec les communes renseignées par l'agence
+    const extractedZones = communePrices
+      .filter(cp => cp && cp.commune && (typeof cp.price !== 'number' || cp.price > 0))
+      .map(cp => cp.commune.trim());
+
     // Construire la mise à jour
     const updatePayload: Record<string, unknown> = {
       commune_prices: communePrices,
+      coverage_zones: extractedZones.length > 0 ? extractedZones : communePrices.map(cp => cp.commune.trim()),
       price_per_km: pricePerKm,
       price_per_kg: pricePerKg,
     };
@@ -139,9 +145,10 @@ export async function PATCH(request: NextRequest) {
       .eq('id', session.agencyId);
 
     // Fallback si colonnes pas encore créées
-    if (error && (error.message?.includes('max_weight_kg') || error.message?.includes('devise_grille'))) {
-      delete updatePayload.max_weight_kg;
-      delete updatePayload.devise_grille;
+    if (error && (error.message?.includes('max_weight_kg') || error.message?.includes('devise_grille') || error.message?.includes('coverage_zones'))) {
+      if (error.message?.includes('coverage_zones')) delete updatePayload.coverage_zones;
+      if (error.message?.includes('max_weight_kg')) delete updatePayload.max_weight_kg;
+      if (error.message?.includes('devise_grille')) delete updatePayload.devise_grille;
       const retry = await supabase
         .from('agencies')
         .update(updatePayload)

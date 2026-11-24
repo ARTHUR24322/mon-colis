@@ -180,17 +180,17 @@ export default function NouveauColisPage() {
   // ── Load agencies on commune change ─────────────────────────────────────
   useEffect(() => {
     setLoadingAgencies(true);
-    const comm = clientCommune || 'Kinshasa';
+    const comm = clientCommune || '';
     fetch(`/api/vendor/agencies?commune=${encodeURIComponent(comm)}&poids=${encodeURIComponent(poids || 1)}`)
       .then(r => r.json())
       .then(d => {
         if (d.agencies && d.agencies.length > 0) {
           setAgencies(d.agencies);
         } else {
-          setAgencies(DEFAULT_AGENCIES);
+          setAgencies([]);
         }
       })
-      .catch(() => setAgencies(DEFAULT_AGENCIES))
+      .catch(() => setAgencies([]))
       .finally(() => setLoadingAgencies(false));
   }, [clientCommune, poids]);
 
@@ -668,6 +668,11 @@ export default function NouveauColisPage() {
                 {loadingAgencies && (
                   <div style={{ color: '#9ca3af', fontSize: '0.84rem', textAlign: 'center', padding: '1rem' }}>
                     Chargement des agences...
+                  </div>
+                )}
+                {!loadingAgencies && agencies.length === 0 && (
+                  <div style={{ color: '#9ca3af', fontSize: '0.84rem', textAlign: 'center', padding: '1rem', background: '#1e2433', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    Aucune agence active n&apos;a encore configuré de tarif pour {clientCommune || 'cette commune'}. Vous pouvez sélectionner &laquo; Choisir plus tard &raquo; ci-dessous pour laisser toute agence agréée accepter votre colis.
                   </div>
                 )}
                 {!loadingAgencies && agencies.map(ag => (

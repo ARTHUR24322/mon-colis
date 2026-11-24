@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
+import { isSameCommune } from '@/utils/kinshasa';
 
 export async function POST(
   request: NextRequest,
@@ -60,7 +61,7 @@ export async function POST(
     if (agencyId) {
       const { data: agency } = await supabaseAdmin
         .from('agencies')
-        .select('id, status, coverage_zones, profile:profiles!id(name)')
+        .select('id, status, coverage_zones, commune_prices, profile:profiles!id(name)')
         .eq('id', agencyId)
         .maybeSingle();
 
@@ -68,14 +69,22 @@ export async function POST(
         return NextResponse.json({ error: 'Agence introuvable.' }, { status: 404 });
       }
 
-      if (agency.status !== 'APPROVED') {
+      const statusUpper = String(agency.status || 'APPROVED').toUpperCase().trim();
+      if (statusUpper === 'SUSPENDED' || statusUpper === 'REJECTED' || statusUpper === 'PENDING') {
         return NextResponse.json({ error: 'Cette agence n\'est pas disponible (suspendue ou non approuvée).' }, { status: 400 });
       }
 
-      // Vérification zone couverte
-      const zones: string[] = agency.coverage_zones || [];
+      // Vérification zone couverte (coverage_zones + commune_prices)
+      const zones: string[] = Array.isArray(agency.coverage_zones) ? agency.coverage_zones : [];
+      const communePrices: { commune: string; price: number }[] = Array.isArray(agency.commune_prices) ? agency.commune_prices : [];
+      const pricedCommunes = communePrices
+        .filter((cp: any) => cp && cp.commune && (typeof cp.price !== 'number' || cp.price > 0))
+        .map((cp: any) => cp.commune);
+
+      const allCoverage = [...zones, ...pricedCommunes];
       const commune = pkg.client_commune || '';
-      if (zones.length > 0 && !zones.some((z: string) => z.toLowerCase() === commune.toLowerCase())) {
+
+      if (commune && allCoverage.length > 0 && !allCoverage.some((z: string) => isSameCommune(z, commune))) {
         return NextResponse.json({
           error: `Cette agence ne couvre pas la commune "${commune}".`,
         }, { status: 400 });

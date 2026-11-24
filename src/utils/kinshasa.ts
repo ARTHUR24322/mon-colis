@@ -81,3 +81,30 @@ export function formatDrcPhoneDisplay(digits: string): string {
   return `${clean.slice(0, 2)} ${clean.slice(2, 5)} ${clean.slice(5, 7)} ${clean.slice(7, 9)}`;
 }
 
+/**
+ * Normalise le nom d'une commune pour les comparaisons insensibles aux accents,
+ * tirets, apostrophes, majuscules et espaces (ex: "Mont-Ngafula" === "Mont Ngafula", "N'djili" === "Ndjili").
+ */
+export function normalizeCommune(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’]/g, '')
+    .replace(/[\-_\s]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Détermine si deux noms de communes correspondent (tolérant aux variations de saisie).
+ */
+export function isSameCommune(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const na = normalizeCommune(a);
+  const nb = normalizeCommune(b);
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+
