@@ -218,7 +218,10 @@ export default function NouveauColisPage() {
       if (!prix || isNaN(parseFloat(prix)) || parseFloat(prix) < 0) { setErrorMsg('Le prix est invalide.'); return false; }
     }
     if (s === 3) {
-      // allow "choisir plus tard"
+      if (selectedAgencyId && !quoteAccepted) {
+        setErrorMsg("Veuillez accepter le devis pour continuer avec cette agence, ou sélectionnez 'Choisir plus tard'.");
+        return false;
+      }
     }
     return true;
   };
@@ -230,15 +233,36 @@ export default function NouveauColisPage() {
 
   const goBack = () => {
     if (step === 1) router.back();
-    else { setErrorMsg(''); setStep(s => s - 1); }
+    else {
+      setErrorMsg('');
+      if (step === 3 && createdPackageId && !quoteAccepted) {
+        // S'assurer qu'aucune agence n'est attribuée si le devis n'a pas été accepté
+        fetch(`/api/vendor/packages/${createdPackageId}/assign-agency`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agencyId: null }),
+        }).catch(() => {});
+      }
+      setStep(s => s - 1);
+    }
   };
 
   // ── Agency selection & Quote calculation ──────────────────────────────────
   const handleSelectAgency = async (agencyId: string | null) => {
     setSelectedAgencyId(agencyId);
     setQuoteAccepted(false);
+    setErrorMsg('');
     if (!agencyId) {
       setQuote(null);
+      if (createdPackageId) {
+        try {
+          await fetch(`/api/vendor/packages/${createdPackageId}/assign-agency`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agencyId: null }),
+          });
+        } catch {}
+      }
       return;
     }
 
@@ -252,21 +276,18 @@ export default function NouveauColisPage() {
       frais_livraison: estDelivery,
       prix_marchandise: prixMarch,
       montant_encaisser: partMarch + partLiv,
-      agencyName: ag?.name || 'ALI',
+      agencyName: ag?.name || 'Agence',
     };
     setQuote(calculatedQuote);
 
     if (createdPackageId) {
       try {
-        await fetch(`/api/vendor/packages/${createdPackageId}/assign-agency`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agencyId }),
-        });
+        // IMPORTANT: Ne JAMAIS assigner l'agence ici!
+        // Le colis reste non assigné tant que le vendeur n'a pas cliqué sur "Accepter le devis"
         const res = await fetch(`/api/vendor/packages/${createdPackageId}/quote`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'generate' }),
+          body: JSON.stringify({ action: 'generate', agencyId }),
         });
         const data = await res.json();
         if (data?.quote) {
@@ -275,7 +296,7 @@ export default function NouveauColisPage() {
             frais_livraison: data.quote.frais_livraison,
             prix_marchandise: data.quote.prix_marchandise,
             montant_encaisser: data.quote.montant_encaisser,
-            agencyName: ag?.name || 'ALI',
+            agencyName: data.quote.agencyName || ag?.name || 'Agence',
           });
         }
       } catch {
@@ -288,12 +309,13 @@ export default function NouveauColisPage() {
     if (!selectedAgencyId) return;
     setGeneratingQuote(true);
     setQuoteAccepted(false);
+    setErrorMsg('');
     try {
       if (createdPackageId) {
         const res = await fetch(`/api/vendor/packages/${createdPackageId}/quote`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'generate' }),
+          body: JSON.stringify({ action: 'generate', agencyId: selectedAgencyId }),
         });
         const data = await res.json();
         if (data?.quote) {
@@ -303,7 +325,7 @@ export default function NouveauColisPage() {
             frais_livraison: data.quote.frais_livraison,
             prix_marchandise: data.quote.prix_marchandise,
             montant_encaisser: data.quote.montant_encaisser,
-            agencyName: ag?.name || 'ALI',
+            agencyName: data.quote.agencyName || ag?.name || 'Agence',
           });
         }
       }
@@ -317,17 +339,30 @@ export default function NouveauColisPage() {
   const handleAcceptQuote = async () => {
     if (!quote) return;
     setGeneratingQuote(true);
+    setErrorMsg('');
     try {
-      if (createdPackageId && !quote.id.startsWith('quote-')) {
-        await fetch(`/api/vendor/packages/${createdPackageId}/quote`, {
+      if (createdPackageId) {
+        const res = await fetch(`/api/vendor/packages/${createdPackageId}/quote`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'accept', quoteId: quote.id }),
+          body: JSON.stringify({
+            action: 'accept',
+            quoteId: quote.id.startsWith('quote-') ? undefined : quote.id,
+            agencyId: selectedAgencyId,
+          }),
         });
+        const data = await res.json();
+        if (!res.ok) {
+          setErrorMsg(data?.error || "Erreur lors de l'acceptation du devis.");
+          return;
+        }
+        if (data?.quote) {
+          setQuote(prev => prev ? ({ ...prev, id: data.quote.id, frais_livraison: data.quote.frais_livraison }) : null);
+        }
       }
       setQuoteAccepted(true);
     } catch {
-      setQuoteAccepted(true);
+      setErrorMsg("Erreur réseau lors de l'acceptation du devis.");
     } finally {
       setGeneratingQuote(false);
     }
@@ -779,14 +814,14 @@ export default function NouveauColisPage() {
 
               {/* Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                {selectedAgencyId && !quoteAccepted && (
+                {selectedAgencyId && !quoteAccepted ? (
                   <>
                     <button
                       onClick={handleAcceptQuote}
                       disabled={generatingQuote}
                       style={{ ...orangeBtn }}
                     >
-                      Accepter le devis
+                      {generatingQuote ? 'Validation...' : 'Accepter le devis'}
                     </button>
                     <button
                       onClick={handleRecalculate}
@@ -803,16 +838,17 @@ export default function NouveauColisPage() {
                         cursor: 'pointer',
                       }}
                     >
-                      {generatingQuote ? 'Calcul en cours...' : 'Recalculer'}
+                      {generatingQuote ? 'Calcul en cours...' : 'Recalculer le devis'}
                     </button>
                   </>
+                ) : (
+                  <button
+                    onClick={goNext}
+                    style={{ ...orangeBtn }}
+                  >
+                    Continuer
+                  </button>
                 )}
-                <button
-                  onClick={goNext}
-                  style={{ ...orangeBtn }}
-                >
-                  Continuer
-                </button>
               </div>
             </div>
           )}

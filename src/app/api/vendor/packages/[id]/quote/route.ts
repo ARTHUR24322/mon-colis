@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session-server';
 import { supabaseAdmin } from '@/utils/supabase/admin';
 import { isSameCommune } from '@/utils/kinshasa';
+import { enqueueNotificationForAgencyMembers } from '@/lib/notification-outbox';
 
 const QUOTE_VALIDITY_HOURS = 24; // Le devis est valide 24 heures
 
@@ -119,7 +120,7 @@ export async function POST(
 
     const { id: packageId } = await params;
     const body = await request.json();
-    const { action, distanceKm: passedDistance } = body; // 'generate' ou 'accept'
+    const { action, distanceKm: passedDistance, agencyId: requestedAgencyId, quoteId } = body; // 'generate' ou 'accept'
 
     // Récupérer le colis avec ses infos actuelles vérifiées en base
     const { data: pkg, error: pkgErr } = await supabaseAdmin
@@ -143,8 +144,8 @@ export async function POST(
       return NextResponse.json({ error: 'Ce colis ne vous appartient pas.' }, { status: 403 });
     }
 
-    // PRINCIPE & BUG 1 : Ces deux routes ne fonctionnent que si le colis est en brouillon/créé
-    // ET qu'aucune agence n'a accepté (interdiction absolue de modifier un colis pris en charge ou livré)
+    // Ces deux routes ne fonctionnent que si le colis est en cours de création ou en attente d'agence
+    // (interdiction absolue de modifier un colis déjà pris en charge, livré ou en litige)
     const currentStatusNormalized = (pkg.status || '').toUpperCase();
     const forbiddenStatuses = [
       'ACCEPTED_BY_AGENCY', 'ACCEPTÉ', 'ASSIGNED_TO_DRIVER', 'IN_TRANSIT', 'EN TRANSIT',
@@ -157,16 +158,16 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // ── Générer un devis (Recalculer) ─────────────────────────────────────────
+    // ── Générer un devis (Calculer / Recalculer) ──────────────────────────────
     if (action === 'generate') {
-      // BUG 3 : Le devis n'est calculé qu'après le choix de l'agence
-      if (!pkg.agency_id) {
+      const targetAgencyId = requestedAgencyId || pkg.agency_id;
+      if (!targetAgencyId) {
         return NextResponse.json({
           error: "Veuillez d'abord choisir une agence pour calculer le devis.",
         }, { status: 400 });
       }
 
-      // Expirer les anciens devis PENDING
+      // Expirer les anciens devis PENDING pour ce colis
       await supabaseAdmin
         .from('package_quotes')
         .update({ status: 'EXPIRED' })
@@ -181,14 +182,29 @@ export async function POST(
         .maybeSingle();
       const tauxChange = settings?.exchange_rate || 2800;
 
-      // Récupérer les tarifs de l'agence
-      const agencyRaw = Array.isArray(pkg.agency) ? pkg.agency[0] : pkg.agency;
+      // Récupérer les tarifs de l'agence (soit depuis pkg.agency soit directement en base)
+      let agencyRaw: any = null;
+      if (pkg.agency_id === targetAgencyId && pkg.agency) {
+        agencyRaw = Array.isArray(pkg.agency) ? pkg.agency[0] : pkg.agency;
+      }
+      if (!agencyRaw) {
+        const { data: agData } = await supabaseAdmin
+          .from('agencies')
+          .select(`
+            id, commune_prices, price_per_kg, price_per_km, taux_fc, max_weight_kg, devise_grille,
+            profile:profiles!id(name)
+          `)
+          .eq('id', targetAgencyId)
+          .maybeSingle();
+        agencyRaw = agData;
+      }
+
       const communePrices: { commune: string; price: number }[] = agencyRaw?.commune_prices || [];
       const pricePerKg = agencyRaw?.price_per_kg || 0;
       const pricePerKm = agencyRaw?.price_per_km || 0;
       const deviseGrille = agencyRaw?.devise_grille || 'FC';
 
-      // Distance en km : reçue dans le body (calculée via OpenStreetMap) ou stockée
+      // Distance en km : reçue dans le body (calculée via OpenStreetMap) ou 0
       const distance = typeof passedDistance === 'number' && passedDistance > 0
         ? passedDistance
         : 0;
@@ -215,7 +231,7 @@ export async function POST(
         .from('package_quotes')
         .insert({
           package_id: packageId,
-          agency_id: pkg.agency_id || null,
+          agency_id: targetAgencyId,
           prix_marchandise: prixMarchandise,
           frais_livraison: totalUsd,
           montant_encaisser: montantEncaisser,
@@ -238,8 +254,8 @@ export async function POST(
         return NextResponse.json({ error: 'Erreur lors de la génération du devis.' }, { status: 500 });
       }
 
-      // BUG 1 : « Recalculer » ne modifie JAMAIS le statut, seulement le montant du devis.
-      // Mise à jour conditionnelle vérifiée en base.
+      // Calculer/recalculer le devis NE DOIT JAMAIS assigner l'agence ni changer le statut du colis en PENDING_AGENCY
+      // Il met uniquement à jour le montant estimatif de livraison
       const { error: updatePkgErr } = await supabaseAdmin
         .from('packages')
         .update({
@@ -253,20 +269,39 @@ export async function POST(
         console.error('[POST quote/generate] pkg update error:', updatePkgErr);
       }
 
-      return NextResponse.json({ quote, action: 'generated' });
+      const agencyProfile = Array.isArray(agencyRaw?.profile) ? agencyRaw?.profile[0] : agencyRaw?.profile;
+      return NextResponse.json({
+        quote: {
+          ...quote,
+          agencyName: agencyProfile?.name || 'Agence',
+        },
+        action: 'generated'
+      });
     }
 
     // ── Accepter un devis ────────────────────────────────────────────────────
     if (action === 'accept') {
-      const { quoteId } = body;
-      if (!quoteId) {
-        return NextResponse.json({ error: 'quoteId manquant.' }, { status: 400 });
+      let activeQuoteId = quoteId;
+      if (!activeQuoteId) {
+        const { data: latestPending } = await supabaseAdmin
+          .from('package_quotes')
+          .select('id')
+          .eq('package_id', packageId)
+          .eq('status', 'PENDING')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        activeQuoteId = latestPending?.id;
+      }
+
+      if (!activeQuoteId) {
+        return NextResponse.json({ error: 'Aucun devis en attente à accepter.' }, { status: 400 });
       }
 
       const { data: quote, error: quoteErr } = await supabaseAdmin
         .from('package_quotes')
         .select('*')
-        .eq('id', quoteId)
+        .eq('id', activeQuoteId)
         .eq('package_id', packageId)
         .eq('status', 'PENDING')
         .maybeSingle();
@@ -277,7 +312,7 @@ export async function POST(
 
       // Vérification expiration
       if (new Date(quote.valid_until) < new Date()) {
-        await supabaseAdmin.from('package_quotes').update({ status: 'EXPIRED' }).eq('id', quoteId);
+        await supabaseAdmin.from('package_quotes').update({ status: 'EXPIRED' }).eq('id', activeQuoteId);
         return NextResponse.json({ error: 'Ce devis a expiré. Veuillez en générer un nouveau.', expired: true }, { status: 410 });
       }
 
@@ -287,17 +322,18 @@ export async function POST(
       await supabaseAdmin
         .from('package_quotes')
         .update({ status: 'ACCEPTED', accepted_at: now, accepted_by: session.userId })
-        .eq('id', quoteId);
+        .eq('id', activeQuoteId);
 
-      // Calcul du statut cible : si agence assignée -> PENDING_AGENCY, sinon conserve CREATED
-      const targetStatus = pkg.agency_id ? 'PENDING_AGENCY' : 'CREATED';
+      // Calcul de l'agence et du statut cible : si agence assignée -> PENDING_AGENCY, sinon conserve CREATED
+      const finalAgencyId = quote.agency_id || requestedAgencyId || pkg.agency_id || null;
+      const targetStatus = finalAgencyId ? 'PENDING_AGENCY' : 'CREATED';
 
-      // BUG 1 : Mise à jour conditionnelle vérifiée en base.
-      // Uniquement si le colis est encore en CREATED/DRAFT/PENDING_AGENCY (pas livré, pas en transit)
+      // Mise à jour conditionnelle du colis : assignation officielle de l'agence et passage en PENDING_AGENCY
       const { data: updatedPackage, error: updateErr } = await supabaseAdmin
         .from('packages')
         .update({
-          quote_id: quoteId,
+          agency_id: finalAgencyId,
+          quote_id: activeQuoteId,
           quote_accepted_at: now,
           delivery_price: quote.frais_livraison,
           status: targetStatus,
@@ -324,13 +360,32 @@ export async function POST(
         from_status: pkg.status,
         to_status: targetStatus,
         action: 'VENDOR_ACCEPTED_QUOTE',
-        reason: `Devis accepté — Livraison: ${quote.frais_livraison} USD, Marchandise: ${quote.prix_marchandise} USD`,
+        reason: `Devis accepté — Agence: ${finalAgencyId || 'Aucune'}, Livraison: ${quote.frais_livraison} USD, Marchandise: ${quote.prix_marchandise} USD`,
         metadata: {
-          quote_id: quoteId,
+          quote_id: activeQuoteId,
+          agency_id: finalAgencyId,
           frais_livraison: quote.frais_livraison,
           taux_change: quote.taux_change,
         },
       });
+
+      // Notification à l'agence (UNIQUEMENT MAINTENANT que le vendeur a expressément accepté le devis)
+      if (finalAgencyId) {
+        await supabaseAdmin.from('notifications').insert({
+          user_id: finalAgencyId,
+          type: 'PACKAGE_ASSIGNED',
+          message: `Nouveau colis à accepter (vendeur: ${session.name}) — MC-${packageId.slice(0, 8).toUpperCase()}`,
+          is_read: false,
+        });
+
+        const ref = `MC-${packageId.slice(0, 8).toUpperCase()}`;
+        enqueueNotificationForAgencyMembers({
+          agencyId: finalAgencyId,
+          eventType: 'NOUVEAU_COLIS_AGENCE',
+          payload: { reference: ref, id: packageId },
+          dedupeKey: `NOUVEAU_COLIS_AGENCE:${packageId}:quote-accept`,
+        }).catch(err => console.error('[enqueueNotificationForAgencyMembers in quote/accept]', err));
+      }
 
       return NextResponse.json({ success: true, quote: { ...quote, status: 'ACCEPTED', accepted_at: now }, action: 'accepted' });
     }

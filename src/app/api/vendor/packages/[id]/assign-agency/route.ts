@@ -95,13 +95,14 @@ export async function POST(
     }
 
     const previousAgencyId = pkg.agency_id;
+    const targetStatus = agencyId ? 'PENDING_AGENCY' : 'CREATED';
 
     // 3. Mise à jour du colis
     const { error: updateErr } = await supabaseAdmin
       .from('packages')
       .update({
         agency_id: agencyId || null,
-        status: 'PENDING_AGENCY',
+        status: targetStatus,
         updated_at: new Date().toISOString(),
       })
       .eq('id', packageId);
