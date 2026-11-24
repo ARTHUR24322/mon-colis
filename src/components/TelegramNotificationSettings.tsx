@@ -246,7 +246,7 @@ export default function TelegramNotificationSettings() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
-              <span style={{ fontSize: '1.3rem' }}>✈️</span>
+              <Send size={18} color="#38bdf8" />
               <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>
                 Alertes Telegram Sécurisées
               </h3>

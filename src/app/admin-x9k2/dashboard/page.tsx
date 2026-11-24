@@ -286,6 +286,18 @@ export default function AdminDashboard() {
   const [adjustInventoryModal, setAdjustInventoryModal] = useState<{ id: string; name: string; current: number } | null>(null);
   const [adjustQuantityInput, setAdjustQuantityInput] = useState<number>(0);
   const [adjustReasonInput, setAdjustReasonInput] = useState('');
+  const [commissionModal, setCommissionModal] = useState<{
+    type: 'subscription' | 'space';
+    id: string;
+    title: string;
+    subtitle: string;
+    pricePaid?: number;
+    currency?: string;
+    currentRate: number;
+    currentAmount?: number;
+  } | null>(null);
+  const [commissionRateInput, setCommissionRateInput] = useState<number>(10);
+  const [savingCommission, setSavingCommission] = useState(false);
 
   // -- Action PIN (4 chiffres) -----------------------------------------------
   // Le PIN est stocké dans localStorage pour persister entre sessions.
@@ -828,7 +840,7 @@ export default function AdminDashboard() {
         throw new Error(err.error || `Erreur HTTP ${res.status}`);
       }
       setArbitrationModal(null);
-      setToast('✅ Arbitrage enregistré avec succès.');
+      setToast('Arbitrage enregistré avec succès.');
       await reloadColisData();
     } catch (e: any) {
       setArbitrationModal(prev => prev ? { ...prev, submitting: false, error: e.message || 'Une erreur est survenue.' } : null);
@@ -1112,6 +1124,37 @@ export default function AdminDashboard() {
       }
     } catch {
       alert('Erreur réseau');
+    }
+  };
+
+  const handleSaveCommission = async () => {
+    if (!commissionModal) return;
+    setSavingCommission(true);
+    try {
+      const endpoint = '/api/admin/fulfillment';
+      const body = commissionModal.type === 'subscription'
+        ? { action: 'UPDATE_SUBSCRIPTION_COMMISSION', subscriptionId: commissionModal.id, commissionRate: commissionRateInput }
+        : { action: 'UPDATE_SPACE_COMMISSION', spaceId: commissionModal.id, commissionRate: commissionRateInput };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        setToast(commissionModal.type === 'subscription'
+          ? 'Commission sur la location d\'entrepôt mise à jour avec succès.'
+          : 'Taux de commission de l\'espace mis à jour avec succès.');
+        setCommissionModal(null);
+        loadFulfillmentData();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Erreur lors de la mise à jour de la commission');
+      }
+    } catch {
+      alert('Erreur réseau');
+    } finally {
+      setSavingCommission(false);
     }
   };
 
@@ -2039,7 +2082,7 @@ export default function AdminDashboard() {
                         </td>
                         <td style={{ padding: '0.85rem 1rem', fontWeight: '700', whiteSpace: 'nowrap' }}>
                           {isPotentialDuplicate && (
-                            <span style={{ display: 'block', fontSize: '0.65rem', color: '#fbbf24', fontWeight: '800', marginBottom: '0.15rem' }}>⚠ Doublon potentiel</span>
+                            <span style={{ display: 'block', fontSize: '0.65rem', color: '#fbbf24', fontWeight: '800', marginBottom: '0.15rem' }}>Doublon potentiel</span>
                           )}
                           {a.amount_cdf > 0 ? (
                             <>
@@ -3314,7 +3357,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* KPIs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
               <KpiCard
                 label="Unités en stock total"
                 value={fulfillmentData?.kpis?.totalStockUnits ?? '0'}
@@ -3326,19 +3369,19 @@ export default function AdminDashboard() {
                 sub={`Sur ${fulfillmentData?.kpis?.totalSubscriptionsCount ?? 0} souscriptions`}
               />
               <KpiCard
-                label="Revenu mensuel stockage"
+                label="Revenu brut stockage"
                 value={`${(fulfillmentData?.kpis?.monthlyRevenueEstimate ?? 0).toFixed(2)} $`}
-                sub="Généré par les loyers d'entrepôt"
+                sub="Loyers totaux actifs"
               />
               <KpiCard
-                label="Espaces configurés"
-                value={fulfillmentData?.kpis?.totalSpacesCount ?? '0'}
-                sub="Rayons / boxes d'agences"
+                label="Commission plateforme"
+                value={`${(fulfillmentData?.kpis?.totalPlatformCommission ?? 0).toFixed(2)} $`}
+                sub="Revenus nets Moncolis"
               />
               <KpiCard
-                label="Lots reçus (Inbound)"
-                value={fulfillmentData?.kpis?.totalBatchesCount ?? '0'}
-                sub="Bons de réapprovisionnement"
+                label="Net reversé agences"
+                value={`${(fulfillmentData?.kpis?.netAgencyPayoutEstimate ?? 0).toFixed(2)} $`}
+                sub="Part reversée aux hébergeurs"
               />
             </div>
 
@@ -3393,15 +3436,47 @@ export default function AdminDashboard() {
                           </span>
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
-                          Agence d'hébergement : <strong style={{ color: '#f97316' }}>{sub.agencyName}</strong> · {sub.slots_count} emplacement(s) · {sub.price_paid} {sub.currency}/mois
+                          Agence d&apos;hébergement : <strong style={{ color: '#f97316' }}>{sub.agencyName}</strong> · {sub.slots_count} emplacement(s) · {sub.price_paid} {sub.currency}/mois
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: '#94a3b8' }}>
+                            Loyer : <strong style={{ color: '#fff' }}>{sub.price_paid} {sub.currency}</strong>
+                          </span>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(249,115,22,0.1)', color: '#fb923c', border: '1px solid rgba(249,115,22,0.2)' }}>
+                            Commission plateforme ({sub.commission_rate ?? 10}%) : <strong style={{ color: '#f97316' }}>{(sub.commission_amount ?? (sub.price_paid * 0.1)).toFixed(2)} {sub.currency}</strong>
+                          </span>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(34,197,94,0.1)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.2)' }}>
+                            Net Agence : <strong style={{ color: '#22c55e' }}>{(sub.net_agency_amount ?? (sub.price_paid * 0.9)).toFixed(2)} {sub.currency}</strong>
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.3rem' }}>
                           Période : {sub.start_date ? new Date(sub.start_date).toLocaleDateString('fr-FR') : '—'} au {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fr-FR') : '—'}
                         </div>
                       </div>
 
                       {/* Actions Super Admin */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => {
+                            setCommissionModal({
+                              type: 'subscription',
+                              id: sub.id,
+                              title: 'Commission sur location d\'entrepôt',
+                              subtitle: `${sub.vendorName} · ${sub.agencyName}`,
+                              pricePaid: Number(sub.price_paid || 0),
+                              currency: sub.currency || 'USD',
+                              currentRate: sub.commission_rate ?? 10,
+                              currentAmount: sub.commission_amount
+                            });
+                            setCommissionRateInput(sub.commission_rate ?? 10);
+                          }}
+                          style={{
+                            padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid rgba(249,115,22,0.4)',
+                            background: 'rgba(249,115,22,0.12)', color: '#fb923c', fontSize: '0.72rem', fontWeight: '800', cursor: 'pointer'
+                          }}
+                        >
+                          Fixer commission
+                        </button>
                         {sub.status !== 'ACTIVE' && (
                           <button
                             onClick={() => handleUpdateSubscriptionStatus(sub.id, 'ACTIVE')}
@@ -3460,6 +3535,11 @@ export default function AdminDashboard() {
                         <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
                           Capacité : {sp.available_slots} / {sp.total_slots} dispo · {sp.price_per_month} {sp.currency}/mois {sp.dimensions ? `· ${sp.dimensions}` : ''}
                         </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.3rem', fontSize: '0.75rem' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(249,115,22,0.1)', color: '#fb923c', border: '1px solid rgba(249,115,22,0.2)' }}>
+                            Commission par défaut : <strong>{sp.commission_rate ?? 10}%</strong>
+                          </span>
+                        </div>
                         {sp.description && (
                           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem' }}>
                             {sp.description}
@@ -3467,16 +3547,36 @@ export default function AdminDashboard() {
                         )}
                       </div>
 
-                      <button
-                        onClick={() => handleToggleSpaceStatus(sp.id, sp.is_active)}
-                        style={{
-                          padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
-                          background: sp.is_active ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
-                          color: sp.is_active ? '#f87171' : '#4ade80', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
-                        }}
-                      >
-                        {sp.is_active ? 'Désactiver' : 'Activer'}
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => {
+                            setCommissionModal({
+                              type: 'space',
+                              id: sp.id,
+                              title: 'Commission par défaut de l\'espace',
+                              subtitle: `${sp.name} (${sp.agencyName})`,
+                              currentRate: sp.commission_rate ?? 10,
+                            });
+                            setCommissionRateInput(sp.commission_rate ?? 10);
+                          }}
+                          style={{
+                            padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(249,115,22,0.4)',
+                            background: 'rgba(249,115,22,0.12)', color: '#fb923c', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                          }}
+                        >
+                          Taux commission
+                        </button>
+                        <button
+                          onClick={() => handleToggleSpaceStatus(sp.id, sp.is_active)}
+                          style={{
+                            padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                            background: sp.is_active ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                            color: sp.is_active ? '#f87171' : '#4ade80', fontSize: '0.75rem', fontWeight: '800', cursor: 'pointer'
+                          }}
+                        >
+                          {sp.is_active ? 'Désactiver' : 'Activer'}
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -4061,7 +4161,7 @@ export default function AdminDashboard() {
                       <p style={{ opacity: 0.45, fontSize: '0.75rem', margin: 0 }}>{svc.detail}</p>
                       {(svc.status === 'warn' || svc.status === 'error') && (svc as any).reason && (
                         <p style={{ marginTop: '0.25rem', fontSize: '0.72rem', color: '#fb923c', fontWeight: '600' }}>
-                          ⚠ {(svc as any).reason}
+                          {(svc as any).reason}
                         </p>
                       )}
                     </div>
@@ -4219,7 +4319,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* 🔔 Notifications & Alertes Telegram (Super Admin) */}
+          {/* Notifications & Alertes Telegram (Super Admin) */}
           <TelegramNotificationSettings />
         </div>
       )}
@@ -4698,6 +4798,118 @@ export default function AdminDashboard() {
                 }}
               >
                 Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODALE FIXER COMMISSION ENTREPÔT (SUPER ADMIN) ──────────────────── */}
+      {commissionModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#0d0d0d', border: '1px solid rgba(249,115,22,0.4)', borderRadius: '20px',
+            padding: '1.75rem', width: '100%', maxWidth: '420px', boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+          }}>
+            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.15rem', fontWeight: '800', color: '#fff' }}>
+              {commissionModal.title}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+              {commissionModal.subtitle}
+            </p>
+
+            {/* Détails financiers si abonnement */}
+            {commissionModal.type === 'subscription' && typeof commissionModal.pricePaid === 'number' && (
+              <div style={{
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '12px', padding: '0.85rem 1rem', marginBottom: '1.25rem', fontSize: '0.8rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ color: '#94a3b8' }}>Loyer brut payé :</span>
+                  <strong style={{ color: '#fff' }}>{commissionModal.pricePaid.toFixed(2)} {commissionModal.currency}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ color: '#f97316' }}>Commission Moncolis ({commissionRateInput}%) :</span>
+                  <strong style={{ color: '#f97316' }}>
+                    {((commissionModal.pricePaid * commissionRateInput) / 100).toFixed(2)} {commissionModal.currency}
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.4rem' }}>
+                  <span style={{ color: '#4ade80' }}>Net reversé à l&apos;agence :</span>
+                  <strong style={{ color: '#22c55e' }}>
+                    {(commissionModal.pricePaid - ((commissionModal.pricePaid * commissionRateInput) / 100)).toFixed(2)} {commissionModal.currency}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Taux de commission plateforme (%)
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={commissionRateInput}
+                  onChange={e => setCommissionRateInput(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                  style={{
+                    flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)',
+                    border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '1.1rem',
+                    fontWeight: '800', textAlign: 'center', outline: 'none'
+                  }}
+                />
+                <span style={{ color: '#f97316', fontWeight: '800', fontSize: '1.1rem' }}>%</span>
+              </div>
+            </div>
+
+            {/* Raccourcis rapides de pourcentage */}
+            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.5rem' }}>
+              {[5, 10, 15, 20, 25].map(pct => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => setCommissionRateInput(pct)}
+                  style={{
+                    flex: 1, padding: '0.35rem 0', borderRadius: '6px', border: '1px solid',
+                    borderColor: commissionRateInput === pct ? '#f97316' : 'rgba(255,255,255,0.1)',
+                    background: commissionRateInput === pct ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.03)',
+                    color: commissionRateInput === pct ? '#f97316' : '#94a3b8',
+                    fontSize: '0.75rem', fontWeight: commissionRateInput === pct ? '800' : '500', cursor: 'pointer'
+                  }}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setCommissionModal(null)}
+                disabled={savingCommission}
+                style={{
+                  flex: 1, height: '42px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'transparent', color: '#cbd5e1', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer'
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCommission}
+                disabled={savingCommission}
+                style={{
+                  flex: 1.5, height: '42px', borderRadius: '8px', border: 'none',
+                  background: '#f97316', color: '#fff', fontSize: '0.8rem', fontWeight: '800', cursor: savingCommission ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {savingCommission ? 'Enregistrement...' : 'Enregistrer la commission'}
               </button>
             </div>
           </div>

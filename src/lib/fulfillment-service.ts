@@ -137,24 +137,47 @@ export class FulfillmentService {
     }
 
     // 4. Insérer la souscription avec le statut PENDING (et NON ACTIVE)
-    const { data: newSub, error: subErr } = await db
+    const commissionRate = typeof space.commission_rate === 'number' && !isNaN(space.commission_rate) ? space.commission_rate : 10;
+    const commissionAmount = Number(((totalPrice * commissionRate) / 100).toFixed(2));
+    const netAgencyAmount = Number((totalPrice - commissionAmount).toFixed(2));
+
+    const insertPayload: Record<string, any> = {
+      vendor_id: vendorId,
+      agency_id: space.agency_id,
+      storage_space_id: space.id,
+      slots_count: slots,
+      price_paid: totalPrice,
+      currency: space.currency || 'USD',
+      commission_rate: commissionRate,
+      commission_amount: commissionAmount,
+      net_agency_amount: netAgencyAmount,
+      status: 'PENDING',
+      start_date: startDate,
+      end_date: endDate,
+      notes: notes || `Demande de ${slots} emplacement(s) sur ${numMonths} mois.`,
+      created_at: startDate,
+      updated_at: startDate,
+    };
+
+    let { data: newSub, error: subErr } = await db
       .from('vendor_storage_subscriptions')
-      .insert({
-        vendor_id: vendorId,
-        agency_id: space.agency_id,
-        storage_space_id: space.id,
-        slots_count: slots,
-        price_paid: totalPrice,
-        currency: space.currency || 'USD',
-        status: 'PENDING',
-        start_date: startDate,
-        end_date: endDate,
-        notes: notes || `Demande de ${slots} emplacement(s) sur ${numMonths} mois.`,
-        created_at: startDate,
-        updated_at: startDate,
-      })
+      .insert(insertPayload)
       .select()
       .single();
+
+    // Fallback gracieux si les colonnes de commission ne sont pas encore créées en base
+    if (subErr && (subErr.message?.includes('commission_rate') || subErr.message?.includes('column'))) {
+      delete insertPayload.commission_rate;
+      delete insertPayload.commission_amount;
+      delete insertPayload.net_agency_amount;
+      const retry = await db
+        .from('vendor_storage_subscriptions')
+        .insert(insertPayload)
+        .select()
+        .single();
+      newSub = retry.data;
+      subErr = retry.error;
+    }
 
     if (subErr) {
       // Rollback de la place en cas d'échec d'insertion

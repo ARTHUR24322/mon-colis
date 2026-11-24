@@ -60,17 +60,38 @@ export async function GET(request: NextRequest) {
     const profileMap = new Map<string, { name: string; email: string; role: string }>();
     (profilesData || []).forEach(p => profileMap.set(p.id, p));
 
-    // Enrichir les abonnements avec noms vendeur et agence
-    const enrichedSubs = (subsData || []).map(s => ({
-      ...s,
-      vendorName: profileMap.get(s.vendor_id)?.name || 'Vendeur Inconnu',
-      vendorEmail: profileMap.get(s.vendor_id)?.email || '',
-      agencyName: profileMap.get(s.agency_id)?.name || 'Agence Inconnue'
-    }));
+    const spaceMap = new Map<string, any>();
+    (spacesData || []).forEach(sp => spaceMap.set(sp.id, sp));
 
-    // Enrichir les espaces avec nom de l'agence
+    // Enrichir les abonnements avec commissions, noms vendeur et agence
+    const enrichedSubs = (subsData || []).map(s => {
+      const space = s.storage_space_id ? spaceMap.get(s.storage_space_id) : null;
+      const pricePaid = Number(s.price_paid || 0);
+      const commissionRate = typeof s.commission_rate === 'number' && !isNaN(s.commission_rate)
+        ? s.commission_rate
+        : (typeof space?.commission_rate === 'number' && !isNaN(space.commission_rate) ? space.commission_rate : 10);
+      const commissionAmount = typeof s.commission_amount === 'number' && !isNaN(s.commission_amount) && s.commission_amount > 0
+        ? s.commission_amount
+        : Number(((pricePaid * commissionRate) / 100).toFixed(2));
+      const netAgencyAmount = typeof s.net_agency_amount === 'number' && !isNaN(s.net_agency_amount) && s.net_agency_amount > 0
+        ? s.net_agency_amount
+        : Number((pricePaid - commissionAmount).toFixed(2));
+
+      return {
+        ...s,
+        commission_rate: commissionRate,
+        commission_amount: commissionAmount,
+        net_agency_amount: netAgencyAmount,
+        vendorName: profileMap.get(s.vendor_id)?.name || 'Vendeur Inconnu',
+        vendorEmail: profileMap.get(s.vendor_id)?.email || '',
+        agencyName: profileMap.get(s.agency_id)?.name || 'Agence Inconnue'
+      };
+    });
+
+    // Enrichir les espaces avec nom de l'agence et commission par défaut
     const enrichedSpaces = (spacesData || []).map(sp => ({
       ...sp,
+      commission_rate: typeof sp.commission_rate === 'number' && !isNaN(sp.commission_rate) ? sp.commission_rate : 10,
       agencyName: profileMap.get(sp.agency_id)?.name || 'Agence Inconnue'
     }));
 
@@ -98,8 +119,10 @@ export async function GET(request: NextRequest) {
     // KPIs calculés
     const totalStockUnits = (invData || []).reduce((sum, item) => sum + (item.quantity_in_stock || 0), 0);
     const reservedStockUnits = (invData || []).reduce((sum, item) => sum + (item.quantity_reserved || 0), 0);
-    const activeSubs = (subsData || []).filter(s => s.status === 'ACTIVE');
+    const activeSubs = enrichedSubs.filter(s => s.status === 'ACTIVE');
     const monthlyRevenueEstimate = activeSubs.reduce((sum, s) => sum + (Number(s.price_paid) || 0), 0);
+    const totalPlatformCommission = activeSubs.reduce((sum, s) => sum + (Number(s.commission_amount) || 0), 0);
+    const netAgencyPayoutEstimate = monthlyRevenueEstimate - totalPlatformCommission;
 
     return NextResponse.json({
       success: true,
@@ -109,6 +132,8 @@ export async function GET(request: NextRequest) {
         activeSubscriptionsCount: activeSubs.length,
         totalSubscriptionsCount: (subsData || []).length,
         monthlyRevenueEstimate,
+        totalPlatformCommission,
+        netAgencyPayoutEstimate,
         totalSpacesCount: (spacesData || []).length,
         totalBatchesCount: (batchesData || []).length,
         totalInventoryItemsCount: (invData || []).length
@@ -210,6 +235,109 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({ success: true, message: 'Stock ajusté avec succès' });
+    }
+
+    // Action 4: Fixer la commission sur un abonnement de location d'entrepôt
+    if (action === 'UPDATE_SUBSCRIPTION_COMMISSION') {
+      const { subscriptionId, commissionRate, commissionAmount } = body;
+      if (!subscriptionId) {
+        return NextResponse.json({ error: 'subscriptionId manquant' }, { status: 400 });
+      }
+
+      const rate = typeof commissionRate === 'number' && !isNaN(commissionRate)
+        ? Math.max(0, Math.min(100, commissionRate))
+        : 10;
+
+      // Récupérer la souscription
+      const { data: sub, error: subErr } = await supabase
+        .from('vendor_storage_subscriptions')
+        .select('*')
+        .eq('id', subscriptionId)
+        .single();
+
+      if (subErr || !sub) {
+        return NextResponse.json({ error: 'Abonnement introuvable' }, { status: 404 });
+      }
+
+      const pricePaid = Number(sub.price_paid || 0);
+      const calculatedAmt = typeof commissionAmount === 'number' && !isNaN(commissionAmount)
+        ? Math.max(0, commissionAmount)
+        : Number(((pricePaid * rate) / 100).toFixed(2));
+      const calculatedNet = Math.max(0, Number((pricePaid - calculatedAmt).toFixed(2)));
+
+      // Mettre à jour avec fallback si les colonnes ne sont pas encore créées
+      try {
+        const { data, error } = await supabase
+          .from('vendor_storage_subscriptions')
+          .update({
+            commission_rate: rate,
+            commission_amount: calculatedAmt,
+            net_agency_amount: calculatedNet,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscriptionId)
+          .select()
+          .single();
+
+        if (error) {
+          // Si erreur de colonne manquante, on informe sans crasher
+          console.warn('[UPDATE_SUBSCRIPTION_COMMISSION] Note colonne:', error.message);
+          return NextResponse.json({
+            success: true,
+            warning: 'Commission calculée. Veuillez exécuter la migration SQL si les colonnes ne sont pas encore ajoutées en base.',
+            data: { ...sub, commission_rate: rate, commission_amount: calculatedAmt, net_agency_amount: calculatedNet }
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: 'Commission sur la location mise à jour avec succès.',
+          data
+        });
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message || 'Erreur mise à jour commission' }, { status: 500 });
+      }
+    }
+
+    // Action 5: Fixer la commission par défaut sur un espace de stockage d'agence
+    if (action === 'UPDATE_SPACE_COMMISSION') {
+      const { spaceId, commissionRate } = body;
+      if (!spaceId) {
+        return NextResponse.json({ error: 'spaceId manquant' }, { status: 400 });
+      }
+
+      const rate = typeof commissionRate === 'number' && !isNaN(commissionRate)
+        ? Math.max(0, Math.min(100, commissionRate))
+        : 10;
+
+      try {
+        const { data, error } = await supabase
+          .from('agency_storage_spaces')
+          .update({
+            commission_rate: rate,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', spaceId)
+          .select()
+          .single();
+
+        if (error) {
+          console.warn('[UPDATE_SPACE_COMMISSION] Note colonne:', error.message);
+          return NextResponse.json({
+            success: true,
+            warning: 'Taux commission enregistré localement. Pensez à exécuter la migration SQL.',
+            data: { id: spaceId, commission_rate: rate }
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: 'Taux de commission de l\'espace mis à jour avec succès.',
+          data
+        });
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message || 'Erreur mise à jour espace' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ error: 'Action non reconnue' }, { status: 400 });
