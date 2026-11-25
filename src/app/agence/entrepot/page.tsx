@@ -8,7 +8,8 @@ import {
   Boxes, QrCode, Search, CheckCircle2, AlertTriangle, Building2,
   Package, Plus, X, RefreshCw, MapPin, Tag, ArrowDownToLine,
   Check, User, Clock, ClipboardList, Truck, Printer,
-  RotateCcw, DollarSign, ShieldCheck, RotateCw} from 'lucide-react';
+  RotateCcw, DollarSign, ShieldCheck, RotateCw
+} from 'lucide-react';
 import { normalizeAgencyRole, hasAgencyPermission } from '@/lib/agencyPermissions';
 
 // ─── Utilitaire dates (fuseau Africa/Kinshasa) ─────────────────────────────
@@ -394,7 +395,7 @@ export default function AgencyWarehousePage() {
         const parsed = JSON.parse(query);
         if (parsed.token) cleanQuery = parsed.token;
         else if (parsed.batchNumber) cleanQuery = parsed.batchNumber;
-      } catch {}
+      } catch { }
 
       const res = await fetch(`/api/agency/warehouse/inbound-batches?code=${encodeURIComponent(cleanQuery)}`);
       const data = await res.json();
@@ -442,15 +443,15 @@ export default function AgencyWarehousePage() {
       const data = await res.json();
       if (res.ok) {
         setReceiveSuccess(data.message || 'Réception confirmée avec succès ! Les articles sont en stock.');
-        showToast(' Entrée en stock validée !');
+        showToast('Entrée en stock validée !');
         setFoundBatch(null);
         setSearchInput('');
         await loadAgencyWarehouseData();
       } else {
-        showToast(` Erreur: ${data.error || 'Échec de la réception'}`);
+        showToast(`Erreur: ${data.error || 'Échec de la réception'}`);
       }
     } catch {
-      showToast(' Erreur de communication.');
+      showToast('Erreur de communication.');
     } finally {
       setIsReceiving(false);
     }
@@ -477,17 +478,17 @@ export default function AgencyWarehousePage() {
       });
 
       if (res.ok) {
-        showToast(' Espace de stockage créé avec succès !');
+        showToast('Espace de stockage créé avec succès !');
         setShowAddSpaceModal(false);
         setSpaceName('');
         setSpaceDesc('');
         await loadAgencyWarehouseData();
       } else {
         const d = await res.json();
-        showToast(` Erreur: ${d.error || 'Impossible de créer l’espace.'}`);
+        showToast(`Erreur: ${d.error || 'Impossible de créer l’espace.'}`);
       }
     } catch {
-      showToast(' Erreur réseau.');
+      showToast('Erreur réseau.');
     } finally {
       setIsSubmittingSpace(false);
     }
@@ -503,9 +504,9 @@ export default function AgencyWarehousePage() {
   // === DÉPÔT DIRECT AU GUICHET : Enregistrement + Impression étiquette QR ===
   const handleDirectDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!directDepositVendorId) { showToast(' Sélectionnez le vendeur.'); return; }
-    if (!directDepositProduct.trim()) { showToast(' Saisissez le nom de l\'article.'); return; }
-    if (parseInt(directDepositQty, 10) <= 0) { showToast(' La quantité doit être ≥ 1.'); return; }
+    if (!directDepositVendorId) { showToast('Sélectionnez le vendeur.'); return; }
+    if (!directDepositProduct.trim()) { showToast('Saisissez le nom de l\'article.'); return; }
+    if (parseInt(directDepositQty, 10) <= 0) { showToast('La quantité doit être supérieure ou égale à 1.'); return; }
 
     setIsSubmittingDeposit(true);
     try {
@@ -534,10 +535,10 @@ export default function AgencyWarehousePage() {
         await loadAgencyWarehouseData();
         // Ne pas fermer le modal — montrer l'étiquette QR à imprimer
       } else {
-        showToast(` ${data.error || 'Erreur lors de l\'enregistrement.'}`);
+        showToast(`Erreur: ${data.error || 'Erreur lors de l\'enregistrement.'}`);
       }
     } catch {
-      showToast(' Erreur réseau.');
+      showToast('Erreur réseau.');
     } finally {
       setIsSubmittingDeposit(false);
     }
@@ -597,8 +598,8 @@ export default function AgencyWarehousePage() {
             <div style={{ fontSize: '0.8rem', color: '#f97316', textTransform: 'uppercase', fontWeight: '800', letterSpacing: '0.05em' }}>
               Fulfillment & Logistique
             </div>
-            <h1 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '900', color: 'inherit' }}>
-               Entrepôt & Gestion des Stocks
+            <h1 style={{ margin: '0.2rem 0 0', fontSize: '1.75rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+              Entrepôt & Gestion des Stocks
             </h1>
           </div>
 
@@ -618,7 +619,7 @@ export default function AgencyWarehousePage() {
 
         {/* Onglets */}
         <div style={{
-          display: 'flex', background: 'rgba(15, 23, 42, 0.05)', padding: '0.35rem',
+          display: 'flex', background: 'var(--ag-surface-hover)', border: '1px solid var(--ag-border)', padding: '0.35rem',
           borderRadius: '14px', gap: '0.35rem', width: 'fit-content', flexWrap: 'wrap'
         }}>
           <button
@@ -626,7 +627,7 @@ export default function AgencyWarehousePage() {
             style={{
               padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none',
               background: activeTab === 'reception' ? '#f97316' : 'transparent',
-              color: activeTab === 'reception' ? '#fff' : 'inherit',
+              color: activeTab === 'reception' ? '#fff' : 'var(--ag-text-secondary)',
               fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '0.4rem'
             }}
@@ -639,7 +640,7 @@ export default function AgencyWarehousePage() {
             style={{
               padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none',
               background: activeTab === 'picking' ? '#f97316' : 'transparent',
-              color: activeTab === 'picking' ? '#fff' : 'inherit',
+              color: activeTab === 'picking' ? '#fff' : 'var(--ag-text-secondary)',
               fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '0.4rem'
             }}
@@ -652,7 +653,7 @@ export default function AgencyWarehousePage() {
             style={{
               padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none',
               background: activeTab === 'inventory' ? '#f97316' : 'transparent',
-              color: activeTab === 'inventory' ? '#fff' : 'inherit',
+              color: activeTab === 'inventory' ? '#fff' : 'var(--ag-text-secondary)',
               fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '0.4rem'
             }}
@@ -665,7 +666,7 @@ export default function AgencyWarehousePage() {
             style={{
               padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none',
               background: activeTab === 'spaces' ? '#f97316' : 'transparent',
-              color: activeTab === 'spaces' ? '#fff' : 'inherit',
+              color: activeTab === 'spaces' ? '#fff' : 'var(--ag-text-secondary)',
               fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '0.4rem'
             }}
@@ -678,13 +679,13 @@ export default function AgencyWarehousePage() {
             style={{
               padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none',
               background: activeTab === 'returns' ? '#f97316' : 'transparent',
-              color: activeTab === 'returns' ? '#fff' : 'inherit',
+              color: activeTab === 'returns' ? '#fff' : 'var(--ag-text-secondary)',
               fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s',
               display: 'flex', alignItems: 'center', gap: '0.4rem'
             }}
           >
             <RotateCcw size={16} />
-            <span>↩ Retours en Rayon ({returnedPackages.length})</span>
+            <span>Retours en Rayon ({returnedPackages.length})</span>
           </button>
         </div>
 
@@ -701,8 +702,8 @@ export default function AgencyWarehousePage() {
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' as const
             }}>
               <div>
-                <div style={{ fontWeight: '700', fontSize: '0.95rem' }}>Réception physique directe au guichet</div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                <div style={{ fontWeight: '700', fontSize: '0.95rem', color: 'var(--ag-text-primary)' }}>Réception physique directe au guichet</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', marginTop: '2px' }}>
                   Un vendeur amène ses marchandises en main propre ? Enregistrez l&apos;article et imprimez l&apos;étiquette QR à coller dessus.
                 </div>
               </div>
@@ -721,13 +722,13 @@ export default function AgencyWarehousePage() {
 
             {/* Formulaire de Scan / Recherche */}
             <div style={{
-              background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-              borderRadius: '20px', padding: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.04)'
+              background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '20px', padding: '1.5rem', boxShadow: 'var(--ag-card-shadow)'
             }}>
-              <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '0.4rem' }}>
-                 Scanner ou Saisir le Bon de Dépôt Vendeur
+              <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '0.4rem', color: 'var(--ag-text-primary)' }}>
+                Scanner ou Saisir le Bon de Dépôt Vendeur
               </div>
-              <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.82rem', color: 'var(--ag-text-secondary)', marginBottom: '1rem' }}>
                 Scannez le QR Code présenté par le vendeur ou saisissez le code du bon (ex: <strong>INB-2026-0042</strong> ou jeton QR).
               </div>
 
@@ -741,7 +742,8 @@ export default function AgencyWarehousePage() {
                     onChange={e => setSearchInput(e.target.value)}
                     style={{
                       width: '100%', padding: '0.85rem 1rem 0.85rem 2.8rem', borderRadius: '12px',
-                      border: '1px solid var(--agency-input-border, #cbd5e1)', outline: 'none',
+                      background: 'var(--ag-surface-elevated)', color: 'var(--ag-text-primary)',
+                      border: '1px solid var(--ag-border)', outline: 'none',
                       fontSize: '0.95rem', fontWeight: '600'
                     }}
                   />
@@ -779,7 +781,7 @@ export default function AgencyWarehousePage() {
             {/* Bon Trouvé : Formulaire de vérification et attribution d'emplacement */}
             {foundBatch && (
               <div style={{
-                background: 'var(--agency-card-bg, #fff)', border: '2px solid #f97316',
+                background: 'var(--ag-surface)', border: '2px solid #f97316',
                 borderRadius: '20px', padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
@@ -787,10 +789,10 @@ export default function AgencyWarehousePage() {
                     <div style={{ fontSize: '0.8rem', color: '#f97316', fontWeight: '800', textTransform: 'uppercase' }}>
                       Bon de Dépôt Identifié
                     </div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: '900' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
                       {foundBatch.batchNumber}
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.2rem' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--ag-text-secondary)', marginTop: '0.2rem' }}>
                       Vendeur : <strong>{foundBatch.vendorName}</strong> {foundBatch.vendorPhone && `(${foundBatch.vendorPhone})`}
                     </div>
                   </div>
@@ -806,10 +808,10 @@ export default function AgencyWarehousePage() {
                 </div>
 
                 {/* Emplacement par défaut */}
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', background: 'rgba(249, 115, 22, 0.06)', padding: '0.9rem 1.2rem', borderRadius: '12px' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', background: 'var(--ag-surface-hover)', border: '1px solid var(--ag-border)', padding: '0.9rem 1.2rem', borderRadius: '12px' }}>
                   <MapPin size={20} color="#f97316" />
                   <div style={{ flex: 1, minWidth: '220px' }}>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '800', display: 'block', marginBottom: '0.2rem' }}>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '800', display: 'block', marginBottom: '0.2rem', color: 'var(--ag-text-primary)' }}>
                       Emplacement physique par défaut dans l'entrepôt :
                     </label>
                     <input
@@ -819,7 +821,8 @@ export default function AgencyWarehousePage() {
                       placeholder="Ex: Rayon B - Étagère 3 - Box 4"
                       style={{
                         width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px',
-                        border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600'
+                        background: 'var(--ag-surface)', color: 'var(--ag-text-primary)',
+                        border: '1px solid var(--ag-border)', fontSize: '0.85rem', fontWeight: '600'
                       }}
                     />
                   </div>
@@ -827,7 +830,7 @@ export default function AgencyWarehousePage() {
 
                 {/* Tableau de contrôle des articles */}
                 <div>
-                  <div style={{ fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.6rem' }}>
+                  <div style={{ fontWeight: '800', fontSize: '0.95rem', marginBottom: '0.6rem', color: 'var(--ag-text-primary)' }}>
                     Articles déclarés dans le bon ({itemsToReceive.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
@@ -836,17 +839,17 @@ export default function AgencyWarehousePage() {
                         key={idx}
                         style={{
                           display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: '0.75rem',
-                          alignItems: 'center', background: 'rgba(0,0,0,0.02)', padding: '0.85rem', borderRadius: '12px',
-                          border: '1px solid rgba(0,0,0,0.06)'
+                          alignItems: 'center', background: 'var(--ag-surface-hover)', padding: '0.85rem', borderRadius: '12px',
+                          border: '1px solid var(--ag-border-subtle)'
                         }}
                       >
                         <div>
-                          <div style={{ fontWeight: '800', fontSize: '0.95rem' }}>{it.productName}</div>
-                          {it.sku && <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Réf / SKU: {it.sku}</div>}
+                          <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--ag-text-primary)' }}>{it.productName}</div>
+                          {it.sku && <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Réf / SKU: {it.sku}</div>}
                         </div>
 
                         <div>
-                          <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block' }}>
+                          <label style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)', display: 'block' }}>
                             Prévu : <strong>{it.expectedQuantity}</strong> | Reçu :
                           </label>
                           <input
@@ -860,13 +863,14 @@ export default function AgencyWarehousePage() {
                             }}
                             style={{
                               width: '100%', padding: '0.45rem', borderRadius: '8px',
-                              border: '1px solid #cbd5e1', fontWeight: '800', textAlign: 'center', fontSize: '0.95rem'
+                              background: 'var(--ag-surface)', color: 'var(--ag-text-primary)',
+                              border: '1px solid var(--ag-border)', fontWeight: '800', textAlign: 'center', fontSize: '0.95rem'
                             }}
                           />
                         </div>
 
                         <div>
-                          <label style={{ fontSize: '0.72rem', color: '#64748b', display: 'block' }}>
+                          <label style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)', display: 'block' }}>
                             Emplacement spécifique :
                           </label>
                           <input
@@ -879,7 +883,8 @@ export default function AgencyWarehousePage() {
                             }}
                             style={{
                               width: '100%', padding: '0.45rem', borderRadius: '8px',
-                              border: '1px solid #cbd5e1', fontSize: '0.82rem'
+                              background: 'var(--ag-surface)', color: 'var(--ag-text-primary)',
+                              border: '1px solid var(--ag-border)', fontSize: '0.82rem'
                             }}
                           />
                         </div>
@@ -894,8 +899,8 @@ export default function AgencyWarehousePage() {
                     type="button"
                     onClick={() => setFoundBatch(null)}
                     style={{
-                      padding: '0.75rem 1.25rem', borderRadius: '12px', border: '1px solid #cbd5e1',
-                      background: 'transparent', fontWeight: '700', cursor: 'pointer'
+                      padding: '0.75rem 1.25rem', borderRadius: '12px', border: '1px solid var(--ag-border)',
+                      background: 'transparent', color: 'var(--ag-text-secondary)', fontWeight: '700', cursor: 'pointer'
                     }}
                   >
                     Annuler
@@ -920,14 +925,14 @@ export default function AgencyWarehousePage() {
 
             {/* Bons récents de l'agence */}
             <div style={{
-              background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-              borderRadius: '20px', padding: '1.5rem'
+              background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '20px', padding: '1.5rem', boxShadow: 'var(--ag-card-shadow)'
             }}>
-              <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '1rem' }}>
-                 Derniers Bons de Dépôt Présentés
+              <div style={{ fontWeight: '800', fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--ag-text-primary)' }}>
+                Derniers Bons de Dépôt Présentés
               </div>
               {recentBatches.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>
+                <div style={{ color: 'var(--ag-text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem' }}>
                   Aucun bon de dépôt enregistré pour cette agence pour le moment.
                 </div>
               ) : (
@@ -937,13 +942,13 @@ export default function AgencyWarehousePage() {
                       key={b.id}
                       style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '0.85rem 1rem', borderRadius: '12px', background: 'rgba(0,0,0,0.02)',
-                        border: '1px solid rgba(0,0,0,0.05)'
+                        padding: '0.85rem 1rem', borderRadius: '12px', background: 'var(--ag-surface-hover)',
+                        border: '1px solid var(--ag-border-subtle)'
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: '800', fontSize: '0.95rem' }}>{b.batchNumber}</div>
-                        <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                        <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--ag-text-primary)' }}>{b.batchNumber}</div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
                           Vendeur: <strong>{b.vendorName}</strong> • {b.totalItemsCount} articles déclarés
                         </div>
                       </div>
@@ -953,7 +958,7 @@ export default function AgencyWarehousePage() {
                         color: b.status === 'RECEIVED' ? '#10b981' : '#f59e0b',
                         fontWeight: '800', fontSize: '0.75rem'
                       }}>
-                        {b.status === 'RECEIVED' ? ' Réceptionné' : ' En attente'}
+                        {b.status === 'RECEIVED' ? 'Réceptionné' : 'En attente'}
                       </div>
                     </div>
                   ))}
@@ -979,12 +984,12 @@ export default function AgencyWarehousePage() {
                   <div style={{ fontWeight: '900', fontSize: '1rem', color: '#f97316' }}>
                     Commandes Fulfillment Prêtes au Picking
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
                     Ces colis proviennent des stocks déjà présents dans votre entrepôt. Aucun déplacement de ramassage nécessaire !
                   </div>
                 </div>
               </div>
-              <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#334155' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
                 {pendingPickingCount} colis en attente d'expédition
               </div>
             </div>
@@ -996,9 +1001,9 @@ export default function AgencyWarehousePage() {
                 onClick={() => setPickingViewFilter('pending')}
                 style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
-                  borderColor: pickingViewFilter === 'pending' ? '#f97316' : 'rgba(0,0,0,0.1)',
-                  background: pickingViewFilter === 'pending' ? 'rgba(249, 115, 22, 0.12)' : 'transparent',
-                  color: pickingViewFilter === 'pending' ? '#ea580c' : 'inherit',
+                  borderColor: pickingViewFilter === 'pending' ? '#f97316' : 'var(--ag-border)',
+                  background: pickingViewFilter === 'pending' ? 'rgba(249, 115, 22, 0.12)' : 'var(--ag-surface)',
+                  color: pickingViewFilter === 'pending' ? '#ea580c' : 'var(--ag-text-secondary)',
                   fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
@@ -1009,9 +1014,9 @@ export default function AgencyWarehousePage() {
                 onClick={() => setPickingViewFilter('assigned')}
                 style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
-                  borderColor: pickingViewFilter === 'assigned' ? '#10b981' : 'rgba(0,0,0,0.1)',
-                  background: pickingViewFilter === 'assigned' ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
-                  color: pickingViewFilter === 'assigned' ? '#059669' : 'inherit',
+                  borderColor: pickingViewFilter === 'assigned' ? '#10b981' : 'var(--ag-border)',
+                  background: pickingViewFilter === 'assigned' ? 'rgba(16, 185, 129, 0.12)' : 'var(--ag-surface)',
+                  color: pickingViewFilter === 'assigned' ? '#059669' : 'var(--ag-text-secondary)',
                   fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
@@ -1022,9 +1027,9 @@ export default function AgencyWarehousePage() {
                 onClick={() => setPickingViewFilter('all')}
                 style={{
                   padding: '0.45rem 0.9rem', borderRadius: '8px', border: '1px solid',
-                  borderColor: pickingViewFilter === 'all' ? '#64748b' : 'rgba(0,0,0,0.1)',
-                  background: pickingViewFilter === 'all' ? 'rgba(100, 116, 139, 0.12)' : 'transparent',
-                  color: pickingViewFilter === 'all' ? '#334155' : 'inherit',
+                  borderColor: pickingViewFilter === 'all' ? '#64748b' : 'var(--ag-border)',
+                  background: pickingViewFilter === 'all' ? 'rgba(100, 116, 139, 0.12)' : 'var(--ag-surface)',
+                  color: pickingViewFilter === 'all' ? 'var(--ag-text-primary)' : 'var(--ag-text-secondary)',
                   fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
@@ -1034,19 +1039,19 @@ export default function AgencyWarehousePage() {
 
             {displayedPickingOrders.length === 0 ? (
               <div style={{
-                background: 'var(--agency-card-bg, #fff)', border: '1px dashed var(--agency-card-border, rgba(0,0,0,0.15))',
+                background: 'var(--ag-surface)', border: '1px dashed var(--ag-border)',
                 borderRadius: '20px', padding: '3rem 1.5rem', textAlign: 'center',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem'
               }}>
-                <Boxes size={44} color="#94a3b8" />
-                <div style={{ fontWeight: '800', fontSize: '1.1rem' }}>
+                <Boxes size={44} color="var(--ag-text-muted)" />
+                <div style={{ fontWeight: '800', fontSize: '1.1rem', color: 'var(--ag-text-primary)' }}>
                   {pickingViewFilter === 'pending'
                     ? 'Aucune commande en attente de préparation'
                     : pickingViewFilter === 'assigned'
-                    ? 'Aucun colis remis au livreur'
-                    : 'Aucune commande enregistrée'}
+                      ? 'Aucun colis remis au livreur'
+                      : 'Aucune commande enregistrée'}
                 </div>
-                <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '350px' }}>
+                <div style={{ fontSize: '0.82rem', color: 'var(--ag-text-secondary)', maxWidth: '350px' }}>
                   {pickingViewFilter === 'pending'
                     ? 'Tous les colis de stock ont été préparés et confiés aux livreurs !'
                     : 'Dès qu\'un vendeur déclenche une expédition depuis son stock dans votre entrepôt, sa fiche de picking apparaîtra ici.'}
@@ -1058,9 +1063,10 @@ export default function AgencyWarehousePage() {
                   <div
                     key={order.id}
                     style={{
-                      background: 'var(--agency-card-bg, #fff)',
-                      border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-                      borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem'
+                      background: 'var(--ag-surface)',
+                      border: '1px solid var(--ag-border)',
+                      borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem',
+                      boxShadow: 'var(--ag-card-shadow)'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -1075,7 +1081,7 @@ export default function AgencyWarehousePage() {
                             {order.pickingStatus === 'ASSIGNED' ? 'Remis au livreur' : order.pickingStatus === 'PICKED' ? 'Prélevé (Prêt)' : 'À prélever en rayon'}
                           </span>
                         </div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', marginTop: '0.2rem' }}>
                           Client : <strong>{order.clientName}</strong> ({order.clientCommune}) • {order.clientAddress}
                         </div>
                       </div>
@@ -1083,8 +1089,8 @@ export default function AgencyWarehousePage() {
                       <button
                         onClick={() => window.print()}
                         style={{
-                          padding: '0.45rem 0.85rem', borderRadius: '8px', background: 'rgba(0,0,0,0.04)',
-                          border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: '700'
+                          padding: '0.45rem 0.85rem', borderRadius: '8px', background: 'var(--ag-surface-hover)',
+                          border: '1px solid var(--ag-border)', color: 'var(--ag-text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', fontWeight: '700'
                         }}
                       >
                         <Printer size={14} />
@@ -1095,21 +1101,21 @@ export default function AgencyWarehousePage() {
                     {/* Fiche de prélèvement (Rayon / Produit) */}
                     <div style={{
                       display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem',
-                      background: 'rgba(0,0,0,0.02)', padding: '0.9rem', borderRadius: '12px', border: '1px solid rgba(0,0,0,0.05)'
+                      background: 'var(--ag-surface-hover)', padding: '0.9rem', borderRadius: '12px', border: '1px solid var(--ag-border-subtle)'
                     }}>
                       <div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Article à prélever</div>
-                        <div style={{ fontWeight: '800', fontSize: '0.95rem' }}>{order.productName}</div>
-                        {order.sku && <div style={{ fontSize: '0.74rem', color: '#64748b' }}>SKU : {order.sku}</div>}
+                        <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Article à prélever</div>
+                        <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--ag-text-primary)' }}>{order.productName}</div>
+                        {order.sku && <div style={{ fontSize: '0.74rem', color: 'var(--ag-text-muted)' }}>SKU : {order.sku}</div>}
                       </div>
 
                       <div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Quantité</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Quantité</div>
                         <div style={{ fontWeight: '900', fontSize: '1.1rem', color: '#f97316' }}>{order.quantity} unité(s)</div>
                       </div>
 
                       <div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Emplacement Rayon</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Emplacement Rayon</div>
                         <div style={{
                           display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                           background: 'rgba(59,130,246,0.12)', color: '#3b82f6', padding: '0.3rem 0.6rem',
@@ -1122,7 +1128,7 @@ export default function AgencyWarehousePage() {
                     </div>
 
                     {/* Actions de Préparation & Expédition */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', borderTop: '1px solid var(--ag-border-subtle)', paddingTop: '0.75rem' }}>
                       {order.pickingStatus === 'TO_PICK' && (
                         <button
                           onClick={() => handleExecutePick(order.id)}
@@ -1161,7 +1167,8 @@ export default function AgencyWarehousePage() {
                             onChange={e => setSelectedDrivers({ ...selectedDrivers, [order.id]: e.target.value })}
                             style={{
                               padding: '0.55rem 0.75rem', borderRadius: '10px',
-                              border: '1px solid var(--agency-input-border, #cbd5e1)',
+                              background: 'var(--ag-surface)', color: 'var(--ag-text-primary)',
+                              border: '1px solid var(--ag-border)',
                               fontSize: '0.82rem', fontWeight: '600'
                             }}
                           >
@@ -1215,35 +1222,35 @@ export default function AgencyWarehousePage() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════
-            SECTION 2 : INVENTAIRE EN ENTREPÔT
+            SECTION 3 : INVENTAIRE EN ENTREPÔT
         ═══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'inventory' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Recherche */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: '0.75rem',
-              background: 'var(--agency-card-bg, #fff)', padding: '0.75rem 1rem',
-              borderRadius: '14px', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))'
+              background: 'var(--ag-surface)', padding: '0.75rem 1rem',
+              borderRadius: '14px', border: '1px solid var(--ag-border)', boxShadow: 'var(--ag-card-shadow)'
             }}>
-              <Search size={18} color="#94a3b8" />
+              <Search size={18} color="var(--ag-text-muted)" />
               <input
                 type="text"
                 placeholder="Filtrer par article, SKU, vendeur, ou étagère..."
                 value={inventorySearch}
                 onChange={e => setInventorySearch(e.target.value)}
-                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: '0.9rem' }}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', color: 'var(--ag-text-primary)', fontSize: '0.9rem' }}
               />
             </div>
 
             {/* Tableau d'inventaire */}
             <div style={{
-              background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-              borderRadius: '20px', overflow: 'hidden'
+              background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '20px', overflow: 'hidden', boxShadow: 'var(--ag-card-shadow)'
             }}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                   <thead>
-                    <tr style={{ background: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.08)', color: '#64748b' }}>
+                    <tr style={{ background: 'var(--ag-surface-hover)', borderBottom: '1px solid var(--ag-border)', color: 'var(--ag-text-secondary)' }}>
                       <th style={{ padding: '0.9rem 1rem' }}>Article</th>
                       <th style={{ padding: '0.9rem 1rem' }}>Vendeur</th>
                       <th style={{ padding: '0.9rem 1rem' }}>Stock Total</th>
@@ -1256,21 +1263,21 @@ export default function AgencyWarehousePage() {
                   <tbody>
                     {filteredInventory.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8' }}>
+                        <td colSpan={7} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--ag-text-muted)' }}>
                           Aucun article stocké dans l’entrepôt pour le moment.
                         </td>
                       </tr>
                     ) : (
                       filteredInventory.map(it => (
-                        <tr key={it.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)' }}>
+                        <tr key={it.id} style={{ borderBottom: '1px solid var(--ag-border-subtle)' }}>
                           <td style={{ padding: '0.9rem 1rem', fontWeight: '800' }}>
-                            <div>{it.productName}</div>
-                            {it.sku && <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '500' }}>SKU: {it.sku}</div>}
+                            <div style={{ color: 'var(--ag-text-primary)' }}>{it.productName}</div>
+                            {it.sku && <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', fontWeight: '500' }}>SKU: {it.sku}</div>}
                           </td>
-                          <td style={{ padding: '0.9rem 1rem', color: '#334155', fontWeight: '600' }}>
+                          <td style={{ padding: '0.9rem 1rem', color: 'var(--ag-text-primary)', fontWeight: '600' }}>
                             {it.vendorName}
                           </td>
-                          <td style={{ padding: '0.9rem 1rem', fontWeight: '900' }}>
+                          <td style={{ padding: '0.9rem 1rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
                             {it.quantityInStock}
                           </td>
                           <td style={{ padding: '0.9rem 1rem', color: '#f59e0b', fontWeight: '800' }}>
@@ -1294,7 +1301,7 @@ export default function AgencyWarehousePage() {
                               background: it.isLowStock ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
                               color: it.isLowStock ? '#ef4444' : '#10b981'
                             }}>
-                              {it.isLowStock ? ' Faible' : 'Normal'}
+                              {it.isLowStock ? 'Faible' : 'Normal'}
                             </span>
                           </td>
                         </tr>
@@ -1317,7 +1324,7 @@ export default function AgencyWarehousePage() {
               <div style={{
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04))',
                 border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '18px', padding: '1.25rem',
-                display: 'flex', flexDirection: 'column', gap: '0.4rem'
+                display: 'flex', flexDirection: 'column', gap: '0.4rem', boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#10b981' }}>Revenus Stockage / Mois</span>
@@ -1326,21 +1333,22 @@ export default function AgencyWarehousePage() {
                 <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>
                   ${totalSubscriptionRevenueUSD.toFixed(2)}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Frais de garde encaissés auprès des vendeurs</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Frais de garde encaissés auprès des vendeurs</div>
               </div>
 
               <div style={{
-                background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-                borderRadius: '18px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem'
+                background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '18px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#f97316' }}>Abonnements Actifs</span>
                   <ShieldCheck size={20} color="#f97316" />
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '900', color: 'inherit' }}>
+                <div style={{ fontSize: '1.8rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
                   {agencySubscriptions.length}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Vendeurs partenaires stockant dans vos locaux</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Vendeurs partenaires stockant dans vos locaux</div>
               </div>
             </div>
 
@@ -1351,23 +1359,24 @@ export default function AgencyWarehousePage() {
                 borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem'
               }}>
                 <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: '800', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                   Demandes en attente ({pendingSubscriptions.length})
+                  Demandes en attente ({pendingSubscriptions.length})
                 </h2>
-                <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
                   Ces vendeurs attendent votre réponse. Acceptez ou refusez chaque demande — sans réponse sous 48h, elle expire automatiquement.
                 </div>
                 {pendingSubscriptions.map(sub => (
                   <div key={sub.id} style={{
-                    background: 'var(--agency-card-bg, #fff)', border: '1px solid rgba(245,158,11,0.25)',
-                    borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem'
+                    background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                    borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.6rem',
+                    boxShadow: 'var(--ag-card-shadow)'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div>
-                        <div style={{ fontWeight: '800', fontSize: '0.95rem' }}>{sub.vendorName || '—'}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{sub.vendorPhone || ''}</div>
+                        <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--ag-text-primary)' }}>{sub.vendorName || '—'}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>{sub.vendorPhone || ''}</div>
                       </div>
-                      <div style={{ fontSize: '0.78rem', color: '#334155' }}>
-                        Espace : <strong>{sub.spaceName}</strong> · {sub.slotsCount} slot(s) · {sub.pricePaid} {sub.currency}
+                      <div style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                        Espace : <strong style={{ color: 'var(--ag-text-primary)' }}>{sub.spaceName}</strong> · {sub.slotsCount} slot(s) · {sub.pricePaid} {sub.currency}
                         {sub.expiresAt && (
                           <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.2rem' }}>
                             Expire le {safeFormatDate(sub.expiresAt)}
@@ -1383,7 +1392,11 @@ export default function AgencyWarehousePage() {
                         placeholder="Motif de refus (facultatif)"
                         value={rejectionReasonInput}
                         onChange={e => setRejectionReasonInput(e.target.value)}
-                        style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.82rem', outline: 'none' }}
+                        style={{
+                          padding: '0.5rem 0.75rem', borderRadius: '8px',
+                          background: 'var(--ag-surface-elevated)', color: 'var(--ag-text-primary)',
+                          border: '1px solid var(--ag-border)', fontSize: '0.82rem', outline: 'none'
+                        }}
                       />
                     )}
 
@@ -1397,13 +1410,13 @@ export default function AgencyWarehousePage() {
                               body: JSON.stringify({ subscriptionId: sub.id, action: 'accept' })
                             });
                             const d = await res.json();
-                            if (res.ok) { showToast(' Demande acceptée ! Le vendeur peut maintenant déposer du stock.'); await loadAgencyWarehouseData(); }
-                            else showToast(` ${d.error || 'Échec.'}`)
-                          } catch { showToast(' Erreur réseau.'); }
+                            if (res.ok) { showToast('Demande acceptée ! Le vendeur peut maintenant déposer du stock.'); await loadAgencyWarehouseData(); }
+                            else showToast(`Erreur: ${d.error || 'Échec.'}`)
+                          } catch { showToast('Erreur réseau.'); }
                         }}
                         style={{ flex: 1, padding: '0.6rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                       >
-                         Accepter
+                        Accepter
                       </button>
                       {isReviewingSub === sub.id ? (
                         <button
@@ -1416,8 +1429,8 @@ export default function AgencyWarehousePage() {
                               });
                               const d = await res.json();
                               if (res.ok) { showToast('Demande refusée.'); setIsReviewingSub(null); setRejectionReasonInput(''); await loadAgencyWarehouseData(); }
-                              else showToast(` ${d.error || 'Échec.'}`)
-                            } catch { showToast(' Erreur réseau.'); }
+                              else showToast(`Erreur: ${d.error || 'Échec.'}`)
+                            } catch { showToast('Erreur réseau.'); }
                           }}
                           style={{ flex: 1, padding: '0.6rem', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                         >
@@ -1428,7 +1441,7 @@ export default function AgencyWarehousePage() {
                           onClick={() => { setIsReviewingSub(sub.id); setRejectionReasonInput(''); }}
                           style={{ flex: 1, padding: '0.6rem', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', fontWeight: '800', fontSize: '0.82rem', cursor: 'pointer' }}
                         >
-                           Refuser
+                          Refuser
                         </button>
                       )}
                     </div>
@@ -1439,24 +1452,24 @@ export default function AgencyWarehousePage() {
 
             {/* Abonnements Actifs des Vendeurs */}
             <div>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '0.75rem' }}>
-                 Locataires & Abonnements Actifs ({agencySubscriptions.length})
+              <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '0.75rem', color: 'var(--ag-text-primary)' }}>
+                Locataires & Abonnements Actifs ({agencySubscriptions.length})
               </h2>
 
               {agencySubscriptions.length === 0 ? (
                 <div style={{
-                  background: 'var(--agency-card-bg, #fff)', border: '1px dashed var(--agency-card-border, rgba(0,0,0,0.15))',
-                  borderRadius: '14px', padding: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: '#64748b'
+                  background: 'var(--ag-surface)', border: '1px dashed var(--ag-border)',
+                  borderRadius: '14px', padding: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--ag-text-muted)'
                 }}>
                   Aucun vendeur n'a encore souscrit d'abonnement à vos espaces.
                 </div>
               ) : (
                 <div style={{
-                  background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-                  borderRadius: '16px', overflow: 'hidden'
+                  background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                  borderRadius: '16px', overflow: 'hidden', boxShadow: 'var(--ag-card-shadow)'
                 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.82rem' }}>
-                    <thead style={{ background: 'rgba(0,0,0,0.03)', borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+                    <thead style={{ background: 'var(--ag-surface-hover)', borderBottom: '1px solid var(--ag-border)', color: 'var(--ag-text-secondary)' }}>
                       <tr>
                         <th style={{ padding: '0.8rem 1rem' }}>Vendeur</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Espace Loué</th>
@@ -1468,15 +1481,15 @@ export default function AgencyWarehousePage() {
                     </thead>
                     <tbody>
                       {agencySubscriptions.map(sub => (
-                        <tr key={sub.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                        <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border-subtle)' }}>
                           <td style={{ padding: '0.8rem 1rem' }}>
-                            <div style={{ fontWeight: '800' }}>{sub.vendorName}</div>
-                            <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{sub.vendorPhone}</div>
+                            <div style={{ fontWeight: '800', color: 'var(--ag-text-primary)' }}>{sub.vendorName}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)' }}>{sub.vendorPhone}</div>
                           </td>
-                          <td style={{ padding: '0.8rem 1rem', fontWeight: '700' }}>{sub.spaceName}</td>
-                          <td style={{ padding: '0.8rem 1rem' }}>{sub.slotsCount} slot(s)</td>
+                          <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>{sub.spaceName}</td>
+                          <td style={{ padding: '0.8rem 1rem', color: 'var(--ag-text-secondary)' }}>{sub.slotsCount} slot(s)</td>
                           <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#10b981' }}>${sub.pricePaid}</td>
-                          <td style={{ padding: '0.8rem 1rem', fontSize: '0.78rem' }}>
+                          <td style={{ padding: '0.8rem 1rem', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
                             {safeFormatDate(sub.endDate)}
                           </td>
                           <td style={{ padding: '0.8rem 1rem' }}>
@@ -1500,10 +1513,10 @@ export default function AgencyWarehousePage() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <div>
-                  <h2 style={{ fontSize: '1.1rem', fontWeight: '800', margin: 0 }}>
-                     Vos Espaces de Stockage Mis en Location ({spaces.length})
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: '800', margin: 0, color: 'var(--ag-text-primary)' }}>
+                    Vos Espaces de Stockage Mis en Location ({spaces.length})
                   </h2>
-                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
                     Configurez vos étagères, box et tarifs mensuels pour vos vendeurs.
                   </div>
                 </div>
@@ -1525,29 +1538,30 @@ export default function AgencyWarehousePage() {
                   <div
                     key={sp.id}
                     style={{
-                      background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-                      borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem'
+                      background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                      borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem',
+                      boxShadow: 'var(--ag-card-shadow)'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ fontWeight: '800', fontSize: '1.05rem' }}>{sp.name}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>{sp.description}</div>
+                        <div style={{ fontWeight: '800', fontSize: '1.05rem', color: 'var(--ag-text-primary)' }}>{sp.name}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--ag-text-secondary)', marginTop: '0.2rem' }}>{sp.description}</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontWeight: '900', fontSize: '1.2rem', color: '#10b981' }}>
                           ${sp.price_per_month}
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>/ mois</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--ag-text-muted)' }}>/ mois</div>
                       </div>
                     </div>
 
                     <div style={{
                       display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem',
-                      borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '0.6rem', color: '#64748b'
+                      borderTop: '1px solid var(--ag-border-subtle)', paddingTop: '0.6rem', color: 'var(--ag-text-secondary)'
                     }}>
-                      <span>Places : <strong>{sp.available_slots} / {sp.total_slots}</strong></span>
-                      {sp.dimensions && <span>Dim : <strong>{sp.dimensions}</strong></span>}
+                      <span>Places : <strong style={{ color: 'var(--ag-text-primary)' }}>{sp.available_slots} / {sp.total_slots}</strong></span>
+                      {sp.dimensions && <span>Dim : <strong style={{ color: 'var(--ag-text-primary)' }}>{sp.dimensions}</strong></span>}
                     </div>
                   </div>
                 ))}
@@ -1562,25 +1576,25 @@ export default function AgencyWarehousePage() {
         {activeTab === 'returns' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0 }}>
-                ↩ Colis Fulfillment Retournés à l'Agence ({returnedPackages.length})
+              <h2 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0, color: 'var(--ag-text-primary)' }}>
+                Colis Fulfillment Retournés à l'Agence ({returnedPackages.length})
               </h2>
-              <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+              <div style={{ fontSize: '0.82rem', color: 'var(--ag-text-secondary)' }}>
                 Lorsqu'un colis expédié depuis votre stock entrepôt n'a pas pu être livré ou a été refusé par le client, réintégrez l'article directement en rayon sans avoir à le renvoyer chez le vendeur.
               </div>
             </div>
 
             {returnedPackages.length === 0 ? (
               <div style={{
-                background: 'var(--agency-card-bg, #fff)', border: '1px dashed var(--agency-card-border, rgba(0,0,0,0.15))',
+                background: 'var(--ag-surface)', border: '1px dashed var(--ag-border)',
                 borderRadius: '20px', padding: '3rem 1.5rem', textAlign: 'center',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.8rem'
               }}>
                 <RotateCcw size={48} color="#10b981" style={{ opacity: 0.6 }} />
-                <div style={{ fontWeight: '800', fontSize: '1.1rem' }}>
+                <div style={{ fontWeight: '800', fontSize: '1.1rem', color: 'var(--ag-text-primary)' }}>
                   Aucun colis en attente de retour en stock
                 </div>
-                <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '380px' }}>
+                <div style={{ fontSize: '0.82rem', color: 'var(--ag-text-secondary)', maxWidth: '380px' }}>
                   Tous les colis expédiés depuis votre entrepôt ont été livrés avec succès ou sont en cours d'acheminement.
                 </div>
               </div>
@@ -1590,8 +1604,9 @@ export default function AgencyWarehousePage() {
                   <div
                     key={pkg.id}
                     style={{
-                      background: 'var(--agency-card-bg, #fff)', border: '1px solid var(--agency-card-border, rgba(0,0,0,0.1))',
-                      borderRadius: '16px', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.75rem'
+                      background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                      borderRadius: '16px', padding: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.75rem',
+                      boxShadow: 'var(--ag-card-shadow)'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1599,8 +1614,8 @@ export default function AgencyWarehousePage() {
                         <div style={{ fontWeight: '900', fontSize: '1.05rem', color: '#f97316' }}>
                           {pkg.trackingCode}
                         </div>
-                        <div style={{ fontSize: '0.82rem', fontWeight: '800', marginTop: '0.2rem' }}>
-                           {pkg.productName}
+                        <div style={{ fontSize: '0.82rem', fontWeight: '800', marginTop: '0.2rem', color: 'var(--ag-text-primary)' }}>
+                          {pkg.productName}
                         </div>
                       </div>
                       <div style={{
@@ -1612,10 +1627,10 @@ export default function AgencyWarehousePage() {
                       </div>
                     </div>
 
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                      <div>Client : <strong>{pkg.recipientName}</strong> ({pkg.recipientPhone})</div>
-                      <div>Destination : <strong>{pkg.destination}</strong></div>
-                      <div>Montant : <strong>${pkg.amount}</strong></div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--ag-text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <div>Client : <strong style={{ color: 'var(--ag-text-primary)' }}>{pkg.recipientName}</strong> ({pkg.recipientPhone})</div>
+                      <div>Destination : <strong style={{ color: 'var(--ag-text-primary)' }}>{pkg.destination}</strong></div>
+                      <div>Montant : <strong style={{ color: 'var(--ag-text-primary)' }}>${pkg.amount}</strong></div>
                     </div>
 
                     <button
@@ -1644,73 +1659,74 @@ export default function AgencyWarehousePage() {
         {/* Modal Nouvel Espace */}
         {showAddSpaceModal && (
           <div style={{
-            position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)',
+            position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--ag-modal-overlay)',
             backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
           }}>
             <div style={{
-              background: '#fff', borderRadius: '20px', width: '100%', maxWidth: '440px',
-              padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem'
+              background: 'var(--ag-surface-elevated)', borderRadius: '20px', width: '100%', maxWidth: '440px',
+              padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem',
+              border: '1px solid var(--ag-border)', boxShadow: 'var(--ag-card-shadow-hover)', color: 'var(--ag-text-primary)'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontWeight: '800', fontSize: '1.15rem' }}>Nouvel Espace de Stockage</div>
-                <button onClick={() => setShowAddSpaceModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <button onClick={() => setShowAddSpaceModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ag-text-muted)' }}>
                   <X size={20} />
                 </button>
               </div>
 
               <form onSubmit={handleCreateSpace} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Nom de l'Espace *</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Nom de l'Espace *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ex: Étagère Standard A, Box 1m³"
                     value={spaceName}
                     onChange={e => setSpaceName(e.target.value)}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                   />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Description</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Description</label>
                   <input
                     type="text"
                     placeholder="Ex: Sécurisé, ventilé, idéal vêtements"
                     value={spaceDesc}
                     onChange={e => setSpaceDesc(e.target.value)}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                   />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Nombre d'Emplacements</label>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Nombre d'Emplacements</label>
                     <input
                       type="number"
                       value={spaceSlots}
                       onChange={e => setSpaceSlots(e.target.value)}
-                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Prix Mensuel ($)</label>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Prix Mensuel ($)</label>
                     <input
                       type="number"
                       value={spacePrice}
                       onChange={e => setSpacePrice(e.target.value)}
-                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Dimensions</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Dimensions</label>
                   <input
                     type="text"
                     placeholder="Ex: 120x60x50 cm"
                     value={spaceDims}
                     onChange={e => setSpaceDims(e.target.value)}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                   />
                 </div>
 
@@ -1737,77 +1753,78 @@ export default function AgencyWarehousePage() {
         {/* Modal Réintégration Retour en Stock */}
         {selectedReturnForRestock && (
           <div style={{
-            position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)',
+            position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--ag-modal-overlay)',
             backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
           }}>
             <div style={{
-              background: '#fff', borderRadius: '20px', width: '100%', maxWidth: '440px',
-              padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem'
+              background: 'var(--ag-surface-elevated)', borderRadius: '20px', width: '100%', maxWidth: '440px',
+              padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem',
+              border: '1px solid var(--ag-border)', boxShadow: 'var(--ag-card-shadow-hover)', color: 'var(--ag-text-primary)'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', fontWeight: '700' }}>Remise en Rayon</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', textTransform: 'uppercase', fontWeight: '700' }}>Remise en Rayon</div>
                   <div style={{ fontWeight: '800', fontSize: '1.15rem' }}>{selectedReturnForRestock.trackingCode}</div>
                 </div>
-                <button onClick={() => setSelectedReturnForRestock(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <button onClick={() => setSelectedReturnForRestock(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ag-text-muted)' }}>
                   <X size={20} />
                 </button>
               </div>
 
               <div style={{
-                background: 'rgba(0,0,0,0.03)', borderRadius: '12px', padding: '0.8rem',
-                fontSize: '0.8rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.25rem'
+                background: 'var(--ag-surface-hover)', borderRadius: '12px', padding: '0.8rem',
+                fontSize: '0.8rem', color: 'var(--ag-text-secondary)', border: '1px solid var(--ag-border-subtle)', display: 'flex', flexDirection: 'column', gap: '0.25rem'
               }}>
-                <div> Article : <strong>{selectedReturnForRestock.productName}</strong></div>
+                <div> Article : <strong style={{ color: 'var(--ag-text-primary)' }}>{selectedReturnForRestock.productName}</strong></div>
                 <div> Destinataire : {selectedReturnForRestock.recipientName}</div>
                 <div> Destination : {selectedReturnForRestock.destination}</div>
               </div>
 
               <form onSubmit={handleReintegrateReturn} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>État physique de l'article *</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>État physique de l'article *</label>
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
                     <button
                       type="button"
                       onClick={() => setRestockCondition('OK')}
                       style={{
                         flex: 1, padding: '0.6rem', borderRadius: '10px',
-                        border: restockCondition === 'OK' ? '2px solid #10b981' : '1px solid #cbd5e1',
-                        background: restockCondition === 'OK' ? 'rgba(16, 185, 129, 0.15)' : '#fff',
-                        color: restockCondition === 'OK' ? '#10b981' : '#334155',
+                        border: restockCondition === 'OK' ? '2px solid #10b981' : '1px solid var(--ag-border)',
+                        background: restockCondition === 'OK' ? 'rgba(16, 185, 129, 0.15)' : 'var(--ag-surface)',
+                        color: restockCondition === 'OK' ? '#10b981' : 'var(--ag-text-secondary)',
                         fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                       }}
                     >
-                       Intact (Revendable)
+                      Intact (Revendable)
                     </button>
                     <button
                       type="button"
                       onClick={() => setRestockCondition('DAMAGED')}
                       style={{
                         flex: 1, padding: '0.6rem', borderRadius: '10px',
-                        border: restockCondition === 'DAMAGED' ? '2px solid #ef4444' : '1px solid #cbd5e1',
-                        background: restockCondition === 'DAMAGED' ? 'rgba(239, 68, 68, 0.15)' : '#fff',
-                        color: restockCondition === 'DAMAGED' ? '#ef4444' : '#334155',
+                        border: restockCondition === 'DAMAGED' ? '2px solid #ef4444' : '1px solid var(--ag-border)',
+                        background: restockCondition === 'DAMAGED' ? 'rgba(239, 68, 68, 0.15)' : 'var(--ag-surface)',
+                        color: restockCondition === 'DAMAGED' ? '#ef4444' : 'var(--ag-text-secondary)',
                         fontWeight: '800', fontSize: '0.8rem', cursor: 'pointer'
                       }}
                     >
-                       Endommagé
+                      Endommagé
                     </button>
                   </div>
                 </div>
 
                 {restockCondition === 'OK' && (
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '700' }}>Emplacement physique (Rayon / Étagère)</label>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-secondary)' }}>Emplacement physique (Rayon / Étagère)</label>
                     <input
                       type="text"
                       required
                       placeholder="Ex: Rayon A - Étagère 2"
                       value={restockLocation}
                       onChange={e => setRestockLocation(e.target.value)}
-                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '0.3rem' }}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid var(--ag-border)', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)', marginTop: '0.3rem' }}
                     />
-                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)', marginTop: '0.25rem' }}>
                       La quantité disponible dans l’inventaire entrepôt du vendeur sera automatiquement augmentée de +1.
                     </div>
                   </div>
@@ -1841,13 +1858,14 @@ export default function AgencyWarehousePage() {
       {showDirectDepositModal && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          background: 'var(--ag-modal-overlay)', backdropFilter: 'blur(6px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
         }}>
           <div style={{
-            background: '#fff', borderRadius: '20px', width: '100%', maxWidth: '500px',
+            background: 'var(--ag-surface-elevated)', borderRadius: '20px', width: '100%', maxWidth: '500px',
             maxHeight: '92vh', overflowY: 'auto', padding: '1.75rem',
-            display: 'flex', flexDirection: 'column', gap: '1.25rem', boxSizing: 'border-box'
+            display: 'flex', flexDirection: 'column', gap: '1.25rem', boxSizing: 'border-box',
+            border: '1px solid var(--ag-border)', boxShadow: 'var(--ag-card-shadow-hover)', color: 'var(--ag-text-primary)'
           }}>
             {/* En-tête */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1857,7 +1875,7 @@ export default function AgencyWarehousePage() {
                 </div>
                 <div style={{ fontWeight: '800', fontSize: '1.15rem' }}>Enregistrement &amp; Étiquette QR</div>
               </div>
-              <button onClick={resetDirectDeposit} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px' }}>
+              <button onClick={resetDirectDeposit} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px', color: 'var(--ag-text-muted)' }}>
                 <X size={22} />
               </button>
             </div>
@@ -1873,10 +1891,10 @@ export default function AgencyWarehousePage() {
                   <Check size={18} /> Article enregistré en rayon avec succès !
                 </div>
 
-                {/* Étiquette à imprimer */}
+                {/* Étiquette à imprimer (garde un fond blanc physique pour l'impression de codes-barres) */}
                 <div id="depot-label-print" style={{
                   border: '2px solid #0f172a', borderRadius: '14px', padding: '1.25rem',
-                  display: 'flex', flexDirection: 'column', gap: '0.75rem', background: '#fff'
+                  display: 'flex', flexDirection: 'column', gap: '0.75rem', background: '#ffffff', color: '#0f172a'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
                     <div style={{ flex: 1 }}>
@@ -1938,15 +1956,15 @@ export default function AgencyWarehousePage() {
                     type="button"
                     onClick={() => { setDepositResult(null); setDirectDepositProduct(''); setDirectDepositQty('1'); setDirectDepositPrice('0'); setDirectDepositNotes(''); }}
                     style={{
-                      flex: 1, padding: '0.85rem', background: 'rgba(0,0,0,0.06)', color: '#334155',
-                      border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
+                      flex: 1, padding: '0.85rem', background: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)',
+                      border: '1px solid var(--ag-border)', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
                     }}
                   >
                     Nouveau dépôt
                   </button>
                 </div>
 
-                <button type="button" onClick={resetDirectDeposit} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.82rem', cursor: 'pointer', textAlign: 'center' as const }}>
+                <button type="button" onClick={resetDirectDeposit} style={{ background: 'none', border: 'none', color: 'var(--ag-text-muted)', fontSize: '0.82rem', cursor: 'pointer', textAlign: 'center' as const }}>
                   Fermer
                 </button>
               </div>
@@ -1956,7 +1974,7 @@ export default function AgencyWarehousePage() {
 
                 {/* Vendeur */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>
                     Vendeur propriétaire *
                   </label>
                   <select
@@ -1965,7 +1983,7 @@ export default function AgencyWarehousePage() {
                     onChange={e => setDirectDepositVendorId(e.target.value)}
                     style={{
                       width: '100%', padding: '0.75rem', borderRadius: '10px',
-                      border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff'
+                      border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)'
                     }}
                   >
                     <option value="">-- Sélectionner le vendeur --</option>
@@ -1979,7 +1997,7 @@ export default function AgencyWarehousePage() {
 
                 {/* Nom de l'article */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>
                     Nom de l&apos;article *
                   </label>
                   <input
@@ -1988,14 +2006,14 @@ export default function AgencyWarehousePage() {
                     placeholder="Ex : Sac à main en cuir, Robe en pagne, Téléphone..."
                     value={directDepositProduct}
                     onChange={e => setDirectDepositProduct(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                   />
                 </div>
 
                 {/* Prix + Devise */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '0.75rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Prix unitaire *</label>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>Prix unitaire *</label>
                     <input
                       type="number"
                       required
@@ -2004,15 +2022,15 @@ export default function AgencyWarehousePage() {
                       placeholder="0"
                       value={directDepositPrice}
                       onChange={e => setDirectDepositPrice(e.target.value)}
-                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Devise</label>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>Devise</label>
                     <select
                       value={directDepositCurrency}
                       onChange={e => setDirectDepositCurrency(e.target.value as 'USD' | 'CDF')}
-                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                     >
                       <option value="USD">USD ($)</option>
                       <option value="CDF">CDF (FC)</option>
@@ -2022,7 +2040,7 @@ export default function AgencyWarehousePage() {
 
                 {/* Quantité */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>
                     Quantité reçue *
                   </label>
                   <input
@@ -2033,13 +2051,13 @@ export default function AgencyWarehousePage() {
                     placeholder="1"
                     value={directDepositQty}
                     onChange={e => setDirectDepositQty(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                   />
                 </div>
 
                 {/* Emplacement / Rayon */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>
                     Emplacement dans l&apos;entrepôt *
                   </label>
                   <input
@@ -2048,17 +2066,17 @@ export default function AgencyWarehousePage() {
                     placeholder="Ex : Rayon B - Étagère 3 - Box 4"
                     value={directDepositShelf}
                     onChange={e => setDirectDepositShelf(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                   />
                 </div>
 
                 {/* Catégorie */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Catégorie</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>Catégorie</label>
                   <select
                     value={directDepositCategory}
                     onChange={e => setDirectDepositCategory(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                   >
                     <option value="Général">Général</option>
                     <option value="Habillement">Habillement</option>
@@ -2072,13 +2090,13 @@ export default function AgencyWarehousePage() {
 
                 {/* Notes */}
                 <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem' }}>Notes (facultatif)</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', display: 'block', marginBottom: '0.3rem', color: 'var(--ag-text-secondary)' }}>Notes (facultatif)</label>
                   <input
                     type="text"
                     placeholder="Ex : Fragile, conserver au frais..."
                     value={directDepositNotes}
                     onChange={e => setDirectDepositNotes(e.target.value)}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--ag-border)', fontSize: '0.9rem', background: 'var(--ag-surface)', color: 'var(--ag-text-primary)' }}
                   />
                 </div>
 
@@ -2087,8 +2105,8 @@ export default function AgencyWarehousePage() {
                     type="button"
                     onClick={resetDirectDeposit}
                     style={{
-                      flex: 1, padding: '0.85rem', background: 'rgba(0,0,0,0.05)', color: '#334155',
-                      border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
+                      flex: 1, padding: '0.85rem', background: 'var(--ag-surface-hover)', color: 'var(--ag-text-secondary)',
+                      border: '1px solid var(--ag-border)', borderRadius: '12px', fontWeight: '700', cursor: 'pointer'
                     }}
                   >
                     Annuler
@@ -2119,9 +2137,9 @@ export default function AgencyWarehousePage() {
               </form>
             )}
           </div>
-        
-      {/* Styles d'impression dédiés à l'étiquette QR marchandise */}
-      <style jsx global>{`
+
+          {/* Styles d'impression dédiés à l'étiquette QR marchandise */}
+          <style jsx global>{`
         @media print {
           body * {
             visibility: hidden !important;
@@ -2142,7 +2160,7 @@ export default function AgencyWarehousePage() {
           }
         }
       `}</style>
-</div>
+        </div>
       )}
     </AgencyShell>
   );

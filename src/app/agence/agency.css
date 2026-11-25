@@ -43,6 +43,11 @@
   --ag-danger-bg: rgba(239, 68, 68, 0.1);
   --ag-info: #06b6d4;
   --ag-info-bg: rgba(6, 182, 212, 0.1);
+
+  /* Aliases de compatibilité composants */
+  --agency-card-bg: var(--ag-surface);
+  --agency-card-border: var(--ag-border);
+  --agency-input-border: var(--ag-border);
 }
 
 .agency-theme-dark {
@@ -85,6 +90,11 @@
   --ag-danger-bg: rgba(248, 113, 113, 0.15);
   --ag-info: #38bdf8;
   --ag-info-bg: rgba(56, 189, 248, 0.15);
+
+  /* Aliases de compatibilité composants */
+  --agency-card-bg: var(--ag-surface);
+  --agency-card-border: var(--ag-border);
+  --agency-input-border: var(--ag-border);
 }
 
 /* Base resets & layout container */
