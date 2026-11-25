@@ -3,6 +3,7 @@
 import React from 'react';
 import { ColisItem } from '@/lib/data-service';
 import { ChevronRight, AlertTriangle } from 'lucide-react';
+import { useTheme } from '@/components/ThemeContext';
 
 interface MobilePackageCardProps {
   colis: ColisItem;
@@ -11,6 +12,8 @@ interface MobilePackageCardProps {
 }
 
 export default function MobilePackageCard({ colis, onClick, formatPrice }: MobilePackageCardProps) {
+  const { isDark } = useTheme();
+
   const isProblem =
     colis.status === 'Refusé par le point relais' ||
     colis.status === 'En réclamation' ||
@@ -26,6 +29,10 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
     ? '#38bdf8'
     : '#fbbf24';
 
+  const textPrimary = isDark ? '#ffffff' : '#0f172a';
+  const textSecondary = isDark ? '#94a3b8' : '#64748b';
+  const borderBottomColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+
   return (
     <div
       onClick={onClick}
@@ -33,8 +40,8 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick(); }}
       style={{
-        background: isProblem ? 'rgba(239, 68, 68, 0.04)' : 'rgba(255, 255, 255, 0.02)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+        background: isProblem ? 'rgba(239, 68, 68, 0.04)' : isDark ? 'rgba(255, 255, 255, 0.02)' : 'transparent',
+        borderBottom: `1px solid ${borderBottomColor}`,
         padding: '1rem 0.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -48,13 +55,13 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
         {/* Colonne gauche : Client & Ville/Commune */}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
-            fontSize: '1rem', fontWeight: '700', color: '#ffffff',
+            fontSize: '1rem', fontWeight: '700', color: textPrimary,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
           }}>
             {colis.clientName || 'Client'}
           </div>
           <div style={{
-            fontSize: '0.8rem', color: '#64748b', marginTop: '0.15rem',
+            fontSize: '0.8rem', color: textSecondary, marginTop: '0.15rem',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
           }}>
             {colis.clientCommune || colis.clientAddress || 'Kinshasa'}
@@ -63,7 +70,7 @@ export default function MobilePackageCard({ colis, onClick, formatPrice }: Mobil
 
         {/* Colonne droite : Montant & Statut en texte coloré discret */}
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff' }}>
+          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: textPrimary }}>
             {formatPrice(colis.prixColis || 0)}
           </div>
           <div style={{

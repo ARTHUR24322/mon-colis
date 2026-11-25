@@ -312,8 +312,8 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
     minHeight: '44px',
     padding: '0 0.85rem',
     borderRadius: '12px',
-    background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-    border: `1px solid ${borderSubtle}`,
+    background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+    border: isDark ? `1px solid ${borderSubtle}` : '1px solid #cbd5e1',
     color: textPrimary,
     fontSize: '0.9rem',
     outline: 'none',
@@ -355,7 +355,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
 
       {/* En-tête conforme à l'image : Titre + Bouton Actualiser */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: textPrimary, letterSpacing: '-0.02em' }}>
           Entrepôt & Stock
         </h1>
         <button
@@ -366,9 +366,9 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
             width: '38px',
             height: '38px',
             borderRadius: '10px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            background: 'rgba(255, 255, 255, 0.03)',
-            color: '#94a3b8',
+            border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.08)',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+            color: textSecondary,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -381,28 +381,29 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
 
       {/* Carte des statistiques à 4 colonnes compacte */}
       <div style={{
-        background: '#0d1117',
+        background: isDark ? '#0d1117' : '#ffffff',
         borderRadius: '14px',
         padding: '1.1rem 0.5rem',
         display: 'grid',
         gridTemplateColumns: 'repeat(4, 1fr)',
         textAlign: 'center',
-        border: '1px solid rgba(255, 255, 255, 0.04)'
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.04)' : '1px solid rgba(0, 0, 0, 0.08)',
+        boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.05)'
       }}>
         <div>
-          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.totalStock}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: textPrimary }}>{stats.totalStock}</div>
           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Unités</div>
         </div>
         <div>
-          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.lowStockCount}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: textPrimary }}>{stats.lowStockCount}</div>
           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Stock faible</div>
         </div>
         <div>
-          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{stats.totalItems}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: textPrimary }}>{stats.totalItems}</div>
           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Articles</div>
         </div>
         <div>
-          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: '#ffffff' }}>{formatPrice(stats.totalValuationUSD || 0)}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: '800', color: textPrimary }}>{formatPrice(stats.totalValuationUSD || 0)}</div>
           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>Valeur</div>
         </div>
       </div>
@@ -410,7 +411,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
       {/* Navigation secondaire : 3 onglets textuels soulignés de vert */}
       <div style={{
         display: 'flex',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.08)',
         gap: '1.5rem'
       }}>
         {[
@@ -431,7 +432,7 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 cursor: 'pointer',
                 fontSize: '0.9rem',
                 fontWeight: isActive ? '700' : '500',
-                color: isActive ? '#ffffff' : '#64748b',
+                color: isActive ? textPrimary : textSecondary,
                 borderBottom: isActive ? '2px solid #22c55e' : '2px solid transparent',
                 marginBottom: '-1px'
               }}
@@ -487,9 +488,9 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                 width: '44px',
                 height: '44px',
                 borderRadius: '12px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                background: 'rgba(255, 255, 255, 0.04)',
-                color: '#ffffff',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.08)',
+                background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)',
+                color: textPrimary,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -511,10 +512,10 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
               alignItems: 'center',
               gap: '0.6rem'
             }}>
-              <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#ffffff' }}>
+              <div style={{ fontSize: '1.15rem', fontWeight: '800', color: textPrimary }}>
                 Aucun article en stock
               </div>
-              <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '300px', lineHeight: '1.4' }}>
+              <div style={{ fontSize: '0.82rem', color: textSecondary, maxWidth: '300px', lineHeight: '1.4' }}>
                 Ajoutez vos produits pour suivre vos stocks et laisser l&apos;agence expédier à votre place.
               </div>
               <button
@@ -905,11 +906,11 @@ export default function VendorWarehouseTab({ vendorId, isDark = true }: VendorWa
                       }
                     }
                   }}
-                  style={inputStyle}
+                  style={{ ...inputStyle, background: isDark ? '#1e293b' : '#ffffff' }}
                 >
-                  <option value="">Sélectionner une location d'espace...</option>
+                  <option value="" style={{ background: isDark ? '#1e293b' : '#ffffff', color: textPrimary }}>Sélectionner une location d'espace...</option>
                   {activeSubscriptions.map(s => (
-                    <option key={s.id} value={s.id}>
+                    <option key={s.id} value={s.id} style={{ background: isDark ? '#1e293b' : '#ffffff', color: textPrimary }}>
                       {s.agencyName} — {s.spaceName} ({s.slotsCount} place{s.slotsCount > 1 ? 's' : ''} = {s.slotsCount} marchandise{s.slotsCount > 1 ? 's' : ''} max)
                     </option>
                   ))}

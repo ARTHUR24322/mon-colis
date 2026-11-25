@@ -5,6 +5,7 @@ import { ColisItem } from '@/lib/data-service';
 import MobileStatusBadge from './MobileStatusBadge';
 import MobileTimeline from './MobileTimeline';
 import { MOBILE_THEME } from './MobileDesignTokens';
+import { useTheme } from '@/components/ThemeContext';
 import {
   X, Phone, MapPin, Share2, Copy, Check, AlertTriangle,
   Building2, User, Truck, DollarSign, ShieldAlert, CheckCircle2
@@ -39,6 +40,7 @@ export default function MobilePackageDetailSheet({
   onRerouteRelais,
   onCollectRelais,
 }: MobilePackageDetailSheetProps) {
+  const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReason, setClaimReason] = useState('');
@@ -57,6 +59,16 @@ export default function MobilePackageDetailSheet({
   const isDispute = colis.status === 'En réclamation' || colis.claimStatus === 'OPEN';
   const isAvailableAtRelay = colis.status === 'Disponible au point relais';
   const isDelivered = colis.status === 'Livré';
+
+  const textPrimary = isDark ? '#ffffff' : '#0f172a';
+  const textSecondary = isDark ? '#94a3b8' : '#64748b';
+  const sheetBg = isDark ? '#0d1322' : '#ffffff';
+  const sheetBorder = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+  const cardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)';
+  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+  const modalBg = isDark ? '#0f172a' : '#ffffff';
+  const inputBg = isDark ? 'rgba(0,0,0,0.3)' : '#f8fafc';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.15)' : '#cbd5e1';
 
   const handleCopyTracking = () => {
     const trackingUrl = `${window.location.origin}/track/${colis.id}`;
@@ -136,20 +148,20 @@ export default function MobilePackageDetailSheet({
 
       {/* Sheet Content */}
       <div style={{
-        background: '#0d1322',
-        borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+        background: sheetBg,
+        borderTop: `1px solid ${sheetBorder}`,
         borderTopLeftRadius: MOBILE_THEME.touch.sheetRadius,
         borderTopRightRadius: MOBILE_THEME.touch.sheetRadius,
         maxHeight: '88vh',
         overflowY: 'auto',
         padding: '1.25rem 1rem 2rem',
-        color: '#fff',
-        boxShadow: '0 -10px 40px rgba(0,0,0,0.8)',
+        color: textPrimary,
+        boxShadow: isDark ? '0 -10px 40px rgba(0,0,0,0.8)' : '0 -10px 40px rgba(0,0,0,0.15)',
         WebkitOverflowScrolling: 'touch',
       }}>
         {/* Poignée de tirage */}
         <div style={{
-          width: '36px', height: '4px', background: 'rgba(255,255,255,0.2)',
+          width: '36px', height: '4px', background: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)',
           borderRadius: '2px', margin: '0 auto 1rem'
         }} />
 
@@ -159,7 +171,7 @@ export default function MobilePackageDetailSheet({
             <span style={{ fontSize: '0.75rem', color: '#64748b', fontFamily: 'monospace', fontWeight: '700' }}>
               {trackingCode}
             </span>
-            <h2 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: '900', color: '#ffffff' }}>
+            <h2 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: '900', color: textPrimary }}>
               {colis.clientName}
             </h2>
           </div>
@@ -167,7 +179,7 @@ export default function MobilePackageDetailSheet({
             onClick={onClose}
             style={{
               width: '36px', height: '36px', borderRadius: '50%',
-              background: 'rgba(255,255,255,0.06)', border: 'none', color: '#94a3b8',
+              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: 'none', color: textSecondary,
               cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}
           >
@@ -191,7 +203,7 @@ export default function MobilePackageDetailSheet({
             <div>
               <strong>Réclamation active :</strong> Le retrait par le client est temporairement bloqué en attendant l'arbitrage du Super Admin.
               {colis.claimReason && (
-                <div style={{ marginTop: '0.3rem', color: '#fff' }}>Motif : « {colis.claimReason} »</div>
+                <div style={{ marginTop: '0.3rem', color: textPrimary }}>Motif : « {colis.claimReason} »</div>
               )}
             </div>
           </div>
@@ -199,7 +211,7 @@ export default function MobilePackageDetailSheet({
 
         {/* Section 1 : Client & Destination */}
         <div style={{
-          background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+          background: cardBg, border: `1px solid ${cardBorder}`,
           borderRadius: '16px', padding: '1rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -224,10 +236,10 @@ export default function MobilePackageDetailSheet({
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.88rem' }}>
             <MapPin size={16} color="#60a5fa" style={{ flexShrink: 0, marginTop: '2px' }} />
             <div>
-              <div style={{ fontWeight: '700', color: '#f8fafc' }}>
+              <div style={{ fontWeight: '700', color: textPrimary }}>
                 {colis.clientCommune || 'Kinshasa'}
               </div>
-              <div style={{ color: '#94a3b8', fontSize: '0.82rem', marginTop: '0.1rem' }}>
+              <div style={{ color: textSecondary, fontSize: '0.82rem', marginTop: '0.1rem' }}>
                 {colis.clientAddress}
               </div>
             </div>
@@ -253,13 +265,13 @@ export default function MobilePackageDetailSheet({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                 <div style={{
-                  background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+                  background: cardBg, border: `1px solid ${cardBorder}`,
                   borderRadius: '14px', padding: '0.85rem'
                 }}>
                   <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
                      Marchandise
                   </span>
-                  <span style={{ fontSize: '1.2rem', fontWeight: '900', color: '#ffffff' }}>
+                  <span style={{ fontSize: '1.2rem', fontWeight: '900', color: textPrimary }}>
                     {formatPrice(colis.prixColis || 0)}
                   </span>
                   <span style={{
@@ -272,7 +284,7 @@ export default function MobilePackageDetailSheet({
                 </div>
 
                 <div style={{
-                  background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+                  background: cardBg, border: `1px solid ${cardBorder}`,
                   borderRadius: '14px', padding: '0.85rem'
                 }}>
                   <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '700', display: 'block' }}>
@@ -325,7 +337,7 @@ export default function MobilePackageDetailSheet({
 
         {/* Section 3 : Transporteur & Point Relais */}
         <div style={{
-          background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)',
+          background: cardBg, border: `1px solid ${cardBorder}`,
           borderRadius: '16px', padding: '0.9rem', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem',
           fontSize: '0.82rem'
         }}>
@@ -333,13 +345,13 @@ export default function MobilePackageDetailSheet({
             Acheminement
           </span>
           {colis.agence && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#cbd5e1' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: textPrimary }}>
               <Building2 size={15} color="#94a3b8" /> Agence : <strong>{colis.agence}</strong>
             </div>
           )}
           {colis.livreur && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#cbd5e1' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: textPrimary }}>
                 <Truck size={15} color="#60a5fa" /> Livreur : <strong>{colis.livreur}</strong>
               </div>
               {colis.livreurPhone && (
@@ -364,14 +376,14 @@ export default function MobilePackageDetailSheet({
                 <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#fb923c', textTransform: 'uppercase' }}>
                    Relais de collecte (Départ)
                 </span>
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                <span style={{ fontSize: '0.7rem', color: textSecondary }}>
                   {colis.originDropPoint.openingHours}
                 </span>
               </div>
-              <div style={{ fontWeight: '700', color: '#f8fafc', fontSize: '0.88rem' }}>
+              <div style={{ fontWeight: '700', color: textPrimary, fontSize: '0.88rem' }}>
                 {colis.originDropPoint.name}
               </div>
-              <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
+              <div style={{ fontSize: '0.78rem', color: textSecondary }}>
                 {colis.originDropPoint.address} ({colis.originDropPoint.commune})
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
@@ -395,9 +407,9 @@ export default function MobilePackageDetailSheet({
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
                     padding: '0.35rem 0.65rem', borderRadius: '8px',
-                    background: 'rgba(255, 255, 255, 0.08)', color: '#fff',
+                    background: isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9', color: textPrimary,
                     fontSize: '0.75rem', fontWeight: '600', textDecoration: 'none',
-                    border: '1px solid rgba(255, 255, 255, 0.15)'
+                    border: `1px solid ${cardBorder}`
                   }}
                 >
                   <MapPin size={12} /> Itinéraire
@@ -406,7 +418,7 @@ export default function MobilePackageDetailSheet({
             </div>
           )}
           {colis.destDropPoint && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#cbd5e1' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: textPrimary }}>
               <MapPin size={15} color="#4ade80" /> Point Relais Dest. : <strong>{colis.destDropPoint.name}</strong> ({colis.destDropPoint.commune})
             </div>
           )}
@@ -414,7 +426,7 @@ export default function MobilePackageDetailSheet({
 
         {/* Section 4 : Chronologie de vie */}
         <div style={{
-          background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)',
+          background: cardBg, border: `1px solid ${cardBorder}`,
           borderRadius: '16px', padding: '1rem', marginBottom: '1.25rem'
         }}>
           <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '0.5rem' }}>
@@ -471,7 +483,9 @@ export default function MobilePackageDetailSheet({
                 </div>
               ) : (
                 <div style={{
-                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(15, 23, 42, 0.6) 100%)',
+                  background: isDark
+                    ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(15, 23, 42, 0.6) 100%)'
+                    : 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(240, 253, 244, 0.8) 100%)',
                   border: '1px solid rgba(34, 197, 94, 0.4)',
                   borderRadius: '14px',
                   padding: '1rem',
@@ -484,7 +498,7 @@ export default function MobilePackageDetailSheet({
                       <span style={{ fontSize: '0.72rem', fontWeight: '800', color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Ce qui vous revient sur ce colis
                       </span>
-                      <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#ffffff', marginTop: '2px' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: '900', color: textPrimary, marginTop: '2px' }}>
                         {formatPrice(colis.prixColis)}
                       </div>
                     </div>
@@ -501,9 +515,9 @@ export default function MobilePackageDetailSheet({
                     </span>
                   </div>
 
-                  <p style={{ margin: 0, fontSize: '0.78rem', color: '#cbd5e1', lineHeight: '1.4' }}>
+                  <p style={{ margin: 0, fontSize: '0.78rem', color: textSecondary, lineHeight: '1.4' }}>
                     Colis livré avec succès. Vous pouvez réclamer le versement de vos fonds auprès de l&apos;agence{' '}
-                    <strong style={{ color: '#fff' }}>{colis.agence || 'partenaire'}</strong>.
+                    <strong style={{ color: textPrimary }}>{colis.agence || 'partenaire'}</strong>.
                   </p>
 
                   {onRequestPayout && colis.agencyId && (
@@ -626,8 +640,8 @@ export default function MobilePackageDetailSheet({
               <button
                 onClick={handleCopyTracking}
                 style={{
-                  height: '46px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: '0.82rem',
+                  height: '46px', borderRadius: '12px', border: `1px solid ${cardBorder}`,
+                  background: isDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9', color: textPrimary, fontSize: '0.82rem',
                   fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center',
                   justifyContent: 'center', gap: '0.4rem'
                 }}
@@ -658,13 +672,13 @@ export default function MobilePackageDetailSheet({
             backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
           }}>
             <div style={{
-              background: '#0f172a', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '20px',
-              padding: '1.5rem', width: '100%', maxWidth: '400px', color: '#fff'
+              background: modalBg, border: '1px solid rgba(239,68,68,0.4)', borderRadius: '20px',
+              padding: '1.5rem', width: '100%', maxWidth: '400px', color: textPrimary
             }}>
               <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem', fontWeight: '800', color: '#f87171' }}>
                 Poser une réclamation
               </h3>
-              <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: textSecondary, lineHeight: 1.4 }}>
                 Cette action bloque immédiatement le retrait du colis au point relais. Le litige sera arbitré par le Super Admin.
               </p>
 
@@ -680,7 +694,7 @@ export default function MobilePackageDetailSheet({
               )}
 
               <form onSubmit={handleOpenClaim}>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.35rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: textSecondary, marginBottom: '0.35rem' }}>
                   Motif précis de la réclamation :
                 </label>
                 <textarea
@@ -691,8 +705,8 @@ export default function MobilePackageDetailSheet({
                   rows={3}
                   style={{
                     width: '100%', padding: '0.65rem', borderRadius: '10px',
-                    background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)',
-                    color: '#fff', fontSize: '0.85rem', marginBottom: '1rem', resize: 'none'
+                    background: inputBg, border: `1px solid ${inputBorder}`,
+                    color: textPrimary, fontSize: '0.85rem', marginBottom: '1rem', resize: 'none'
                   }}
                 />
 
@@ -701,8 +715,8 @@ export default function MobilePackageDetailSheet({
                     type="button"
                     onClick={() => setShowClaimModal(false)}
                     style={{
-                      flex: 1, height: '44px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
-                      background: 'transparent', color: '#94a3b8', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer'
+                      flex: 1, height: '44px', borderRadius: '10px', border: `1px solid ${cardBorder}`,
+                      background: 'transparent', color: textSecondary, fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer'
                     }}
                   >
                     Annuler

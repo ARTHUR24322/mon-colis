@@ -28,9 +28,9 @@ type Colis = ColisItem;
 type Tab = 'apercu' | 'historique' | 'stock' | 'revenus' | 'clients' | 'profil';
 
 export function getVendorBadge(livres: number) {
-  if (livres >= 100) return { icon: '💎', label: 'Vendeur Elite', color: '#a855f7' };
-  if (livres >= 40) return { icon: '⭐', label: 'Super Vendeur', color: '#eab308' };
-  if (livres >= 10) return { icon: '🥉', label: 'Vendeur Actif', color: '#f97316' };
+  if (livres >= 100) return { icon: '', label: 'Vendeur Elite', color: '#a855f7' };
+  if (livres >= 40) return { icon: '', label: 'Super Vendeur', color: '#eab308' };
+  if (livres >= 10) return { icon: '', label: 'Vendeur Actif', color: '#f97316' };
   return null;
 }
 
@@ -200,7 +200,7 @@ export default function VendeurDashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        setOtpConfirmSuccess('✅ Versement confirmé avec succès ! L\'agence a bien transféré vos fonds.');
+        setOtpConfirmSuccess('Versement confirmé avec succès ! L\'agence a bien transféré vos fonds.');
         setOtpConfirmInput('');
         await loadPendingPaymentOtps();
         await loadPayoutRequests();
@@ -529,11 +529,22 @@ export default function VendeurDashboard() {
 
   const vendorBadge = getVendorBadge(colisLivres.length);
 
+  const cardBg = isDark ? '#0d1117' : '#ffffff';
+  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
+  const cardShadow = isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)';
+  const textPrimary = isDark ? '#ffffff' : '#0f172a';
+  const textSecondary = isDark ? '#94a3b8' : '#64748b';
+  const subCardBg = isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)';
+  const subCardBorder = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+  const inputBg = isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff';
+  const inputBorder = isDark ? 'rgba(255, 255, 255, 0.15)' : '#cbd5e1';
+  const modalBg = isDark ? '#0d1322' : '#ffffff';
+
   return (
     <div style={{
       minHeight: '100vh',
       background: isDark ? MOBILE_THEME.bg.canvas : '#f8fafc',
-      color: isDark ? '#fff' : '#0f172a',
+      color: textPrimary,
       paddingBottom: '80px',
       maxWidth: '430px',
       margin: '0 auto',
@@ -563,7 +574,7 @@ export default function VendeurDashboard() {
               <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '500' }}>
                 Espace vendeur
               </div>
-              <h1 style={{ margin: '0.15rem 0 0', fontSize: '1.45rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.02em' }}>
+              <h1 style={{ margin: '0.15rem 0 0', fontSize: '1.45rem', fontWeight: '800', color: textPrimary, letterSpacing: '-0.02em' }}>
                 Bonjour, {user?.name || 'Vendeur'}
               </h1>
             </div>
@@ -603,8 +614,9 @@ export default function VendeurDashboard() {
           }}>
             {/* KPI 1 : En cours */}
             <div style={{
-              background: '#0d1117',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              background: cardBg,
+              border: `1px solid ${cardBorder}`,
+              boxShadow: cardShadow,
               borderRadius: '12px',
               padding: '0.85rem 0.65rem',
             }}>
@@ -616,8 +628,9 @@ export default function VendeurDashboard() {
 
             {/* KPI 2 : Livrés */}
             <div style={{
-              background: '#0d1117',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              background: cardBg,
+              border: `1px solid ${cardBorder}`,
+              boxShadow: cardShadow,
               borderRadius: '12px',
               padding: '0.85rem 0.65rem',
             }}>
@@ -631,8 +644,9 @@ export default function VendeurDashboard() {
             <div
               onClick={() => setActiveTab('revenus')}
               style={{
-                background: '#0d1117',
-                border: '1px solid rgba(255, 255, 255, 0.06)',
+                background: cardBg,
+                border: `1px solid ${cardBorder}`,
+                boxShadow: cardShadow,
                 borderRadius: '12px',
                 padding: '0.85rem 0.65rem',
                 cursor: 'pointer',
@@ -676,7 +690,7 @@ export default function VendeurDashboard() {
           {/* SECTION : Colis en cours */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: textPrimary, margin: 0 }}>
                 Colis en cours
               </h2>
               {colisEnCours.length > 0 && (
@@ -696,14 +710,14 @@ export default function VendeurDashboard() {
             ) : colisEnCours.length === 0 ? (
               <div style={{
                 textAlign: 'center', padding: '2rem 1rem',
-                background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)',
+                background: subCardBg, border: `1px dashed ${subCardBorder}`,
                 borderRadius: '16px'
               }}>
                 <Package size={36} color="#475569" style={{ margin: '0 auto 0.5rem' }} />
-                <p style={{ margin: '0 0 0.5rem', color: '#cbd5e1', fontWeight: '700', fontSize: '0.9rem' }}>
+                <p style={{ margin: '0 0 0.5rem', color: textPrimary, fontWeight: '700', fontSize: '0.9rem' }}>
                   Aucun colis en acheminement
                 </p>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '0.78rem' }}>
+                <p style={{ margin: 0, color: textSecondary, fontSize: '0.78rem' }}>
                   Cliquez sur « Expédier un colis » pour créer votre première livraison.
                 </p>
               </div>
@@ -728,7 +742,7 @@ export default function VendeurDashboard() {
         <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {/* Header avec bouton Expédier (Conforme à l'image 2) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: textPrimary, letterSpacing: '-0.02em' }}>
               Colis
             </h1>
             <button
@@ -744,20 +758,20 @@ export default function VendeurDashboard() {
           </div>
 
           {/* Onglets épurés : En cours vs Livrés (soulignés comme sur l'image 2) */}
-          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: `1px solid ${cardBorder}` }}>
             <button
               onClick={() => setStatusFilter('En cours')}
               style={{
                 background: 'none', border: 'none',
                 borderBottom: statusFilter === 'En cours' ? '2px solid #22c55e' : '2px solid transparent',
-                color: statusFilter === 'En cours' ? '#ffffff' : '#64748b',
+                color: statusFilter === 'En cours' ? textPrimary : textSecondary,
                 fontWeight: statusFilter === 'En cours' ? '700' : '500',
                 fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: '6px'
               }}
             >
               <span>En cours</span>
-              <span style={{ fontSize: '0.82rem', color: statusFilter === 'En cours' ? '#ffffff' : '#64748b' }}>
+              <span style={{ fontSize: '0.82rem', color: statusFilter === 'En cours' ? textPrimary : textSecondary }}>
                 {colisEnCours.length}
               </span>
             </button>
@@ -767,14 +781,14 @@ export default function VendeurDashboard() {
               style={{
                 background: 'none', border: 'none',
                 borderBottom: statusFilter === 'Livrés' ? '2px solid #22c55e' : '2px solid transparent',
-                color: statusFilter === 'Livrés' ? '#ffffff' : '#64748b',
+                color: statusFilter === 'Livrés' ? textPrimary : textSecondary,
                 fontWeight: statusFilter === 'Livrés' ? '700' : '500',
                 fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: '6px'
               }}
             >
               <span>Livrés</span>
-              <span style={{ fontSize: '0.82rem', color: statusFilter === 'Livrés' ? '#ffffff' : '#64748b' }}>
+              <span style={{ fontSize: '0.82rem', color: statusFilter === 'Livrés' ? textPrimary : textSecondary }}>
                 {colisLivres.length}
               </span>
             </button>
@@ -785,7 +799,7 @@ export default function VendeurDashboard() {
                 style={{
                   background: 'none', border: 'none',
                   borderBottom: statusFilter === 'Incidents' ? '2px solid #ef4444' : '2px solid transparent',
-                  color: statusFilter === 'Incidents' ? '#f87171' : '#64748b',
+                  color: statusFilter === 'Incidents' ? '#f87171' : textSecondary,
                   fontWeight: statusFilter === 'Incidents' ? '700' : '500',
                   fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: '6px'
@@ -801,7 +815,7 @@ export default function VendeurDashboard() {
 
           {/* Liste des colis épurée */}
           {filteredColis.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b', fontSize: '0.85rem' }}>
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: textSecondary, fontSize: '0.85rem' }}>
               Aucun colis dans cette section.
             </div>
           ) : (
@@ -824,14 +838,14 @@ export default function VendeurDashboard() {
         <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Header Finance avec bouton actualiser discret (Conforme à l'image 4) */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: textPrimary, letterSpacing: '-0.02em' }}>
               Finance
             </h1>
             <button
               onClick={() => { loadPayoutRequests(); loadPendingPaymentOtps(); }}
               style={{
-                width: '36px', height: '36px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.04)', color: '#cbd5e1', cursor: 'pointer',
+                width: '36px', height: '36px', borderRadius: '50%', border: `1px solid ${cardBorder}`,
+                background: subCardBg, color: textSecondary, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center'
               }}
             >
@@ -867,14 +881,14 @@ export default function VendeurDashboard() {
           </button>
 
           {/* Onglets soulignés : Mes versements vs Soldes par agence */}
-          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ display: 'flex', gap: '1.5rem', borderBottom: `1px solid ${cardBorder}` }}>
             <button
               type="button"
               onClick={() => setRevenueSubTab('virements')}
               style={{
                 background: 'none', border: 'none',
                 borderBottom: revenueSubTab === 'virements' ? '2px solid #22c55e' : '2px solid transparent',
-                color: revenueSubTab === 'virements' ? '#ffffff' : '#64748b',
+                color: revenueSubTab === 'virements' ? textPrimary : textSecondary,
                 fontWeight: revenueSubTab === 'virements' ? '700' : '500',
                 fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: '6px'
@@ -882,7 +896,7 @@ export default function VendeurDashboard() {
             >
               <span>Mes versements</span>
               {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length > 0 && (
-                <span style={{ fontSize: '0.82rem', color: revenueSubTab === 'virements' ? '#ffffff' : '#64748b' }}>
+                <span style={{ fontSize: '0.82rem', color: revenueSubTab === 'virements' ? textPrimary : textSecondary }}>
                   {payoutRequests.filter(r => ['en_attente', 'qr_genere'].includes(r.status)).length}
                 </span>
               )}
@@ -894,7 +908,7 @@ export default function VendeurDashboard() {
               style={{
                 background: 'none', border: 'none',
                 borderBottom: revenueSubTab === 'soldes' ? '2px solid #22c55e' : '2px solid transparent',
-                color: revenueSubTab === 'soldes' ? '#ffffff' : '#64748b',
+                color: revenueSubTab === 'soldes' ? textPrimary : textSecondary,
                 fontWeight: revenueSubTab === 'soldes' ? '700' : '500',
                 fontSize: '0.9rem', padding: '0.6rem 0', cursor: 'pointer',
               }}
@@ -915,21 +929,21 @@ export default function VendeurDashboard() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#fbbf24', textTransform: 'uppercase' }}>
-                      ⚡ Versement en attente de votre validation
+                      Versement en attente de votre validation
                     </span>
                     <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: '800', background: 'rgba(245,158,11,0.2)', color: '#fbbf24', border: '1px solid #f59e0b' }}>
                       Code OTP généré
                     </span>
                   </div>
                   <div style={{ marginBottom: '0.85rem' }}>
-                    <div style={{ fontSize: '0.82rem', color: '#cbd5e1' }}>
-                      Agence : <strong style={{ color: '#fff' }}>{pendingPaymentOtps[0].agency?.profile?.name || 'Agence partenaire'}</strong>
+                    <div style={{ fontSize: '0.82rem', color: textSecondary }}>
+                      Agence : <strong style={{ color: textPrimary }}>{pendingPaymentOtps[0].agency?.profile?.name || 'Agence partenaire'}</strong>
                     </div>
                     <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fbbf24', marginTop: '2px' }}>
                       {pendingPaymentOtps[0].amount.toLocaleString('fr-FR')} CDF
                     </div>
                   </div>
-                  <p style={{ fontSize: '0.78rem', color: '#cbd5e1', margin: '0 0 0.8rem' }}>
+                  <p style={{ fontSize: '0.78rem', color: textSecondary, margin: '0 0 0.8rem' }}>
                     L&apos;agence a préparé votre versement. Saisissez le code à 6 chiffres reçu pour encaisser vos fonds :
                   </p>
                   <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -948,8 +962,8 @@ export default function VendeurDashboard() {
                             value={otpConfirmInput}
                             onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
                             style={{
-                              flex: 1, height: '42px', borderRadius: '8px', background: 'rgba(0,0,0,0.5)',
-                              border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '1.2rem',
+                              flex: 1, height: '42px', borderRadius: '8px', background: inputBg,
+                              border: `1px solid ${inputBorder}`, color: textPrimary, fontSize: '1.2rem',
                               textAlign: 'center', letterSpacing: '4px', fontWeight: '800'
                             }}
                           />
@@ -958,8 +972,8 @@ export default function VendeurDashboard() {
                             disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
                             style={{
                               padding: '0 1rem', height: '42px', borderRadius: '8px', border: 'none',
-                              background: otpConfirmInput.length === 6 ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                              color: otpConfirmInput.length === 6 ? '#000' : '#64748b', fontWeight: '800',
+                              background: otpConfirmInput.length === 6 ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)'),
+                              color: otpConfirmInput.length === 6 ? '#000' : textSecondary, fontWeight: '800',
                               fontSize: '0.78rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed'
                             }}
                           >
@@ -977,8 +991,8 @@ export default function VendeurDashboard() {
 
               {/* Bouton permanent de saisie manuelle si le code a été transmis par SMS/WhatsApp */}
               <div style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px dashed rgba(255,255,255,0.12)',
+                background: subCardBg,
+                border: `1px dashed ${cardBorder}`,
                 borderRadius: '16px',
                 padding: '0.85rem',
                 display: 'flex',
@@ -987,8 +1001,8 @@ export default function VendeurDashboard() {
                 gap: '0.75rem',
                 flexWrap: 'wrap'
               }}>
-                <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                  🔑 L&apos;agence vous a transmis un code de versement ?
+                <div style={{ fontSize: '0.78rem', color: textSecondary }}>
+                  L&apos;agence vous a transmis un code de versement ?
                 </div>
                 <button
                   type="button"
@@ -1022,13 +1036,14 @@ export default function VendeurDashboard() {
 
                 return (
                   <div style={{
-                    background: '#0d1117',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    background: cardBg,
+                    border: `1px solid ${cardBorder}`,
+                    boxShadow: cardShadow,
                     borderRadius: '16px', padding: '1.25rem',
                     display: 'flex', flexDirection: 'column', gap: '0.75rem'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.88rem', fontWeight: '600', color: '#cbd5e1' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: '600', color: textSecondary }}>
                         Agence {latest.agencyName}
                       </span>
                       <span style={{
@@ -1044,7 +1059,7 @@ export default function VendeurDashboard() {
                     </div>
 
                     <div>
-                      <div style={{ fontSize: '1.75rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.02em' }}>
+                      <div style={{ fontSize: '1.75rem', fontWeight: '800', color: textPrimary, letterSpacing: '-0.02em' }}>
                         {latest.amount.toLocaleString('fr-FR')} CDF
                       </div>
                       <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem' }}>
@@ -1055,7 +1070,7 @@ export default function VendeurDashboard() {
                     {/* Saisie du code à 6 chiffres */}
                     {!isConfirmed && (
                       <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#94a3b8' }}>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: textSecondary }}>
                           Code reçu de l&apos;agence ? Saisissez-le ici.
                         </p>
                         <form onSubmit={handleConfirmPaymentOtp} style={{ display: 'flex', gap: '0.6rem' }}>
@@ -1067,8 +1082,8 @@ export default function VendeurDashboard() {
                             value={otpConfirmInput}
                             onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
                             style={{
-                              flex: 1, height: '44px', borderRadius: '10px', background: '#000000',
-                              border: '1px solid rgba(255, 255, 255, 0.15)', color: '#ffffff', fontSize: '0.95rem',
+                              flex: 1, height: '44px', borderRadius: '10px', background: inputBg,
+                              border: `1px solid ${inputBorder}`, color: textPrimary, fontSize: '0.95rem',
                               padding: '0 0.85rem', outline: 'none'
                             }}
                           />
@@ -1077,7 +1092,7 @@ export default function VendeurDashboard() {
                             disabled={otpConfirmLoading || otpConfirmInput.length !== 6}
                             style={{
                               padding: '0 1.25rem', height: '44px', borderRadius: '10px', border: 'none',
-                              background: '#ffffff', color: '#000000', fontWeight: '700',
+                              background: isDark ? '#ffffff' : '#0f172a', color: isDark ? '#000000' : '#ffffff', fontWeight: '700',
                               fontSize: '0.85rem', cursor: otpConfirmInput.length === 6 ? 'pointer' : 'not-allowed',
                               opacity: otpConfirmInput.length === 6 ? 1 : 0.5
                             }}
@@ -1100,7 +1115,7 @@ export default function VendeurDashboard() {
               {/* Historique des demandes (Conforme à l'image 4) */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#ffffff', margin: 0 }}>
+                  <h2 style={{ fontSize: '1.05rem', fontWeight: '700', color: textPrimary, margin: 0 }}>
                     Historique ({payoutRequests.length})
                   </h2>
                   {payoutRequests.length > 0 && (
@@ -1111,7 +1126,7 @@ export default function VendeurDashboard() {
                 </div>
 
                 {payoutRequests.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#64748b', fontSize: '0.85rem' }}>
+                  <div style={{ textAlign: 'center', padding: '2rem 1rem', color: textSecondary, fontSize: '0.85rem' }}>
                     Aucun versement dans l&apos;historique.
                   </div>
                 ) : (
@@ -1125,7 +1140,7 @@ export default function VendeurDashboard() {
                         <div
                           key={req.id}
                           style={{
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                            borderBottom: `1px solid ${cardBorder}`,
                             padding: '0.85rem 0.25rem',
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -1133,10 +1148,10 @@ export default function VendeurDashboard() {
                           }}
                         >
                           <div>
-                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>
+                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: textPrimary }}>
                               {req.agencyName}
                             </div>
-                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>
+                            <div style={{ fontSize: '0.78rem', color: textSecondary, marginTop: '0.15rem' }}>
                               {new Date(req.createdAt).toLocaleDateString('fr-FR')} · {req.amount.toLocaleString('fr-FR')} CDF
                             </div>
                           </div>
@@ -1167,24 +1182,24 @@ export default function VendeurDashboard() {
                 <span style={{ fontSize: '0.8rem', color: '#fcd34d', fontWeight: '700', textTransform: 'uppercase' }}>
                   Reste net à recevoir
                 </span>
-                <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ffffff', margin: '0.2rem 0' }}>
+                <div style={{ fontSize: '2rem', fontWeight: '900', color: textPrimary, margin: '0.2rem 0' }}>
                   {formatPrice(soldeNetRecevoir)}
                 </div>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: textSecondary }}>
                   Marchandises livrées par les agences en attente de versement.
                 </p>
               </div>
 
               {/* Soldes par Agence */}
               <div>
-                <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: '#cbd5e1', margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
+                <h2 style={{ fontSize: '0.85rem', fontWeight: '800', color: textSecondary, margin: '0 0 0.5rem', textTransform: 'uppercase' }}>
                   Détail par Agence
                 </h2>
 
                 {agencesFinances.length === 0 ? (
                   <div style={{
-                    textAlign: 'center', padding: '1.5rem', background: 'rgba(255,255,255,0.02)',
-                    borderRadius: '12px', color: '#64748b', fontSize: '0.82rem'
+                    textAlign: 'center', padding: '1.5rem', background: subCardBg,
+                    borderRadius: '12px', color: textSecondary, fontSize: '0.82rem'
                   }}>
                     Aucun versement en attente. Tout est à jour !
                   </div>
@@ -1194,13 +1209,13 @@ export default function VendeurDashboard() {
                       <div
                         key={ag.agencyId}
                         style={{
-                          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                          background: subCardBg, border: `1px solid ${cardBorder}`,
                           borderRadius: '14px', padding: '0.9rem', display: 'flex',
                           justifyContent: 'space-between', alignItems: 'center'
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#fff' }}>
+                          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: textPrimary }}>
                             {ag.agencyName}
                           </div>
                           <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#4ade80', marginTop: '0.2rem' }}>
@@ -1233,14 +1248,14 @@ export default function VendeurDashboard() {
 
           {/* Historique repliable */}
           <div style={{
-            background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)',
+            background: subCardBg, border: `1px solid ${cardBorder}`,
             borderRadius: '16px', overflow: 'hidden'
           }}>
             <button
               onClick={() => setShowRevenueHistory(!showRevenueHistory)}
               style={{
                 width: '100%', minHeight: '48px', padding: '0.75rem 1rem', background: 'none',
-                border: 'none', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between',
+                border: 'none', color: textSecondary, display: 'flex', justifyContent: 'space-between',
                 alignItems: 'center', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '700', fontSize: '0.85rem'
               }}
             >
@@ -1251,7 +1266,7 @@ export default function VendeurDashboard() {
             {showRevenueHistory && (
               <div style={{ padding: '0 1rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {colisLivres.length === 0 ? (
-                  <div style={{ color: '#64748b', fontSize: '0.8rem', textAlign: 'center' }}>Aucun colis livré</div>
+                  <div style={{ color: textSecondary, fontSize: '0.8rem', textAlign: 'center' }}>Aucun colis livré</div>
                 ) : (
                   colisLivres.map(c => (
                     <div
@@ -1259,14 +1274,14 @@ export default function VendeurDashboard() {
                       onClick={() => setSelectedColis(c)}
                       style={{
                         padding: '0.6rem 0.75rem', borderRadius: '10px',
-                        background: 'rgba(255,255,255,0.03)', display: 'flex',
+                        background: subCardBg, border: `1px solid ${cardBorder}`, display: 'flex',
                         justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer',
                         fontSize: '0.8rem'
                       }}
                     >
                       <div>
-                        <strong style={{ color: '#fff' }}>{c.clientName}</strong>
-                        <div style={{ color: '#64748b', fontSize: '0.7rem' }}>{c.date} · {c.agence || 'Direct'}</div>
+                        <strong style={{ color: textPrimary }}>{c.clientName}</strong>
+                        <div style={{ color: textSecondary, fontSize: '0.7rem' }}>{c.date} · {c.agence || 'Direct'}</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <span style={{ fontWeight: '800', color: c.vendorPaid ? '#4ade80' : '#fb923c' }}>
@@ -1298,7 +1313,7 @@ export default function VendeurDashboard() {
       {/* ══════════════ 4. CLIENTS ══════════════ */}
       {activeTab === 'clients' && (
         <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: '#fff' }}>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: '900', margin: 0, color: textPrimary }}>
             Mes Clients ({clientsList.length})
           </h1>
 
@@ -1307,16 +1322,16 @@ export default function VendeurDashboard() {
               <div
                 key={idx}
                 style={{
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  background: subCardBg, border: `1px solid ${cardBorder}`,
                   borderRadius: '14px', padding: '0.9rem', display: 'flex',
                   justifyContent: 'space-between', alignItems: 'center'
                 }}
               >
                 <div>
-                  <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#fff' }}>
+                  <div style={{ fontSize: '0.95rem', fontWeight: '800', color: textPrimary }}>
                     {client.name}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.75rem', color: textSecondary, marginTop: '0.2rem' }}>
                     {client.colisCount} commande{client.colisCount > 1 ? 's' : ''} · Dernier : {client.lastDate}
                   </div>
                 </div>
@@ -1343,7 +1358,7 @@ export default function VendeurDashboard() {
       {/* ══════════════ 5. PROFIL (Conforme à l'image 5) ══════════════ */}
       {activeTab === 'profil' && (
         <div style={{ padding: '1.25rem 1rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: '800', margin: 0, color: textPrimary, letterSpacing: '-0.02em' }}>
             Profil
           </h1>
 
@@ -1360,10 +1375,10 @@ export default function VendeurDashboard() {
               {(user?.name || 'V')[0].toUpperCase()}
             </div>
             <div>
-              <div style={{ fontSize: '1.25rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.01em' }}>
+              <div style={{ fontSize: '1.25rem', fontWeight: '800', color: textPrimary, letterSpacing: '-0.01em' }}>
                 {user?.name || 'Vendeur'}
               </div>
-              <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+              <div style={{ fontSize: '0.85rem', color: textSecondary, marginTop: '0.1rem' }}>
                 {user?.email || user?.phone}
               </div>
               <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.2rem' }}>
@@ -1374,15 +1389,16 @@ export default function VendeurDashboard() {
 
           {/* Préférences & Sécurité */}
           <div style={{
-            background: '#0d1117',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: cardBg,
+            border: `1px solid ${cardBorder}`,
+            boxShadow: cardShadow,
             borderRadius: '16px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem'
           }}>
             {/* Thème clair / sombre */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>Thème</div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: textPrimary }}>Thème</div>
+                <div style={{ fontSize: '0.78rem', color: textSecondary, marginTop: '0.15rem' }}>
                   Mode {isDark ? 'sombre' : 'clair'} activé
                 </div>
               </div>
@@ -1392,9 +1408,9 @@ export default function VendeurDashboard() {
                 style={{
                   padding: '0.45rem 1.1rem',
                   borderRadius: '9999px',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  color: '#ffffff',
+                  border: `1px solid ${cardBorder}`,
+                  background: subCardBg,
+                  color: textPrimary,
                   fontSize: '0.82rem',
                   fontWeight: '600',
                   cursor: 'pointer'
@@ -1404,13 +1420,13 @@ export default function VendeurDashboard() {
               </button>
             </div>
 
-            <div style={{ height: '1px', background: 'rgba(255, 255, 255, 0.06)' }} />
+            <div style={{ height: '1px', background: cardBorder }} />
 
             {/* Modifier le mot de passe */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ffffff' }}>Mot de passe</div>
-                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.15rem' }}>Pour vous connecter</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: '700', color: textPrimary }}>Mot de passe</div>
+                <div style={{ fontSize: '0.78rem', color: textSecondary, marginTop: '0.15rem' }}>Pour vous connecter</div>
               </div>
               <button
                 type="button"
@@ -1418,9 +1434,9 @@ export default function VendeurDashboard() {
                 style={{
                   padding: '0.45rem 1.1rem',
                   borderRadius: '9999px',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  color: '#ffffff',
+                  border: `1px solid ${cardBorder}`,
+                  background: subCardBg,
+                  color: textPrimary,
                   fontSize: '0.82rem',
                   fontWeight: '600',
                   cursor: 'pointer'
@@ -1454,20 +1470,20 @@ export default function VendeurDashboard() {
           display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
         }}>
           <div style={{
-            background: '#0d1322', borderTop: '1px solid rgba(255,255,255,0.15)',
+            background: modalBg, borderTop: `1px solid ${cardBorder}`,
             borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
             width: '100%', maxWidth: '440px', maxHeight: '90vh', overflowY: 'auto',
-            padding: '1.25rem 1rem 2rem', color: '#fff'
+            padding: '1.25rem 1rem 2rem', color: textPrimary
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '900', color: '#fff' }}>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '900', color: textPrimary }}>
                 Nouvelle Expédition
               </h2>
               <button
                 onClick={() => setShowModal(false)}
                 style={{
                   width: '32px', height: '32px', borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.06)', border: 'none', color: '#94a3b8',
+                  background: subCardBg, border: `1px solid ${cardBorder}`, color: textSecondary,
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}
               >
@@ -1477,7 +1493,7 @@ export default function VendeurDashboard() {
 
             <form onSubmit={handleCreateColis} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                   Nom complet du client :
                 </label>
                 <input
@@ -1488,14 +1504,14 @@ export default function VendeurDashboard() {
                   onChange={e => setClientName(e.target.value)}
                   style={{
                     width: '100%', minHeight: '44px', borderRadius: '10px',
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                    padding: '0 0.85rem', color: '#fff', fontSize: '0.9rem'
+                    background: inputBg, border: `1px solid ${inputBorder}`,
+                    padding: '0 0.85rem', color: textPrimary, fontSize: '0.9rem'
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                   Téléphone du client (pour code OTP) :
                 </label>
                 <input
@@ -1506,14 +1522,14 @@ export default function VendeurDashboard() {
                   onChange={e => setClientPhone(e.target.value)}
                   style={{
                     width: '100%', minHeight: '44px', borderRadius: '10px',
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                    padding: '0 0.85rem', color: '#fff', fontSize: '0.9rem'
+                    background: inputBg, border: `1px solid ${inputBorder}`,
+                    padding: '0 0.85rem', color: textPrimary, fontSize: '0.9rem'
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                   Commune de destination :
                 </label>
                 <CommuneSelect
@@ -1524,7 +1540,7 @@ export default function VendeurDashboard() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.5rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                     N° :
                   </label>
                   <input
@@ -1534,13 +1550,13 @@ export default function VendeurDashboard() {
                     onChange={e => setClientNumero(e.target.value)}
                     style={{
                       width: '100%', minHeight: '44px', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                      padding: '0 0.6rem', color: '#fff', fontSize: '0.9rem'
+                      background: inputBg, border: `1px solid ${inputBorder}`,
+                      padding: '0 0.6rem', color: textPrimary, fontSize: '0.9rem'
                     }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                     Avenue / Rue :
                   </label>
                   <input
@@ -1551,15 +1567,15 @@ export default function VendeurDashboard() {
                     onChange={e => setClientAvenue(e.target.value)}
                     style={{
                       width: '100%', minHeight: '44px', borderRadius: '10px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                      padding: '0 0.75rem', color: '#fff', fontSize: '0.9rem'
+                      background: inputBg, border: `1px solid ${inputBorder}`,
+                      padding: '0 0.75rem', color: textPrimary, fontSize: '0.9rem'
                     }}
                   />
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                   Valeur de la marchandise (en USD) :
                 </label>
                 <input
@@ -1572,8 +1588,8 @@ export default function VendeurDashboard() {
                   onChange={e => setPrixColis(e.target.value)}
                   style={{
                     width: '100%', minHeight: '44px', borderRadius: '10px',
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                    padding: '0 0.85rem', color: '#fff', fontSize: '1rem', fontWeight: '700'
+                    background: inputBg, border: `1px solid ${inputBorder}`,
+                    padding: '0 0.85rem', color: textPrimary, fontSize: '1rem', fontWeight: '700'
                   }}
                 />
               </div>
@@ -1581,7 +1597,7 @@ export default function VendeurDashboard() {
               {/* ── Section Poids du colis (en kg) ── */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
-                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1' }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155' }}>
                     Poids du colis (en kg) * :
                   </label>
                   <span style={{ fontSize: '0.72rem', color: '#60a5fa', fontWeight: '800' }}>
@@ -1599,8 +1615,8 @@ export default function VendeurDashboard() {
                   onChange={e => setPoids(e.target.value)}
                   style={{
                     width: '100%', minHeight: '44px', borderRadius: '10px',
-                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-                    padding: '0 0.85rem', color: '#fff', fontSize: '1rem', fontWeight: '700'
+                    background: inputBg, border: `1px solid ${inputBorder}`,
+                    padding: '0 0.85rem', color: textPrimary, fontSize: '1rem', fontWeight: '700'
                   }}
                 />
                 {/* Raccourcis de poids rapides */}
@@ -1612,9 +1628,9 @@ export default function VendeurDashboard() {
                       onClick={() => setPoids(w)}
                       style={{
                         padding: '0.2rem 0.6rem', borderRadius: '6px',
-                        border: poids === w ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
-                        background: poids === w ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
-                        color: poids === w ? '#93c5fd' : '#94a3b8',
+                        border: poids === w ? '1px solid #3b82f6' : `1px solid ${cardBorder}`,
+                        background: poids === w ? (isDark ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.1)') : subCardBg,
+                        color: poids === w ? (isDark ? '#93c5fd' : '#2563eb') : textSecondary,
                         fontSize: '0.72rem', fontWeight: '600', cursor: 'pointer'
                       }}
                     >
@@ -1622,14 +1638,14 @@ export default function VendeurDashboard() {
                     </button>
                   ))}
                 </div>
-                <p style={{ margin: '0.3rem 0 0', fontSize: '0.7rem', color: '#64748b' }}>
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.7rem', color: textSecondary }}>
                   Les agences dont la capacité maximale est inférieure à ce poids seront automatiquement masquées.
                 </p>
               </div>
 
               {/* Mode d'expédition : Direct, Premier Kilomètre au relais, ou Stock Entrepôt */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.4rem' }}>
                   Option de départ :
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
@@ -1641,13 +1657,13 @@ export default function VendeurDashboard() {
                     }}
                     style={{
                       minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
-                      border: deliveryMode === 'DIRECT' ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
-                      background: deliveryMode === 'DIRECT' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: deliveryMode === 'DIRECT' ? '#4ade80' : '#94a3b8',
+                      border: deliveryMode === 'DIRECT' ? '2px solid #22c55e' : `1px solid ${cardBorder}`,
+                      background: deliveryMode === 'DIRECT' ? (isDark ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)') : subCardBg,
+                      color: deliveryMode === 'DIRECT' ? (isDark ? '#4ade80' : '#16a34a') : textSecondary,
                       fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
                     }}
                   >
-                    🏠 Ramassage
+                    Ramassage
                   </button>
                   <button
                     type="button"
@@ -1657,13 +1673,13 @@ export default function VendeurDashboard() {
                     }}
                     style={{
                       minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
-                      border: deliveryMode === 'DROP_POINT_FIRST_MILE' ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
-                      background: deliveryMode === 'DROP_POINT_FIRST_MILE' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: deliveryMode === 'DROP_POINT_FIRST_MILE' ? '#4ade80' : '#94a3b8',
+                      border: deliveryMode === 'DROP_POINT_FIRST_MILE' ? '2px solid #22c55e' : `1px solid ${cardBorder}`,
+                      background: deliveryMode === 'DROP_POINT_FIRST_MILE' ? (isDark ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)') : subCardBg,
+                      color: deliveryMode === 'DROP_POINT_FIRST_MILE' ? (isDark ? '#4ade80' : '#16a34a') : textSecondary,
                       fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
                     }}
                   >
-                    📍 Relais
+                    Relais
                   </button>
                   <button
                     type="button"
@@ -1673,13 +1689,13 @@ export default function VendeurDashboard() {
                     }}
                     style={{
                       minHeight: '44px', borderRadius: '10px', padding: '0.4rem 0.2rem',
-                      border: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '2px solid #f97316' : '1px solid rgba(255,255,255,0.1)',
-                      background: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? 'rgba(249,115,22,0.18)' : 'rgba(255,255,255,0.04)',
-                      color: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '#f97316' : '#94a3b8',
+                      border: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '2px solid #f97316' : `1px solid ${cardBorder}`,
+                      background: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? (isDark ? 'rgba(249,115,22,0.18)' : 'rgba(249,115,22,0.1)') : subCardBg,
+                      color: deliveryMode === 'WAREHOUSE_FULFILLMENT' ? '#f97316' : textSecondary,
                       fontWeight: '700', fontSize: '0.72rem', cursor: 'pointer', textAlign: 'center'
                     }}
                   >
-                    📦 Stock Agence
+                    Stock Agence
                   </button>
                 </div>
               </div>
@@ -1687,8 +1703,8 @@ export default function VendeurDashboard() {
               {/* Sélection du produit en stock si WAREHOUSE_FULFILLMENT */}
               {deliveryMode === 'WAREHOUSE_FULFILLMENT' && (
                 <div style={{
-                  background: 'rgba(249, 115, 22, 0.08)',
-                  border: '1px solid rgba(249, 115, 22, 0.3)',
+                  background: isDark ? 'rgba(249, 115, 22, 0.08)' : 'rgba(249, 115, 22, 0.05)',
+                  border: isDark ? '1px solid rgba(249, 115, 22, 0.3)' : '1px solid rgba(249, 115, 22, 0.2)',
                   borderRadius: '12px',
                   padding: '0.85rem',
                   display: 'flex',
@@ -1722,8 +1738,8 @@ export default function VendeurDashboard() {
                           }}
                           style={{
                             width: '100%', minHeight: '44px', borderRadius: '10px',
-                            background: '#1e293b', border: '1px solid rgba(249, 115, 22, 0.4)',
-                            padding: '0 0.75rem', color: '#fff', fontSize: '0.85rem'
+                            background: isDark ? '#1e293b' : '#ffffff', border: '1px solid rgba(249, 115, 22, 0.4)',
+                            padding: '0 0.75rem', color: textPrimary, fontSize: '0.85rem'
                           }}
                         >
                           <option value="">-- Choisir un produit stocké --</option>
@@ -1738,7 +1754,7 @@ export default function VendeurDashboard() {
                       {selectedInventoryId && (
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0.5rem', alignItems: 'center' }}>
                           <div>
-                            <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block' }}>Quantité :</label>
+                            <label style={{ fontSize: '0.72rem', color: textSecondary, display: 'block' }}>Quantité :</label>
                             <input
                               type="number"
                               min="1"
@@ -1755,19 +1771,19 @@ export default function VendeurDashboard() {
                               }}
                               style={{
                                 width: '100%', minHeight: '38px', borderRadius: '8px',
-                                background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                                color: '#fff', textAlign: 'center', fontWeight: '800'
+                                background: inputBg, border: `1px solid ${inputBorder}`,
+                                color: textPrimary, textAlign: 'center', fontWeight: '800'
                               }}
                             />
                           </div>
 
-                          <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                          <div style={{ fontSize: '0.72rem', color: textSecondary }}>
                             Agence d'expédition : <br />
                             <strong style={{ color: '#f97316' }}>
                               {warehouseStockItems.find(it => it.id === selectedInventoryId)?.agencyName}
                             </strong>
-                            <div style={{ color: '#4ade80', fontSize: '0.68rem', marginTop: '0.1rem' }}>
-                              ⚡ Expédition directe sans ramassage
+                            <div style={{ color: '#22c55e', fontSize: '0.68rem', marginTop: '0.1rem' }}>
+                              Expédition directe sans ramassage
                             </div>
                           </div>
                         </div>
@@ -1779,7 +1795,7 @@ export default function VendeurDashboard() {
 
               {deliveryMode === 'DROP_POINT_FIRST_MILE' && dropPoints.length > 0 && (
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.3rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.3rem' }}>
                     Choisir votre Point Relais de dépôt :
                   </label>
                   <select
@@ -1787,8 +1803,8 @@ export default function VendeurDashboard() {
                     onChange={e => setOriginDropPointId(e.target.value)}
                     style={{
                       width: '100%', minHeight: '44px', borderRadius: '10px',
-                      background: '#1e293b', border: '1px solid rgba(255,255,255,0.15)',
-                      padding: '0 0.75rem', color: '#fff', fontSize: '0.85rem'
+                      background: isDark ? '#1e293b' : '#ffffff', border: `1px solid ${inputBorder}`,
+                      padding: '0 0.75rem', color: textPrimary, fontSize: '0.85rem'
                     }}
                   >
                     {dropPoints.map(dp => (
@@ -1802,7 +1818,7 @@ export default function VendeurDashboard() {
 
               {/* Étape : Choisir une agence */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.4rem' }}>
                   Attribuer à une agence de livraison :
                 </label>
 
@@ -1811,25 +1827,25 @@ export default function VendeurDashboard() {
                   onClick={() => setSelectedAgencyId(null)}
                   style={{
                     padding: '0.65rem 0.75rem', borderRadius: '10px', marginBottom: '0.5rem',
-                    background: selectedAgencyId === null ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)',
-                    border: selectedAgencyId === null ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
+                    background: selectedAgencyId === null ? (isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)') : subCardBg,
+                    border: selectedAgencyId === null ? '1px solid #f59e0b' : `1px solid ${cardBorder}`,
                     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: selectedAgencyId === null ? '#fcd34d' : '#e2e8f0' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: '700', color: selectedAgencyId === null ? (isDark ? '#fcd34d' : '#d97706') : textPrimary }}>
                       Laisser les agences se positionner
                     </div>
-                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                    <div style={{ fontSize: '0.7rem', color: textSecondary }}>
                       Visible par toutes les agences agréées couvrant la zone.
                     </div>
                   </div>
-                  {selectedAgencyId === null && <Check size={16} color="#fcd34d" />}
+                  {selectedAgencyId === null && <Check size={16} color={isDark ? '#fcd34d' : '#d97706'} />}
                 </div>
 
                 {/* Agences filtrées */}
                 {loadingAgenciesForCommune ? (
-                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', padding: '0.3rem 0' }}>Recherche des agences...</div>
+                  <div style={{ fontSize: '0.75rem', color: textSecondary, padding: '0.3rem 0' }}>Recherche des agences...</div>
                 ) : agenciesForCommune.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
                     {agenciesForCommune.map((ag: any) => {
@@ -1840,16 +1856,16 @@ export default function VendeurDashboard() {
                           onClick={() => setSelectedAgencyId(ag.id)}
                           style={{
                             padding: '0.6rem 0.75rem', borderRadius: '10px',
-                            background: isSelected ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
-                            border: isSelected ? '1px solid #22c55e' : '1px solid rgba(255,255,255,0.08)',
+                            background: isSelected ? (isDark ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)') : subCardBg,
+                            border: isSelected ? '1px solid #22c55e' : `1px solid ${cardBorder}`,
                             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           }}
                         >
                           <div>
-                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: isSelected ? '#4ade80' : '#fff' }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: isSelected ? '#22c55e' : textPrimary }}>
                               {ag.name}
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.68rem', color: '#94a3b8' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.68rem', color: textSecondary }}>
                               <span style={{ color: '#fbbf24', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
                                 <Star size={10} fill="#fbbf24" /> {ag.rating}
                               </span>
@@ -1858,21 +1874,21 @@ export default function VendeurDashboard() {
                             </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#4ade80' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '800', color: '#22c55e' }}>
                               {formatPrice(ag.estimatedDeliveryPrice)}
                             </div>
-                            <div style={{ fontSize: '0.62rem', color: '#64748b' }}>Tarif estimé</div>
+                            <div style={{ fontSize: '0.62rem', color: textSecondary }}>Tarif estimé</div>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 ) : clientCommune ? (
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', padding: '0.2rem 0' }}>
+                  <div style={{ fontSize: '0.72rem', color: textSecondary, padding: '0.2rem 0' }}>
                     Aucune agence dédiée pour cette commune pour le moment. L'option "Laisser se positionner" sera appliquée.
                   </div>
                 ) : (
-                  <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  <div style={{ fontSize: '0.72rem', color: textSecondary }}>
                     Sélectionnez d'abord une commune de destination pour voir les agences disponibles.
                   </div>
                 )}
@@ -1880,8 +1896,8 @@ export default function VendeurDashboard() {
 
               {/* ── Paiement de la marchandise ── */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                  💰 Paiement de la marchandise :
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.4rem' }}>
+                  Paiement de la marchandise :
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <button
@@ -1889,14 +1905,14 @@ export default function VendeurDashboard() {
                     onClick={() => setMerchandisePrepaid(false)}
                     style={{
                       minHeight: '60px', borderRadius: '10px', padding: '0.6rem 0.4rem',
-                      border: !merchandisePrepaid ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
-                      background: !merchandisePrepaid ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: !merchandisePrepaid ? '#fcd34d' : '#94a3b8',
+                      border: !merchandisePrepaid ? '2px solid #f59e0b' : `1px solid ${cardBorder}`,
+                      background: !merchandisePrepaid ? (isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)') : subCardBg,
+                      color: !merchandisePrepaid ? (isDark ? '#fcd34d' : '#d97706') : textSecondary,
                       fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
                     }}
                   >
-                    <span style={{ fontSize: '1.1rem' }}>🏦</span>
+                    <Building2 size={18} />
                     <span>Agence collecte</span>
                     <span style={{ fontSize: '0.62rem', opacity: 0.75, textAlign: 'center' }}>Livreur récupère le montant chez le client (COD)</span>
                   </button>
@@ -1905,30 +1921,30 @@ export default function VendeurDashboard() {
                     onClick={() => setMerchandisePrepaid(true)}
                     style={{
                       minHeight: '60px', borderRadius: '10px', padding: '0.6rem 0.4rem',
-                      border: merchandisePrepaid ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
-                      background: merchandisePrepaid ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: merchandisePrepaid ? '#4ade80' : '#94a3b8',
+                      border: merchandisePrepaid ? '2px solid #22c55e' : `1px solid ${cardBorder}`,
+                      background: merchandisePrepaid ? (isDark ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.1)') : subCardBg,
+                      color: merchandisePrepaid ? (isDark ? '#4ade80' : '#16a34a') : textSecondary,
                       fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px',
                     }}
                   >
-                    <span style={{ fontSize: '1.1rem' }}>✅</span>
+                    <CheckCircle2 size={18} />
                     <span>Déjà réglé</span>
                     <span style={{ fontSize: '0.62rem', opacity: 0.75, textAlign: 'center' }}>Client a déjà payé la marchandise</span>
                   </button>
                 </div>
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.7rem', color: '#64748b', lineHeight: 1.4 }}>
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.7rem', color: textSecondary, lineHeight: 1.4 }}>
                   {!merchandisePrepaid
-                    ? '🚚 Le livreur récupèrera le montant de la marchandise en espèces chez le client.'
-                    : '✅ Le client a déjà réglé la marchandise. Le livreur ne collecte rien pour la marchandise.'
+                    ? 'Le livreur récupèrera le montant de la marchandise en espèces chez le client.'
+                    : 'Le client a déjà réglé la marchandise. Le livreur ne collecte rien pour la marchandise.'
                   }
                 </p>
               </div>
 
               {/* ── Qui paie les frais de livraison ? ── */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: '#cbd5e1', marginBottom: '0.4rem' }}>
-                  🚚 Frais de livraison à la charge de :
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: '700', color: isDark ? '#cbd5e1' : '#334155', marginBottom: '0.4rem' }}>
+                  Frais de livraison à la charge de :
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <button
@@ -1936,14 +1952,14 @@ export default function VendeurDashboard() {
                     onClick={() => { setPaidByClient(true); setIsPrepaid(false); }}
                     style={{
                       minHeight: '52px', borderRadius: '10px', padding: '0.5rem',
-                      border: paidByClient ? '2px solid #60a5fa' : '1px solid rgba(255,255,255,0.1)',
-                      background: paidByClient ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: paidByClient ? '#93c5fd' : '#94a3b8',
+                      border: paidByClient ? '2px solid #3b82f6' : `1px solid ${cardBorder}`,
+                      background: paidByClient ? (isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)') : subCardBg,
+                      color: paidByClient ? (isDark ? '#93c5fd' : '#2563eb') : textSecondary,
                       fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
                     }}
                   >
-                    <span style={{ fontSize: '1.1rem' }}>🛒</span>
+                    <User size={18} />
                     <span>Le client paie</span>
                     <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>COD à la livraison</span>
                   </button>
@@ -1952,22 +1968,22 @@ export default function VendeurDashboard() {
                     onClick={() => { setPaidByClient(false); setIsPrepaid(true); }}
                     style={{
                       minHeight: '52px', borderRadius: '10px', padding: '0.5rem',
-                      border: !paidByClient ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
-                      background: !paidByClient ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: !paidByClient ? '#fcd34d' : '#94a3b8',
+                      border: !paidByClient ? '2px solid #f59e0b' : `1px solid ${cardBorder}`,
+                      background: !paidByClient ? (isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)') : subCardBg,
+                      color: !paidByClient ? (isDark ? '#fcd34d' : '#d97706') : textSecondary,
                       fontWeight: '700', fontSize: '0.78rem', cursor: 'pointer',
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
                     }}
                   >
-                    <span style={{ fontSize: '1.1rem' }}>🏪</span>
+                    <Building2 size={18} />
                     <span>Le vendeur paie</span>
                     <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Frais déduits du reversement</span>
                   </button>
                 </div>
-                <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: '#64748b', lineHeight: 1.4 }}>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.7rem', color: textSecondary, lineHeight: 1.4 }}>
                   {paidByClient
-                    ? '✅ Le livreur encaisse les frais de livraison auprès du client.'
-                    : '✅ L\'agence déduit les frais de livraison de votre reversement.'
+                    ? 'Le livreur encaisse les frais de livraison auprès du client.'
+                    : 'L\'agence déduit les frais de livraison de votre reversement.'
                   }
                 </p>
               </div>
@@ -1996,30 +2012,30 @@ export default function VendeurDashboard() {
           backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
         }}>
           <div style={{
-            background: isDark ? '#0f172a' : '#ffffff',
+            background: modalBg,
             border: isDark ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(0,0,0,0.12)',
             borderRadius: '20px',
             padding: '1.5rem', width: '100%', maxWidth: '380px',
-            color: isDark ? '#fff' : '#0f172a',
+            color: textPrimary,
             boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
           }}>
             <h3 style={{ margin: '0 0 0.3rem', fontSize: '1.15rem', fontWeight: '800' }}>
               Demander mon versement
             </h3>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: textSecondary }}>
               À l'agence <strong>{vendorRequestModal.agencyName}</strong>
             </p>
 
             <div style={{
-              background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-              border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+              background: subCardBg,
+              border: `1px solid ${subCardBorder}`,
               padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', textAlign: 'center'
             }}>
-              <div style={{ fontSize: '0.72rem', color: isDark ? '#64748b' : '#94a3b8', fontWeight: '700' }}>MONTANT DÛ</div>
+              <div style={{ fontSize: '0.72rem', color: textSecondary, fontWeight: '700' }}>MONTANT DÛ</div>
               <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#22c55e' }}>
                 {formatPrice(vendorRequestModal.amountUsd)}
               </div>
-              <div style={{ fontSize: '0.78rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+              <div style={{ fontSize: '0.78rem', color: textSecondary, marginTop: '2px' }}>
                 ≈ {Math.round(vendorRequestModal.amountUsd * (agencyRatesMap[vendorRequestModal.agencyId] || exchangeRate || 2400)).toLocaleString('fr-FR')} CDF
               </div>
             </div>
@@ -2038,8 +2054,8 @@ export default function VendeurDashboard() {
                 onChange={e => setVendorRequestMessage(e.target.value)}
                 style={{
                   width: '100%', minHeight: '44px', borderRadius: '10px',
-                  background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.15)',
-                  padding: '0 0.75rem', color: '#fff', fontSize: '0.85rem', marginBottom: '1rem'
+                  background: inputBg, border: `1px solid ${inputBorder}`,
+                  padding: '0 0.75rem', color: textPrimary, fontSize: '0.85rem', marginBottom: '1rem'
                 }}
               />
 
@@ -2048,8 +2064,8 @@ export default function VendeurDashboard() {
                   type="button"
                   onClick={() => setVendorRequestModal(null)}
                   style={{
-                    flex: 1, height: '44px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
-                    background: 'transparent', color: '#94a3b8', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+                    flex: 1, height: '44px', borderRadius: '10px', border: `1px solid ${cardBorder}`,
+                    background: 'transparent', color: textSecondary, fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
                   }}
                 >
                   Annuler
@@ -2078,8 +2094,8 @@ export default function VendeurDashboard() {
           backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'
         }}>
           <div style={{
-            background: '#0f172a', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '20px',
-            padding: '1.5rem', width: '100%', maxWidth: '380px', color: '#fff',
+            background: modalBg, border: '1px solid rgba(245,158,11,0.4)', borderRadius: '20px',
+            padding: '1.5rem', width: '100%', maxWidth: '380px', color: textPrimary,
             boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -2087,20 +2103,20 @@ export default function VendeurDashboard() {
                 <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24' }}>
                   <KeyRound size={18} />
                 </div>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#fff' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: textPrimary }}>
                   Valider un versement
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => { setShowManualOtpModal(false); setOtpConfirmError(null); setOtpConfirmSuccess(null); }}
-                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                style={{ background: 'transparent', border: 'none', color: textSecondary, cursor: 'pointer', padding: '4px' }}
               >
                 <X size={20} />
               </button>
             </div>
 
-            <p style={{ margin: '0 0 1.2rem', fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
+            <p style={{ margin: '0 0 1.2rem', fontSize: '0.8rem', color: textSecondary, lineHeight: 1.4 }}>
               Entrez le code OTP à 6 chiffres généré par votre agence pour valider la réception et créditer vos fonds.
             </p>
 
@@ -2126,8 +2142,8 @@ export default function VendeurDashboard() {
                       value={otpConfirmInput}
                       onChange={e => { setOtpConfirmInput(e.target.value.replace(/\D/g, '')); setOtpConfirmError(null); }}
                       style={{
-                        width: '100%', height: '52px', borderRadius: '12px', background: 'rgba(0,0,0,0.5)',
-                        border: '2px solid rgba(245,158,11,0.5)', color: '#fbbf24', fontSize: '1.6rem',
+                        width: '100%', height: '52px', borderRadius: '12px', background: inputBg,
+                        border: '2px solid rgba(245,158,11,0.5)', color: isDark ? '#fbbf24' : '#d97706', fontSize: '1.6rem',
                         textAlign: 'center', letterSpacing: '8px', fontWeight: '900', fontFamily: 'monospace'
                       }}
                     />
@@ -2143,8 +2159,8 @@ export default function VendeurDashboard() {
                       type="button"
                       onClick={() => setShowManualOtpModal(false)}
                       style={{
-                        flex: 1, height: '44px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)',
-                        background: 'transparent', color: '#94a3b8', fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
+                        flex: 1, height: '44px', borderRadius: '10px', border: `1px solid ${cardBorder}`,
+                        background: 'transparent', color: textSecondary, fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer'
                       }}
                     >
                       Fermer
@@ -2154,8 +2170,8 @@ export default function VendeurDashboard() {
                       disabled={otpConfirmLoading || otpConfirmInput.trim().length !== 6}
                       style={{
                         flex: 1.4, height: '44px', borderRadius: '10px', border: 'none',
-                        background: otpConfirmInput.trim().length === 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.1)',
-                        color: otpConfirmInput.trim().length === 6 ? '#000' : '#64748b', fontWeight: '900', fontSize: '0.88rem',
+                        background: otpConfirmInput.trim().length === 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'),
+                        color: otpConfirmInput.trim().length === 6 ? '#000' : textSecondary, fontWeight: '900', fontSize: '0.88rem',
                         cursor: otpConfirmInput.trim().length === 6 ? 'pointer' : 'not-allowed',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                       }}

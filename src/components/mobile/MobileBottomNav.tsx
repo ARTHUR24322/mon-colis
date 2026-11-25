@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { MOBILE_THEME } from './MobileDesignTokens';
+import { useTheme } from '@/components/ThemeContext';
 
 export interface MobileNavItem {
   id: string;
@@ -17,6 +18,8 @@ interface MobileBottomNavProps {
 }
 
 export default function MobileBottomNav({ items, activeId, onChange }: MobileBottomNavProps) {
+  const { isDark } = useTheme();
+
   // Respecter la contrainte : 5 onglets maximum
   const safeItems = items.slice(0, 5);
 
@@ -28,9 +31,9 @@ export default function MobileBottomNav({ items, activeId, onChange }: MobileBot
         left: 0,
         right: 0,
         height: '62px',
-        background: 'rgba(5, 5, 5, 0.96)',
+        background: isDark ? 'rgba(5, 5, 5, 0.96)' : 'rgba(255, 255, 255, 0.96)',
         backdropFilter: 'blur(16px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+        borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.08)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
