@@ -263,17 +263,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la confirmation.' }, { status: 500 });
     }
 
-    // Marquer les courses du livreur comme déchargées (non-bloquant)
-    try {
-      await supabase
-        .from('packages')
-        .update({ vendor_paid: true })
-        .eq('driver_id', req.driver_id)
-        .eq('agency_id', session.agencyId)
-        .eq('status', 'DELIVERED');
-    } catch {
-      // non-bloquant
-    }
+    // Le déchargement de la caisse livreur est acté via le statut PAID de driver_cash_requests.
+    // NOTE : vendor_paid ne doit PAS être modifié ici car l'agence n'a pas encore versé les fonds au vendeur.
+    // Le statut vendor_paid est validé uniquement lors du versement agence → vendeur (via OTP).
 
     const driverInfo = await getDriverInfo(req.driver_id);
 

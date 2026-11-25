@@ -28,7 +28,7 @@ export async function GET() {
       .from('packages')
       .select('id, agency_id, package_price, status, is_prepaid, vendor_paid')
       .eq('vendeur_id', session.userId)
-      .eq('status', 'DELIVERED');
+      .in('status', ['DELIVERED', 'Livré']);
 
     if (pkgErr) {
       console.warn('Delivered packages fetch warning:', pkgErr);

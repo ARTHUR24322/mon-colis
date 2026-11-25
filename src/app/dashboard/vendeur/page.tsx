@@ -123,6 +123,14 @@ export default function VendeurDashboard() {
     created_at: string;
     agency?: { profile?: { name: string } };
   }>>([]);
+  // Soldes calculés par le serveur (/api/vendor/payments/balance)
+  const [apiBalances, setApiBalances] = useState<Array<{
+    agency_id: string;
+    amount_owed_to_vendor: number;
+    amount_owed_by_vendor?: number;
+    total_delivered?: number;
+    agency?: { profile?: { name: string; phone?: string } };
+  }>>([]);
   const [otpConfirmInput, setOtpConfirmInput] = useState('');
   const [otpConfirmLoading, setOtpConfirmLoading] = useState(false);
   const [otpConfirmError, setOtpConfirmError] = useState<string | null>(null);
@@ -152,6 +160,7 @@ export default function VendeurDashboard() {
     try {
       const all = await dataService.getPackagesForVendor(user.id);
       setColis(all);
+      await loadPendingPaymentOtps();
     } catch (e) {
       console.warn('Erreur chargement colis:', e);
     } finally {
@@ -172,13 +181,14 @@ export default function VendeurDashboard() {
     }
   };
 
-  // Chargement des OTPs de versement en attente (agence → vendeur)
+  // Chargement des soldes et OTPs de versement en attente (agence → vendeur)
   const loadPendingPaymentOtps = async () => {
     try {
       const res = await fetch('/api/vendor/payments/balance');
       if (res.ok) {
         const data = await res.json();
         setPendingPaymentOtps(data.pendingConfirmations ?? []);
+        setApiBalances(data.balances ?? []);
       }
     } catch {
       // silencieux
@@ -312,7 +322,9 @@ export default function VendeurDashboard() {
   }, [clientCommune, poids]);
 
   /* --- Calculs Statistiques (3 chiffres clés max pour l'accueil) --- */
-  const colisLivres = useMemo(() => colis.filter(c => c.status === 'Livré'), [colis]);
+  const colisLivres = useMemo(() => colis.filter(c =>
+    c.status === 'Livré' || (c.status as string) === 'DELIVERED' || c.rawStatus === 'DELIVERED'
+  ), [colis]);
   const colisEnCours = useMemo(() => colis.filter(c =>
     c.status === 'En transit' ||
     c.status === "En attente d'agence" ||
@@ -327,32 +339,60 @@ export default function VendeurDashboard() {
     c.claimStatus === 'OPEN'
   ), [colis]);
 
-  // Solde net à recevoir des agences (marchandises livrées non reversées)
-  const soldeNetRecevoir = useMemo(() => {
-    return colisLivres
-      .filter(c => !c.isPrepaid && !c.vendorPaid)
-      .reduce((s, c) => s + (c.prixColis || 0), 0);
-  }, [colisLivres]);
-
-  // Groupement par agence pour l'onglet Revenus
+  // Groupement par agence pour l'onglet Revenus (fusionne colis réels et API soldes serveur)
   const agencesFinances = useMemo(() => {
     const map = new Map<string, { agencyId: string; agencyName: string; duAuVendeur: number; phone?: string }>();
+
+    // 1. Calcul dynamique à partir des colis livrés réels
     colisLivres.forEach(c => {
-      if (!c.agencyId || !c.agence) return;
-      if (!map.has(c.agencyId)) {
-        map.set(c.agencyId, {
-          agencyId: c.agencyId,
-          agencyName: c.agence,
+      const aId = c.agencyId;
+      if (!aId) return;
+      const agencyName = c.agence || DEFAULT_AGENCIES.find(a => a.id === aId)?.name || 'Agence Partenaire';
+      if (!map.has(aId)) {
+        map.set(aId, {
+          agencyId: aId,
+          agencyName,
           duAuVendeur: 0,
         });
       }
-      const item = map.get(c.agencyId)!;
+      const item = map.get(aId)!;
       if (!c.isPrepaid && !c.vendorPaid) {
-        item.duAuVendeur += c.prixColis;
+        item.duAuVendeur += (Number(c.prixColis) || 0);
       }
     });
+
+    // 2. Harmonisation avec les soldes calculés côté serveur (source de vérité)
+    apiBalances.forEach(b => {
+      if (!b.agency_id) return;
+      const serverOwed = Number(b.amount_owed_to_vendor) || 0;
+      if (map.has(b.agency_id)) {
+        const item = map.get(b.agency_id)!;
+        if (serverOwed > item.duAuVendeur) {
+          item.duAuVendeur = serverOwed;
+        }
+        if (b.agency?.profile?.name && (item.agencyName === 'Agence Partenaire' || !item.agencyName)) {
+          item.agencyName = b.agency.profile.name;
+        }
+        if (b.agency?.profile?.phone && !item.phone) {
+          item.phone = b.agency.profile.phone;
+        }
+      } else if (serverOwed > 0) {
+        map.set(b.agency_id, {
+          agencyId: b.agency_id,
+          agencyName: b.agency?.profile?.name || DEFAULT_AGENCIES.find(a => a.id === b.agency_id)?.name || 'Agence Partenaire',
+          duAuVendeur: serverOwed,
+          phone: b.agency?.profile?.phone || '',
+        });
+      }
+    });
+
     return Array.from(map.values()).filter(a => a.duAuVendeur > 0);
-  }, [colisLivres]);
+  }, [colisLivres, apiBalances]);
+
+  // Solde net à recevoir des agences (marchandises livrées non reversées)
+  const soldeNetRecevoir = useMemo(() => {
+    return agencesFinances.reduce((s, a) => s + (a.duAuVendeur || 0), 0);
+  }, [agencesFinances]);
 
   // Groupement clients uniques
   const clientsList = useMemo(() => {

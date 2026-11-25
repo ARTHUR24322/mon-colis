@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
       .update({ vendor_paid: true })
       .eq('agency_id', matchedOtp.agency_id)
       .eq('vendeur_id', session.userId)
-      .eq('status', 'DELIVERED')
+      .in('status', ['DELIVERED', 'Livré'])
       .eq('is_prepaid', false)
       .eq('vendor_paid', false);
 

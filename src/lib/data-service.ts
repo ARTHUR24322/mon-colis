@@ -387,6 +387,11 @@ export function mapPackage(p: any): ColisItem {
   const resolvedVendorName = rawVendeur?.name || p.vendeur_name || meta.vendeurName || null;
   const resolvedVendorPhone = rawVendeur?.phone || p.vendeur_phone || meta.vendeurPhone || null;
 
+  // Safe agency name resolution
+  const rawAgency = Array.isArray(p.agency) ? p.agency[0] : p.agency;
+  const rawAgencyProfile = Array.isArray(rawAgency?.profile) ? rawAgency.profile[0] : rawAgency?.profile;
+  const resolvedAgencyName = rawAgencyProfile?.name || rawAgency?.name || p.agency_name || (p.agency_id ? DEFAULT_AGENCIES.find(a => a.id === p.agency_id)?.name : null) || null;
+
   return {
     id: p.id,
     trackingCode: p.tracking_code || ('MC-' + p.id.slice(0, 8).toUpperCase()),
@@ -406,7 +411,7 @@ export function mapPackage(p: any): ColisItem {
     claimStatus: p.claim_status || (p.status === 'IN_DISPUTE' ? 'OPEN' : 'NONE'),
     claimReason: p.claim_reason || null,
     refusalComment: p.refusal_comment || null,
-    agence: p.agency?.profile?.name || null,
+    agence: resolvedAgencyName,
     agencyId: p.agency_id,
     livreur: p.driver?.profile?.name || null,
     livreurPhone: p.driver?.phone || null,
