@@ -11,8 +11,9 @@ import {
   CheckCircle2, XCircle, Clock, MapPin, Phone, Mail, Building2, ShieldCheck,
   AlertCircle, RefreshCw, UserPlus, Key, Copy, Check, Hash, UserCheck, Shield, User, Lock, Settings, LayoutDashboard, Users, Package, Activity,
   TrendingUp, BarChart3, Calendar, ChevronLeft, ChevronRight, Eye, AlertTriangle, ArrowUpRight,
-  QrCode, Printer, Edit3, KeyRound, Boxes, Trash2, Unlock, Layers, Archive
+  QrCode, Printer, Edit3, KeyRound, Boxes, Trash2, Unlock, Layers, Archive, History
 } from 'lucide-react';
+import AdminActivitiesView from '@/components/admin/AdminActivitiesView';
 import PinModal from '@/components/PinModal';
 import QRCodeModal from '@/components/QRCodeModal';
 import AdminDropPointSecurityModal from '@/components/AdminDropPointSecurityModal';
@@ -217,7 +218,7 @@ const INITIAL_LOGS: LogEntry[] = [
 ];
 
 // Type des onglets du dashboard
-type TabKey = 'overview' | 'reclamations' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'fulfillment' | 'audit' | 'reconciliation' | 'diagnostique' | 'parametres';
+type TabKey = 'overview' | 'reclamations' | 'demandes' | 'relais' | 'agences' | 'vendeurs' | 'colis' | 'fulfillment' | 'audit' | 'reconciliation' | 'activites' | 'diagnostique' | 'parametres';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -1376,6 +1377,7 @@ export default function AdminDashboard() {
     {
       title: 'Système',
       items: [
+        { key: 'activites', label: "Journal d'activités", icon: <History size={15} />, permission: 'canViewSecurityLogs' },
         { key: 'diagnostique', label: 'Diagnostic', icon: <Activity size={15} />, permission: 'canViewDiagnostics' },
         { key: 'parametres', label: 'Paramètres', icon: <Settings size={15} />, permission: 'canManageSettings' },
       ],
@@ -1491,6 +1493,7 @@ export default function AdminDashboard() {
           </p>
           {([
             ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/admins',   label: 'Gestion des Admins',  color: '#fb923c', iconPath: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z' }] : []),
+            ...(hasPermission(role, 'canViewSecurityLogs') ? [{ href: '/admin-x9k2/activites', label: "Journal d'Activités", color: '#fb923c', iconPath: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' }] : []),
             ...(hasPermission(role, 'canViewSecurityLogs') ? [{ href: '/admin-x9k2/securite', label: 'Sécurité Système', color: '#f97316', iconPath: 'M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5L12 1z' }] : []),
             ...(hasPermission(role, 'canManageAdmins') ? [{ href: '/admin-x9k2/roles',    label: 'Rôles & Comptes',      color: '#22c55e', iconPath: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' }] : []),
           ] as { href: string; label: string; color: string; iconPath: string }[]).map(({ href, label, color, iconPath }) => (
@@ -4066,6 +4069,11 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* -- TAB: Journal d'Activités & Audit Global ----------------------- */}
+        {activeTab === 'activites' && (
+          <AdminActivitiesView />
         )}
 
         {/* -- TAB: Diagnostique ---------------------------------------------- */}
