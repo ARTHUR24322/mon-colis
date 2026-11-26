@@ -116,6 +116,9 @@ interface AgencySubscriptionRow {
   startDate: string;
   endDate: string;
   autoRenew: boolean;
+  commissionRate?: number;
+  commissionAmount?: number;
+  netAgencyAmount?: number;
   rejectionReason?: string;
   expiresAt?: string;
 }
@@ -178,6 +181,8 @@ export default function AgencyWarehousePage() {
   const [isReviewingSub, setIsReviewingSub] = useState<string | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [totalSubscriptionRevenueUSD, setTotalSubscriptionRevenueUSD] = useState<number>(0);
+  const [totalWarehouseCommissionUSD, setTotalWarehouseCommissionUSD] = useState<number>(0);
+  const [totalWarehouseNetUSD, setTotalWarehouseNetUSD] = useState<number>(0);
   const [returnedPackages, setReturnedPackages] = useState<WarehouseReturnRow[]>([]);
   const [selectedReturnForRestock, setSelectedReturnForRestock] = useState<WarehouseReturnRow | null>(null);
   const [restockCondition, setRestockCondition] = useState<'OK' | 'DAMAGED'>('OK');
@@ -273,6 +278,8 @@ export default function AgencyWarehousePage() {
         setAgencySubscriptions(allSubs.filter(s => s.status === 'ACTIVE'));
         setPendingSubscriptions(allSubs.filter(s => s.status === 'PENDING'));
         setTotalSubscriptionRevenueUSD(subData.totalRevenueUSD || 0);
+        setTotalWarehouseCommissionUSD(subData.totalCommissionUSD || 0);
+        setTotalWarehouseNetUSD(subData.totalNetRevenueUSD || 0);
       }
 
       // 6. Colis en retour pour réintégration en stock
@@ -1319,21 +1326,36 @@ export default function AgencyWarehousePage() {
         ═══════════════════════════════════════════════════════════════════ */}
         {activeTab === 'spaces' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* KPI Revenus de Stockage */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            {/* KPI Revenus de Stockage & Commissions Plateforme */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
               <div style={{
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04))',
                 border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '18px', padding: '1.25rem',
                 display: 'flex', flexDirection: 'column', gap: '0.4rem', boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#10b981' }}>Revenus Stockage / Mois</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#10b981' }}>Loyers Bruts / Mois</span>
                   <DollarSign size={20} color="#10b981" />
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#10b981' }}>
+                <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#10b981' }}>
                   ${totalSubscriptionRevenueUSD.toFixed(2)}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Frais de garde encaissés auprès des vendeurs</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Frais de garde facturés aux vendeurs</div>
+              </div>
+
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(249, 115, 22, 0.04))',
+                border: '1px solid rgba(249, 115, 22, 0.35)', borderRadius: '18px', padding: '1.25rem',
+                display: 'flex', flexDirection: 'column', gap: '0.4rem', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#fb923c' }}>Commission Super Admin</span>
+                  <Tag size={18} color="#f97316" />
+                </div>
+                <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#f97316' }}>
+                  -${totalWarehouseCommissionUSD.toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Redevance prélevée sur le stockage (dû au Super Admin)</div>
               </div>
 
               <div style={{
@@ -1342,13 +1364,28 @@ export default function AgencyWarehousePage() {
                 boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#f97316' }}>Abonnements Actifs</span>
-                  <ShieldCheck size={20} color="#f97316" />
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#22c55e' }}>Net Revenu Agence</span>
+                  <ShieldCheck size={20} color="#22c55e" />
                 </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+                <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#22c55e' }}>
+                  ${totalWarehouseNetUSD.toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Part nette conservée par votre agence</div>
+              </div>
+
+              <div style={{
+                background: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '18px', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--ag-text-muted)' }}>Abonnements Actifs</span>
+                  <Boxes size={20} color="#94a3b8" />
+                </div>
+                <div style={{ fontSize: '1.7rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
                   {agencySubscriptions.length}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Vendeurs partenaires stockant dans vos locaux</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Vendeurs partenaires hébergés</div>
               </div>
             </div>
 
@@ -1474,35 +1511,55 @@ export default function AgencyWarehousePage() {
                         <th style={{ padding: '0.8rem 1rem' }}>Vendeur</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Espace Loué</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Emplacements</th>
-                        <th style={{ padding: '0.8rem 1rem' }}>Montant</th>
+                        <th style={{ padding: '0.8rem 1rem' }}>Loyer Brut</th>
+                        <th style={{ padding: '0.8rem 1rem' }}>Commission Super Admin</th>
+                        <th style={{ padding: '0.8rem 1rem' }}>Net Agence</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Échéance</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Statut</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {agencySubscriptions.map(sub => (
-                        <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border-subtle)' }}>
-                          <td style={{ padding: '0.8rem 1rem' }}>
-                            <div style={{ fontWeight: '800', color: 'var(--ag-text-primary)' }}>{sub.vendorName}</div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)' }}>{sub.vendorPhone}</div>
-                          </td>
-                          <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>{sub.spaceName}</td>
-                          <td style={{ padding: '0.8rem 1rem', color: 'var(--ag-text-secondary)' }}>{sub.slotsCount} slot(s)</td>
-                          <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#10b981' }}>${sub.pricePaid}</td>
-                          <td style={{ padding: '0.8rem 1rem', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
-                            {safeFormatDate(sub.endDate)}
-                          </td>
-                          <td style={{ padding: '0.8rem 1rem' }}>
-                            <span style={{
-                              padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800',
-                              background: sub.status === 'ACTIVE' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                              color: sub.status === 'ACTIVE' ? '#10b981' : '#ef4444'
-                            }}>
-                              {sub.status === 'ACTIVE' ? 'Actif' : sub.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {agencySubscriptions.map(sub => {
+                        const commRate = sub.commissionRate ?? 10;
+                        const commAmount = sub.commissionAmount ?? Number(((sub.pricePaid * commRate) / 100).toFixed(2));
+                        const netAmount = sub.netAgencyAmount ?? Number((sub.pricePaid - commAmount).toFixed(2));
+
+                        return (
+                          <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border-subtle)' }}>
+                            <td style={{ padding: '0.8rem 1rem' }}>
+                              <div style={{ fontWeight: '800', color: 'var(--ag-text-primary)' }}>{sub.vendorName}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)' }}>{sub.vendorPhone}</div>
+                            </td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>{sub.spaceName}</td>
+                            <td style={{ padding: '0.8rem 1rem', color: 'var(--ag-text-secondary)' }}>{sub.slotsCount} slot(s)</td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#10b981' }}>${sub.pricePaid}</td>
+                            <td style={{ padding: '0.8rem 1rem' }}>
+                              <span style={{
+                                padding: '2px 8px', borderRadius: '4px',
+                                background: 'rgba(249,115,22,0.12)', color: '#f97316',
+                                fontWeight: '800', fontSize: '0.75rem', border: '1px solid rgba(249,115,22,0.25)'
+                              }}>
+                                {commRate}% (-${commAmount.toFixed(2)})
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.8rem 1rem', fontWeight: '800', color: '#22c55e' }}>
+                              ${netAmount.toFixed(2)}
+                            </td>
+                            <td style={{ padding: '0.8rem 1rem', fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                              {safeFormatDate(sub.endDate)}
+                            </td>
+                            <td style={{ padding: '0.8rem 1rem' }}>
+                              <span style={{
+                                padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800',
+                                background: sub.status === 'ACTIVE' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                color: sub.status === 'ACTIVE' ? '#10b981' : '#ef4444'
+                              }}>
+                                {sub.status === 'ACTIVE' ? 'Actif' : sub.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

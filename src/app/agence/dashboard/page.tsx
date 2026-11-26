@@ -9,7 +9,7 @@ import {
   Package, Clock, AlertTriangle, CheckCircle2, TrendingUp,
   RefreshCw, ChevronRight, ArrowUpRight, Truck, MapPin,
   Building2, Filter, Download, Check, X, ShieldAlert,
-  Search, Eye, ArrowRight, UserCheck
+  Search, Eye, ArrowRight, UserCheck, DollarSign, Percent, Warehouse
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -102,15 +102,27 @@ export default function AgenceDashboardHome() {
   const [refusalModalColis, setRefusalModalColis] = useState<ColisRow | null>(null);
   const [refusalReason, setRefusalReason] = useState('');
   const [actionToast, setActionToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [commissionsSummary, setCommissionsSummary] = useState<{
+    totalCommissionDue: number;
+    totalDeliveryCommission: number;
+    totalWarehouseCommission: number;
+  } | null>(null);
 
   const refresh = async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/agence/colis?limit=200', { credentials: 'same-origin' });
-      if (res.ok) {
-        const data = await res.json();
-        setColis(data.colis || []);
+      const [resColis, resCommissions] = await Promise.all([
+        fetch('/api/agence/colis?limit=200', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { colis: [] }),
+        fetch('/api/agency/commissions', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null)
+      ]);
+      setColis(resColis.colis || []);
+      if (resCommissions?.summary) {
+        setCommissionsSummary({
+          totalCommissionDue: resCommissions.summary.totalCommissionDue,
+          totalDeliveryCommission: resCommissions.deliveries.totalDeliveryCommission,
+          totalWarehouseCommission: resCommissions.warehouse.totalWarehouseCommission,
+        });
       }
     } catch { /* silencieux */ }
     setLoading(false);
@@ -247,6 +259,68 @@ export default function AgenceDashboardHome() {
           <KpiCard label="En transit" value={kpis.inTransit} sub="colis pris en charge par vos livreurs" color="#06b6d4" icon={<Truck size={22} />} />
           <KpiCard label="Livrés" value={kpis.delivered} sub="livraisons confirmées avec succès" color="#10b981" icon={<CheckCircle2 size={22} />} />
           <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? ' Attention requise' : 'Aucun incident en cours'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={22} />} />
+        </div>
+
+        {/* ─── Bloc Commissions Super Admin ─── */}
+        <div style={{
+          backgroundColor: 'var(--ag-surface)',
+          border: '1px solid var(--ag-border)',
+          borderRadius: '14px',
+          padding: '16px 20px',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          boxShadow: 'var(--ag-card-shadow)',
+          background: 'linear-gradient(135deg, rgba(239,68,68,0.04) 0%, rgba(245,158,11,0.04) 100%)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '42px', height: '42px', borderRadius: '10px',
+              backgroundColor: 'rgba(239,68,68,0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#ef4444'
+            }}>
+              <DollarSign size={22} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.88rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                  Commissions Dues au Super Admin
+                </span>
+                <span className="agency-badge" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: '800' }}>
+                  À reverser
+                </span>
+              </div>
+              <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                Détail transparent : Commissions sur livraisons achevées et loyers d&apos;entrepôt
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#ef4444', lineHeight: 1 }}>
+                ${(commissionsSummary?.totalCommissionDue ?? 0).toFixed(2)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--ag-text-muted)', marginTop: '3px' }}>
+                Livraisons : ${(commissionsSummary?.totalDeliveryCommission ?? 0).toFixed(2)} | Entrepôt : ${(commissionsSummary?.totalWarehouseCommission ?? 0).toFixed(2)}
+              </div>
+            </div>
+
+            <Link
+              href="/agence/versements?tab=commissions"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                padding: '8px 16px', borderRadius: '8px',
+                backgroundColor: 'var(--ag-brand)', color: '#fff',
+                fontSize: '0.82rem', fontWeight: '700', textDecoration: 'none'
+              }}
+            >
+              Voir le relevé <ArrowRight size={14} />
+            </Link>
+          </div>
         </div>
 
         {/* ─── Tableau des colis ─── */}

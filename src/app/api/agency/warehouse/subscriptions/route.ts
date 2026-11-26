@@ -48,13 +48,30 @@ export async function GET(req: NextRequest) {
     }
 
     let totalRevenueUSD = 0;
+    let totalCommissionUSD = 0;
+    let totalNetRevenueUSD = 0;
 
     const formatted = rawSubs.map(s => {
       const v = vendorMap.get(s.vendor_id);
       const space = s.agency_storage_spaces;
       const price = Number(s.price_paid || 0);
+
+      const commRate = typeof s.commission_rate === 'number' && !isNaN(s.commission_rate)
+        ? s.commission_rate
+        : (typeof space?.commission_rate === 'number' && !isNaN(space.commission_rate) ? space.commission_rate : 10);
+
+      const commAmount = typeof s.commission_amount === 'number' && !isNaN(s.commission_amount) && s.commission_amount > 0
+        ? s.commission_amount
+        : Number(((price * commRate) / 100).toFixed(2));
+
+      const netAgency = typeof s.net_agency_amount === 'number' && !isNaN(s.net_agency_amount) && s.net_agency_amount > 0
+        ? s.net_agency_amount
+        : Number((price - commAmount).toFixed(2));
+
       if (s.status === 'ACTIVE') {
         totalRevenueUSD += price;
+        totalCommissionUSD += commAmount;
+        totalNetRevenueUSD += netAgency;
       }
 
       return {
@@ -69,6 +86,9 @@ export async function GET(req: NextRequest) {
         pricePaid: price,
         currency: s.currency || 'USD',
         status: s.status,
+        commissionRate: commRate,
+        commissionAmount: commAmount,
+        netAgencyAmount: netAgency,
         rejectionReason: s.rejection_reason || null,
         expiresAt: s.expires_at || null,
         startDate: s.start_date,
@@ -81,7 +101,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       subscriptions: formatted,
-      totalRevenueUSD,
+      totalRevenueUSD: Number(totalRevenueUSD.toFixed(2)),
+      totalCommissionUSD: Number(totalCommissionUSD.toFixed(2)),
+      totalNetRevenueUSD: Number(totalNetRevenueUSD.toFixed(2)),
       activeCount: formatted.filter(s => s.status === 'ACTIVE').length,
       pendingCount: formatted.filter(s => s.status === 'PENDING').length,
     });

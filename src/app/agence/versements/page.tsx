@@ -7,7 +7,8 @@ import { useCurrency } from '@/components/CurrencyContext';
 import {
   Wallet, DollarSign, ArrowUpRight, ArrowDownLeft, CheckCircle2,
   AlertTriangle, RefreshCw, Printer, ShieldCheck, Clock,
-  FileText, Lock, Unlock, HelpCircle, Check, X
+  FileText, Lock, Unlock, HelpCircle, Check, X,
+  Building2, Percent, Warehouse, PackageCheck, Layers, Info, ExternalLink
 } from 'lucide-react';
 import { hasAgencyPermission, normalizeAgencyRole } from '@/lib/agencyPermissions';
 
@@ -86,6 +87,61 @@ interface ClosedSessionReceipt {
   reason: string;
 }
 
+interface AgencyCommissionDeliveryItem {
+  id: string;
+  tracking_code: string;
+  delivered_at: string;
+  delivery_price: number;
+  commission_rate: number;
+  commission_amount: number;
+  net_agency: number;
+  currency: string;
+  vendor_name: string;
+}
+
+interface AgencyCommissionWarehouseItem {
+  id: string;
+  space_title: string;
+  vendor_name: string;
+  slots: number;
+  price_paid: number;
+  commission_rate: number;
+  commission_amount: number;
+  net_agency_amount: number;
+  currency: string;
+  start_date: string;
+  end_date: string;
+}
+
+interface AgencyCommissionsData {
+  summary: {
+    totalCommissionDue: number;
+    totalGrossRevenue: number;
+    totalNetAgency: number;
+    currency: string;
+  };
+  agency: {
+    id: string;
+    name: string;
+    billing_type: string;
+    billing_value: number;
+  };
+  deliveries: {
+    count: number;
+    totalDeliveryFees: number;
+    totalDeliveryCommission: number;
+    totalNetDeliveryAgency: number;
+    items: AgencyCommissionDeliveryItem[];
+  };
+  warehouse: {
+    count: number;
+    totalRentFees: number;
+    totalWarehouseCommission: number;
+    totalNetWarehouseAgency: number;
+    items: AgencyCommissionWarehouseItem[];
+  };
+}
+
 export default function AgencyVersementsPage() {
   const { user } = useAuth('agence');
   const { currency, formatPrice } = useCurrency();
@@ -98,7 +154,9 @@ export default function AgencyVersementsPage() {
   const [cashRequests, setCashRequests] = useState<CashRequest[]>([]);
 
   // Onglet sélectionné
-  const [activeTab, setActiveTab] = useState<'session' | 'vendors' | 'drivers'>('session');
+  const [activeTab, setActiveTab] = useState<'session' | 'vendors' | 'drivers' | 'commissions'>('session');
+  const [commissionsData, setCommissionsData] = useState<AgencyCommissionsData | null>(null);
+  const [commissionsFilter, setCommissionsFilter] = useState<'all' | 'deliveries' | 'warehouse'>('all');
 
   // Session de caisse (persistance locale / état d'agence)
   const [cashSession, setCashSession] = useState<CashSession>(() => {
@@ -154,14 +212,18 @@ export default function AgencyVersementsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resBalances, resRequests, resSessions] = await Promise.all([
+      const [resBalances, resRequests, resSessions, resCommissions] = await Promise.all([
         fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [], history: [] }),
         fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] }),
-        fetch('/api/agency/cash-sessions').then(r => r.ok ? r.json() : { history: [], currentSession: null })
+        fetch('/api/agency/cash-sessions').then(r => r.ok ? r.json() : { history: [], currentSession: null }),
+        fetch('/api/agency/commissions').then(r => r.ok ? r.json() : null)
       ]);
       setVendorBalances(resBalances.balances || []);
       setVendorHistory(resBalances.history || []);
       setCashRequests(resRequests.requests || []);
+      if (resCommissions) {
+        setCommissionsData(resCommissions);
+      }
 
       // Synchroniser l'historique des sessions
       const serverHistory: ClosedSessionReceipt[] = resSessions.history || [];
@@ -196,6 +258,12 @@ export default function AgencyVersementsPage() {
 
   useEffect(() => {
     fetchData();
+    if (typeof window !== 'undefined') {
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      if (tabParam === 'commissions' || tabParam === 'vendors' || tabParam === 'drivers' || tabParam === 'session') {
+        setActiveTab(tabParam as any);
+      }
+    }
   }, []);
 
   // Calculs écarts de clôture
@@ -544,6 +612,19 @@ export default function AgencyVersementsPage() {
             }}
           >
             Dépôts Livreurs ({cashRequests.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('commissions')}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: 'none',
+              backgroundColor: activeTab === 'commissions' ? 'rgba(239, 68, 68, 0.12)' : 'transparent',
+              color: activeTab === 'commissions' ? '#ef4444' : 'var(--ag-text-secondary)',
+              fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}
+          >
+            <Percent size={14} />
+            Commissions Super Admin {commissionsData?.summary ? `($${commissionsData.summary.totalCommissionDue.toFixed(2)})` : ''}
           </button>
         </div>
 
@@ -1041,6 +1122,302 @@ export default function AgencyVersementsPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* CONTENU ONGLET 4 : COMMISSIONS SUPER ADMIN */}
+        {activeTab === 'commissions' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Bannière explicative & Modèle de facturation */}
+            <div style={{
+              backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+              borderRadius: '16px', padding: '20px 24px', boxShadow: 'var(--ag-card-shadow)',
+              background: 'linear-gradient(135deg, rgba(239,68,68,0.03) 0%, rgba(245,158,11,0.03) 100%)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '42px', height: '42px', borderRadius: '10px',
+                    backgroundColor: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#ef4444'
+                  }}>
+                    <Percent size={22} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                      Redevances & Commissions Dues au Super Admin
+                    </h3>
+                    <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
+                      Relevé transparent de vos obligations financières envers la plateforme pour vos livraisons achevées et vos locations d&apos;entrepôt.
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="agency-badge" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: '800' }}>
+                    Type: {commissionsData?.agency.billing_type || 'Commission'} ({commissionsData?.agency.billing_value ?? 15}%)
+                  </span>
+                  <span className="agency-badge" style={{ backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)' }}>
+                    Agence: {commissionsData?.agency.name || user?.name || 'Mon Agence'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3 Cartes KPI Clés */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+              {/* Carte 1 : Total Dû Super Admin */}
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)',
+                position: 'relative', overflow: 'hidden'
+              }}>
+                <div style={{ position: 'absolute', top: 0, right: 0, width: '60px', height: '60px', background: '#ef4444', opacity: 0.08, borderRadius: '0 0 0 60px' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Dû au Super Admin
+                  </span>
+                  <DollarSign size={18} color="#ef4444" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ef4444' }}>
+                  ${(commissionsData?.summary.totalCommissionDue ?? 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
+                  CA brut total : ${(commissionsData?.summary.totalGrossRevenue ?? 0).toFixed(2)} | Net agence : ${(commissionsData?.summary.totalNetAgency ?? 0).toFixed(2)} $
+                </div>
+              </div>
+
+              {/* Carte 2 : Dû sur Livraisons */}
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)',
+                position: 'relative', overflow: 'hidden'
+              }}>
+                <div style={{ position: 'absolute', top: 0, right: 0, width: '60px', height: '60px', background: '#f59e0b', opacity: 0.08, borderRadius: '0 0 0 60px' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Dû sur Livraisons
+                  </span>
+                  <PackageCheck size={18} color="#f59e0b" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+                  ${(commissionsData?.deliveries.totalDeliveryCommission ?? 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
+                  {commissionsData?.deliveries.count ?? 0} colis livrés | Frais bruts : ${(commissionsData?.deliveries.totalDeliveryFees ?? 0).toFixed(2)} (Net : ${(commissionsData?.deliveries.totalNetDeliveryAgency ?? 0).toFixed(2)} $)
+                </div>
+              </div>
+
+              {/* Carte 3 : Dû sur Entrepôts & Stockage */}
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)',
+                position: 'relative', overflow: 'hidden'
+              }}>
+                <div style={{ position: 'absolute', top: 0, right: 0, width: '60px', height: '60px', background: '#8b5cf6', opacity: 0.08, borderRadius: '0 0 0 60px' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Dû sur Entrepôt & Stockage
+                  </span>
+                  <Warehouse size={18} color="#8b5cf6" />
+                </div>
+                <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
+                  ${(commissionsData?.warehouse.totalWarehouseCommission ?? 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
+                  {commissionsData?.warehouse.count ?? 0} souscriptions | Loyers bruts : ${(commissionsData?.warehouse.totalRentFees ?? 0).toFixed(2)} (Net : ${(commissionsData?.warehouse.totalNetWarehouseAgency ?? 0).toFixed(2)} $)
+                </div>
+              </div>
+            </div>
+
+            {/* Sous-filtres */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                onClick={() => setCommissionsFilter('all')}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', border: 'none',
+                  backgroundColor: commissionsFilter === 'all' ? 'var(--ag-brand)' : 'var(--ag-surface-hover)',
+                  color: commissionsFilter === 'all' ? '#fff' : 'var(--ag-text-secondary)',
+                  fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                Toutes les commissions ({(commissionsData?.deliveries.count ?? 0) + (commissionsData?.warehouse.count ?? 0)})
+              </button>
+              <button
+                onClick={() => setCommissionsFilter('deliveries')}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', border: 'none',
+                  backgroundColor: commissionsFilter === 'deliveries' ? 'var(--ag-brand)' : 'var(--ag-surface-hover)',
+                  color: commissionsFilter === 'deliveries' ? '#fff' : 'var(--ag-text-secondary)',
+                  fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                Livraisons ({commissionsData?.deliveries.count ?? 0})
+              </button>
+              <button
+                onClick={() => setCommissionsFilter('warehouse')}
+                style={{
+                  padding: '6px 14px', borderRadius: '8px', border: 'none',
+                  backgroundColor: commissionsFilter === 'warehouse' ? 'var(--ag-brand)' : 'var(--ag-surface-hover)',
+                  color: commissionsFilter === 'warehouse' ? '#fff' : 'var(--ag-text-secondary)',
+                  fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
+                }}
+              >
+                Location Entrepôt ({commissionsData?.warehouse.count ?? 0})
+              </button>
+            </div>
+
+            {/* Tableau 1 : Commissions sur Livraisons */}
+            {(commissionsFilter === 'all' || commissionsFilter === 'deliveries') && (
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '16px', overflow: 'hidden', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <div style={{
+                  padding: '16px 20px', borderBottom: '1px solid var(--ag-border)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--ag-surface-hover)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <PackageCheck size={18} color="#f59e0b" />
+                    <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                      Commissions sur Livraisons de Colis ({commissionsData?.deliveries.count ?? 0})
+                    </h4>
+                  </div>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                    Total Dû : <strong>${(commissionsData?.deliveries.totalDeliveryCommission ?? 0).toFixed(2)}</strong>
+                  </span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="agency-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface)' }}>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Code Suivi</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Vendeur</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Date Livraison</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Frais Livraison Brut</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Taux Appliqué</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Super Admin (Dû)</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Net Revenu Agence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(!commissionsData?.deliveries.items || commissionsData.deliveries.items.length === 0) ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--ag-text-muted)', fontSize: '0.85rem' }}>
+                            Aucun colis livré enregistré pour le moment.
+                          </td>
+                        </tr>
+                      ) : (
+                        commissionsData.deliveries.items.map((item) => (
+                          <tr key={item.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
+                            <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)', fontFamily: 'monospace' }}>
+                              {item.tracking_code}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                              {item.vendor_name}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                              {item.delivered_at ? new Date(item.delivered_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                              ${item.delivery_price.toFixed(2)}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
+                              <span className="agency-badge" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                                {item.commission_rate}%
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
+                              -${item.commission_amount.toFixed(2)}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
+                              +${item.net_agency.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Tableau 2 : Commissions sur Location d'Entrepôt */}
+            {(commissionsFilter === 'all' || commissionsFilter === 'warehouse') && (
+              <div style={{
+                backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
+                borderRadius: '16px', overflow: 'hidden', boxShadow: 'var(--ag-card-shadow)'
+              }}>
+                <div style={{
+                  padding: '16px 20px', borderBottom: '1px solid var(--ag-border)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--ag-surface-hover)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Warehouse size={18} color="#8b5cf6" />
+                    <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
+                      Commissions sur Location d&apos;Entrepôt ({commissionsData?.warehouse.count ?? 0})
+                    </h4>
+                  </div>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
+                    Total Dû : <strong>${(commissionsData?.warehouse.totalWarehouseCommission ?? 0).toFixed(2)}</strong>
+                  </span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="agency-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--ag-border)', backgroundColor: 'var(--ag-surface)' }}>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Espace de Stockage</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Vendeur Locataire</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Emplacements</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Loyer Brut Perçu</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Taux Appliqué</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Super Admin (Dû)</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Net Revenu Agence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(!commissionsData?.warehouse.items || commissionsData.warehouse.items.length === 0) ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--ag-text-muted)', fontSize: '0.85rem' }}>
+                            Aucune souscription d&apos;entrepôt active enregistrée pour le moment.
+                          </td>
+                        </tr>
+                      ) : (
+                        commissionsData.warehouse.items.map((sub) => (
+                          <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
+                            <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                              {sub.space_title}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                              {sub.vendor_name}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                              {sub.slots} emplacement{sub.slots > 1 ? 's' : ''}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                              ${sub.price_paid.toFixed(2)}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
+                              <span className="agency-badge" style={{ backgroundColor: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
+                                {sub.commission_rate}%
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
+                              -${sub.commission_amount.toFixed(2)}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
+                              +${sub.net_agency_amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
