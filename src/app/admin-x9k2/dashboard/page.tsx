@@ -1377,7 +1377,6 @@ export default function AdminDashboard() {
     {
       title: 'Système',
       items: [
-        { key: 'activites', label: "Journal d'activités", icon: <History size={15} />, permission: 'canViewSecurityLogs' },
         { key: 'diagnostique', label: 'Diagnostic', icon: <Activity size={15} />, permission: 'canViewDiagnostics' },
         { key: 'parametres', label: 'Paramètres', icon: <Settings size={15} />, permission: 'canManageSettings' },
       ],
