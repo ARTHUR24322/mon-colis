@@ -277,9 +277,9 @@ export default function AgencyWarehousePage() {
         const allSubs: AgencySubscriptionRow[] = subData.subscriptions || [];
         setAgencySubscriptions(allSubs.filter(s => s.status === 'ACTIVE'));
         setPendingSubscriptions(allSubs.filter(s => s.status === 'PENDING'));
-        setTotalSubscriptionRevenueUSD(subData.totalRevenueUSD || 0);
-        setTotalWarehouseCommissionUSD(subData.totalCommissionUSD || 0);
-        setTotalWarehouseNetUSD(subData.totalNetRevenueUSD || 0);
+        setTotalSubscriptionRevenueUSD(Number(subData.totalRevenueUSD || 0));
+        setTotalWarehouseCommissionUSD(Number(subData.totalCommissionUSD || 0));
+        setTotalWarehouseNetUSD(Number(subData.totalNetRevenueUSD || 0));
       }
 
       // 6. Colis en retour pour réintégration en stock
@@ -1338,7 +1338,7 @@ export default function AgencyWarehousePage() {
                   <DollarSign size={20} color="#10b981" />
                 </div>
                 <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#10b981' }}>
-                  ${totalSubscriptionRevenueUSD.toFixed(2)}
+                  ${Number(totalSubscriptionRevenueUSD || 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Frais de garde facturés aux vendeurs</div>
               </div>
@@ -1353,7 +1353,7 @@ export default function AgencyWarehousePage() {
                   <Tag size={18} color="#f97316" />
                 </div>
                 <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#f97316' }}>
-                  -${totalWarehouseCommissionUSD.toFixed(2)}
+                  -${Number(totalWarehouseCommissionUSD || 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Redevance prélevée sur le stockage (dû au Super Admin)</div>
               </div>
@@ -1368,7 +1368,7 @@ export default function AgencyWarehousePage() {
                   <ShieldCheck size={20} color="#22c55e" />
                 </div>
                 <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#22c55e' }}>
-                  ${totalWarehouseNetUSD.toFixed(2)}
+                  ${Number(totalWarehouseNetUSD || 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Part nette conservée par votre agence</div>
               </div>
@@ -1520,9 +1520,10 @@ export default function AgencyWarehousePage() {
                     </thead>
                     <tbody>
                       {agencySubscriptions.map(sub => {
-                        const commRate = sub.commissionRate ?? 10;
-                        const commAmount = sub.commissionAmount ?? Number(((sub.pricePaid * commRate) / 100).toFixed(2));
-                        const netAmount = sub.netAgencyAmount ?? Number((sub.pricePaid - commAmount).toFixed(2));
+                        const price = Number(sub.pricePaid || 0);
+                        const commRate = Number(sub.commissionRate ?? 10);
+                        const commAmount = Number(sub.commissionAmount ?? ((price * commRate) / 100));
+                        const netAmount = Number(sub.netAgencyAmount ?? (price - commAmount));
 
                         return (
                           <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border-subtle)' }}>

@@ -118,19 +118,24 @@ interface AgencyCommissionsData {
     totalCommissionDue: number;
     totalGrossRevenue: number;
     totalNetAgency: number;
-    currency: string;
+    currency?: string;
   };
   agency: {
     id: string;
     name: string;
     billing_type: string;
     billing_value: number;
+    billingType?: string;
+    billingValue?: number;
   };
   deliveries: {
     count: number;
     totalDeliveryFees: number;
     totalDeliveryCommission: number;
     totalNetDeliveryAgency: number;
+    grossRevenue?: number;
+    commissionDue?: number;
+    netAgency?: number;
     items: AgencyCommissionDeliveryItem[];
   };
   warehouse: {
@@ -138,6 +143,11 @@ interface AgencyCommissionsData {
     totalRentFees: number;
     totalWarehouseCommission: number;
     totalNetWarehouseAgency: number;
+    grossRevenue?: number;
+    commissionDue?: number;
+    netAgency?: number;
+    activeCount?: number;
+    totalCount?: number;
     items: AgencyCommissionWarehouseItem[];
   };
 }
@@ -213,10 +223,10 @@ export default function AgencyVersementsPage() {
     setLoading(true);
     try {
       const [resBalances, resRequests, resSessions, resCommissions] = await Promise.all([
-        fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [], history: [] }),
-        fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] }),
-        fetch('/api/agency/cash-sessions').then(r => r.ok ? r.json() : { history: [], currentSession: null }),
-        fetch('/api/agency/commissions').then(r => r.ok ? r.json() : null)
+        fetch('/api/agency/payments/balances').then(r => r.ok ? r.json() : { balances: [], history: [] }).catch(() => ({ balances: [], history: [] })),
+        fetch('/api/agency/cash-requests').then(r => r.ok ? r.json() : { requests: [] }).catch(() => ({ requests: [] })),
+        fetch('/api/agency/cash-sessions').then(r => r.ok ? r.json() : { history: [], currentSession: null }).catch(() => ({ history: [], currentSession: null })),
+        fetch('/api/agency/commissions').then(r => r.ok ? r.json() : null).catch(() => null)
       ]);
       setVendorBalances(resBalances.balances || []);
       setVendorHistory(resBalances.history || []);
@@ -1155,10 +1165,10 @@ export default function AgencyVersementsPage() {
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="agency-badge" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#ef4444', fontWeight: '800' }}>
-                    Type: {commissionsData?.agency.billing_type || 'Commission'} ({commissionsData?.agency.billing_value ?? 15}%)
+                    Type: {commissionsData?.agency?.billing_type || commissionsData?.agency?.billingType || 'Commission'} ({commissionsData?.agency?.billing_value ?? commissionsData?.agency?.billingValue ?? 15}%)
                   </span>
                   <span className="agency-badge" style={{ backgroundColor: 'var(--ag-surface-hover)', color: 'var(--ag-text-primary)' }}>
-                    Agence: {commissionsData?.agency.name || user?.name || 'Mon Agence'}
+                    Agence: {commissionsData?.agency?.name || user?.name || 'Mon Agence'}
                   </span>
                 </div>
               </div>
@@ -1180,10 +1190,10 @@ export default function AgencyVersementsPage() {
                   <DollarSign size={18} color="#ef4444" />
                 </div>
                 <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ef4444' }}>
-                  ${(commissionsData?.summary.totalCommissionDue ?? 0).toFixed(2)}
+                  ${Number(commissionsData?.summary?.totalCommissionDue ?? 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
-                  CA brut total : ${(commissionsData?.summary.totalGrossRevenue ?? 0).toFixed(2)} | Net agence : ${(commissionsData?.summary.totalNetAgency ?? 0).toFixed(2)} $
+                  CA brut total : ${Number(commissionsData?.summary?.totalGrossRevenue ?? 0).toFixed(2)} | Net agence : ${Number(commissionsData?.summary?.totalNetAgency ?? 0).toFixed(2)} $
                 </div>
               </div>
 
@@ -1201,10 +1211,10 @@ export default function AgencyVersementsPage() {
                   <PackageCheck size={18} color="#f59e0b" />
                 </div>
                 <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
-                  ${(commissionsData?.deliveries.totalDeliveryCommission ?? 0).toFixed(2)}
+                  ${Number(commissionsData?.deliveries?.totalDeliveryCommission ?? commissionsData?.deliveries?.commissionDue ?? 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
-                  {commissionsData?.deliveries.count ?? 0} colis livrés | Frais bruts : ${(commissionsData?.deliveries.totalDeliveryFees ?? 0).toFixed(2)} (Net : ${(commissionsData?.deliveries.totalNetDeliveryAgency ?? 0).toFixed(2)} $)
+                  {commissionsData?.deliveries?.count ?? 0} colis livrés | Frais bruts : ${Number(commissionsData?.deliveries?.totalDeliveryFees ?? commissionsData?.deliveries?.grossRevenue ?? 0).toFixed(2)} (Net : ${Number(commissionsData?.deliveries?.totalNetDeliveryAgency ?? commissionsData?.deliveries?.netAgency ?? 0).toFixed(2)} $)
                 </div>
               </div>
 
@@ -1222,10 +1232,10 @@ export default function AgencyVersementsPage() {
                   <Warehouse size={18} color="#8b5cf6" />
                 </div>
                 <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
-                  ${(commissionsData?.warehouse.totalWarehouseCommission ?? 0).toFixed(2)}
+                  ${Number(commissionsData?.warehouse?.totalWarehouseCommission ?? commissionsData?.warehouse?.commissionDue ?? 0).toFixed(2)}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
-                  {commissionsData?.warehouse.count ?? 0} souscriptions | Loyers bruts : ${(commissionsData?.warehouse.totalRentFees ?? 0).toFixed(2)} (Net : ${(commissionsData?.warehouse.totalNetWarehouseAgency ?? 0).toFixed(2)} $)
+                  {commissionsData?.warehouse?.count ?? commissionsData?.warehouse?.activeCount ?? 0} souscriptions | Loyers bruts : ${Number(commissionsData?.warehouse?.totalRentFees ?? commissionsData?.warehouse?.grossRevenue ?? 0).toFixed(2)} (Net : ${Number(commissionsData?.warehouse?.totalNetWarehouseAgency ?? commissionsData?.warehouse?.netAgency ?? 0).toFixed(2)} $)
                 </div>
               </div>
             </div>
@@ -1241,7 +1251,7 @@ export default function AgencyVersementsPage() {
                   fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
-                Toutes les commissions ({(commissionsData?.deliveries.count ?? 0) + (commissionsData?.warehouse.count ?? 0)})
+                Toutes les commissions ({Number(commissionsData?.deliveries?.count ?? 0) + Number(commissionsData?.warehouse?.count ?? commissionsData?.warehouse?.totalCount ?? 0)})
               </button>
               <button
                 onClick={() => setCommissionsFilter('deliveries')}
@@ -1252,7 +1262,7 @@ export default function AgencyVersementsPage() {
                   fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
-                Livraisons ({commissionsData?.deliveries.count ?? 0})
+                Livraisons ({commissionsData?.deliveries?.count ?? 0})
               </button>
               <button
                 onClick={() => setCommissionsFilter('warehouse')}
@@ -1263,7 +1273,7 @@ export default function AgencyVersementsPage() {
                   fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer'
                 }}
               >
-                Location Entrepôt ({commissionsData?.warehouse.count ?? 0})
+                Location Entrepôt ({commissionsData?.warehouse?.count ?? commissionsData?.warehouse?.totalCount ?? 0})
               </button>
             </div>
 
@@ -1280,11 +1290,11 @@ export default function AgencyVersementsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <PackageCheck size={18} color="#f59e0b" />
                     <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
-                      Commissions sur Livraisons de Colis ({commissionsData?.deliveries.count ?? 0})
+                      Commissions sur Livraisons de Colis ({commissionsData?.deliveries?.count ?? 0})
                     </h4>
                   </div>
                   <span style={{ fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
-                    Total Dû : <strong>${(commissionsData?.deliveries.totalDeliveryCommission ?? 0).toFixed(2)}</strong>
+                    Total Dû : <strong>${Number(commissionsData?.deliveries?.totalDeliveryCommission ?? commissionsData?.deliveries?.commissionDue ?? 0).toFixed(2)}</strong>
                   </span>
                 </div>
 
@@ -1302,40 +1312,50 @@ export default function AgencyVersementsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(!commissionsData?.deliveries.items || commissionsData.deliveries.items.length === 0) ? (
+                      {(!commissionsData?.deliveries?.items || commissionsData.deliveries.items.length === 0) ? (
                         <tr>
                           <td colSpan={7} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--ag-text-muted)', fontSize: '0.85rem' }}>
                             Aucun colis livré enregistré pour le moment.
                           </td>
                         </tr>
                       ) : (
-                        commissionsData.deliveries.items.map((item) => (
-                          <tr key={item.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
-                            <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)', fontFamily: 'monospace' }}>
-                              {item.tracking_code}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
-                              {item.vendor_name}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
-                              {item.delivered_at ? new Date(item.delivered_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
-                              ${item.delivery_price.toFixed(2)}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
-                              <span className="agency-badge" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
-                                {item.commission_rate}%
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
-                              -${item.commission_amount.toFixed(2)}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
-                              +${item.net_agency.toFixed(2)}
-                            </td>
-                          </tr>
-                        ))
+                        commissionsData.deliveries.items.map((item: any) => {
+                          const deliveryFee = Number(item.delivery_price ?? item.deliveryPrice ?? 0);
+                          const commRate = Number(item.commission_rate ?? item.commissionRate ?? 0);
+                          const commAmount = Number(item.commission_amount ?? item.commissionAmount ?? 0);
+                          const netAgency = Number(item.net_agency ?? item.netAgency ?? (deliveryFee - commAmount));
+                          const tracking = item.tracking_code || item.trackingCode || '—';
+                          const vendor = item.vendor_name || item.vendorName || '—';
+                          const delDate = item.delivered_at || item.date || item.created_at;
+
+                          return (
+                            <tr key={item.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
+                              <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)', fontFamily: 'monospace' }}>
+                                {tracking}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                                {vendor}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                                {delDate ? new Date(delDate).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                                ${deliveryFee.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
+                                <span className="agency-badge" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                                  {commRate}%
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
+                                -${commAmount.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
+                                +${netAgency.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1356,11 +1376,11 @@ export default function AgencyVersementsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Warehouse size={18} color="#8b5cf6" />
                     <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
-                      Commissions sur Location d&apos;Entrepôt ({commissionsData?.warehouse.count ?? 0})
+                      Commissions sur Location d&apos;Entrepôt ({commissionsData?.warehouse?.count ?? commissionsData?.warehouse?.totalCount ?? 0})
                     </h4>
                   </div>
                   <span style={{ fontSize: '0.78rem', color: 'var(--ag-text-muted)' }}>
-                    Total Dû : <strong>${(commissionsData?.warehouse.totalWarehouseCommission ?? 0).toFixed(2)}</strong>
+                    Total Dû : <strong>${Number(commissionsData?.warehouse?.totalWarehouseCommission ?? commissionsData?.warehouse?.commissionDue ?? 0).toFixed(2)}</strong>
                   </span>
                 </div>
 
@@ -1378,40 +1398,50 @@ export default function AgencyVersementsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(!commissionsData?.warehouse.items || commissionsData.warehouse.items.length === 0) ? (
+                      {(!commissionsData?.warehouse?.items || commissionsData.warehouse.items.length === 0) ? (
                         <tr>
                           <td colSpan={7} style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--ag-text-muted)', fontSize: '0.85rem' }}>
                             Aucune souscription d&apos;entrepôt active enregistrée pour le moment.
                           </td>
                         </tr>
                       ) : (
-                        commissionsData.warehouse.items.map((sub) => (
-                          <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
-                            <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
-                              {sub.space_title}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
-                              {sub.vendor_name}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
-                              {sub.slots} emplacement{sub.slots > 1 ? 's' : ''}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
-                              ${sub.price_paid.toFixed(2)}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
-                              <span className="agency-badge" style={{ backgroundColor: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
-                                {sub.commission_rate}%
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
-                              -${sub.commission_amount.toFixed(2)}
-                            </td>
-                            <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
-                              +${sub.net_agency_amount.toFixed(2)}
-                            </td>
-                          </tr>
-                        ))
+                        commissionsData.warehouse.items.map((sub: any) => {
+                          const spaceTitle = sub.space_title || sub.spaceName || 'Emplacement';
+                          const vendor = sub.vendor_name || sub.vendorName || 'Vendeur';
+                          const slots = sub.slots || sub.slotsCount || 1;
+                          const rentPaid = Number(sub.price_paid ?? sub.pricePaid ?? 0);
+                          const commRate = Number(sub.commission_rate ?? sub.commissionRate ?? 0);
+                          const commAmount = Number(sub.commission_amount ?? sub.commissionAmount ?? 0);
+                          const netAgency = Number(sub.net_agency_amount ?? sub.netAgencyAmount ?? (rentPaid - commAmount));
+
+                          return (
+                            <tr key={sub.id} style={{ borderBottom: '1px solid var(--ag-border)' }}>
+                              <td style={{ padding: '12px 16px', fontWeight: '700', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                                {spaceTitle}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: 'var(--ag-text-primary)' }}>
+                                {vendor}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.78rem', color: 'var(--ag-text-secondary)' }}>
+                                {slots} emplacement{slots > 1 ? 's' : ''}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.85rem', fontWeight: '700', color: 'var(--ag-text-primary)' }}>
+                                ${rentPaid.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.8rem', color: 'var(--ag-text-muted)' }}>
+                                <span className="agency-badge" style={{ backgroundColor: 'rgba(139,92,246,0.1)', color: '#8b5cf6' }}>
+                                  {commRate}%
+                                </span>
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#ef4444' }}>
+                                -${commAmount.toFixed(2)}
+                              </td>
+                              <td style={{ padding: '12px 16px', fontSize: '0.88rem', fontWeight: '800', color: '#10b981' }}>
+                                +${netAgency.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

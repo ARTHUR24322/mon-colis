@@ -113,15 +113,15 @@ export default function AgenceDashboardHome() {
     setLoading(true);
     try {
       const [resColis, resCommissions] = await Promise.all([
-        fetch('/api/agence/colis?limit=200', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { colis: [] }),
-        fetch('/api/agency/commissions', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null)
+        fetch('/api/agence/colis?limit=200', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : { colis: [] }).catch(() => ({ colis: [] })),
+        fetch('/api/agency/commissions', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).catch(() => null)
       ]);
       setColis(resColis.colis || []);
       if (resCommissions?.summary) {
         setCommissionsSummary({
-          totalCommissionDue: resCommissions.summary.totalCommissionDue,
-          totalDeliveryCommission: resCommissions.deliveries.totalDeliveryCommission,
-          totalWarehouseCommission: resCommissions.warehouse.totalWarehouseCommission,
+          totalCommissionDue: Number(resCommissions.summary?.totalCommissionDue ?? 0),
+          totalDeliveryCommission: Number(resCommissions.deliveries?.totalDeliveryCommission ?? resCommissions.deliveries?.commissionDue ?? 0),
+          totalWarehouseCommission: Number(resCommissions.warehouse?.totalWarehouseCommission ?? resCommissions.warehouse?.commissionDue ?? 0),
         });
       }
     } catch { /* silencieux */ }
