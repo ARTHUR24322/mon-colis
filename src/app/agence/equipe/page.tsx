@@ -255,14 +255,14 @@ export default function AgencyTeamPage() {
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontWeight: '800', fontSize: '0.85rem'
                         }}>
-                          {member.name[0].toUpperCase()}
+                          {(member.name?.[0] || 'U').toUpperCase()}
                         </div>
                         <div>
                           <div style={{ fontWeight: '700', color: 'var(--ag-text-primary)' }}>
-                            {member.name} {isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--ag-brand)' }}>(Vous)</span>}
+                            {member.name || 'Collaborateur'} {isSelf && <span style={{ fontSize: '0.7rem', color: 'var(--ag-brand)' }}>(Vous)</span>}
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-muted)' }}>
-                            Membre depuis le {new Date(member.created_at).toLocaleDateString('fr-FR')}
+                            Membre depuis le {member.created_at ? new Date(member.created_at).toLocaleDateString('fr-FR') : '—'}
                           </div>
                         </div>
                       </div>

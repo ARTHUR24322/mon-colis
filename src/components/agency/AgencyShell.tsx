@@ -28,7 +28,8 @@ import {
   ShieldCheck,
   X,
   ExternalLink,
-  Boxes
+  Boxes,
+  History
 } from 'lucide-react';
 import { AGENCY_ROLE_LABELS, normalizeAgencyRole, hasAgencyPermission, AgencyRole } from '@/lib/agencyPermissions';
 import './../../app/agence/agency.css';
@@ -52,6 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Flotte Livreurs', href: '/agence/livreurs', icon: Truck, permission: 'canManageDrivers' },
   { label: 'Versements & Caisse', href: '/agence/versements', icon: Wallet, permission: 'canViewFinances', badgeKey: 'versements' },
   { label: 'Équipe & Accès', href: '/agence/equipe', icon: Users, permission: 'canManageTeam' },
+  { label: "Journal d'Activités", href: '/agence/activites', icon: History, permission: 'canViewAuditLogs' },
   { label: 'Rapports & Exports', href: '/agence/rapports', icon: BarChart3, permission: 'canExportReports' },
   { label: 'Paramètres Agence', href: '/agence/parametres', icon: Settings, permission: 'canManageSettings' },
 ];

@@ -23,6 +23,7 @@ export interface AgencyPermissions {
   canViewFinances: boolean;        // voir les montants collectés, soldes et statistiques
   canManageCashSessions: boolean;  // ouvrir/fermer session de caisse, valider versements, justifier écarts
   canExportReports: boolean;       // exporter CSV, imprimer récapitulatifs & reçus PDF
+  canViewAuditLogs: boolean;       // consulter le journal d'activités et d'audit de l'agence
 }
 
 export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
@@ -38,6 +39,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: true,
     canManageCashSessions: true,
     canExportReports: true,
+    canViewAuditLogs: true,
   },
   gestionnaire: {
     canManageTeam: false,
@@ -51,6 +53,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: true,
     canManageCashSessions: false,
     canExportReports: true,
+    canViewAuditLogs: false,
   },
   magasinier: {
     canManageTeam: false,
@@ -64,6 +67,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: false,
     canManageCashSessions: false,
     canExportReports: true,
+    canViewAuditLogs: false,
   },
   agent_comptoir: {
     canManageTeam: false,
@@ -77,6 +81,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: false,
     canManageCashSessions: false,
     canExportReports: false,
+    canViewAuditLogs: false,
   },
   comptable: {
     canManageTeam: false,
@@ -90,6 +95,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: true,
     canManageCashSessions: true,
     canExportReports: true,
+    canViewAuditLogs: false,
   },
   lecture_seule: {
     canManageTeam: false,
@@ -103,6 +109,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewFinances: false,
     canManageCashSessions: false,
     canExportReports: false,
+    canViewAuditLogs: false,
   },
 };
 

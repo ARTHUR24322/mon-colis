@@ -501,10 +501,10 @@ export default function AgencyVersementsPage() {
               </span>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
-              ${cashSession.expectedUSD.toFixed(2)}
+              ${Number(cashSession.expectedUSD || 0).toFixed(2)}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
-              Fond initial : ${cashSession.openingFundUSD.toFixed(2)} | Encaissements en cours
+              Fond initial : ${Number(cashSession.openingFundUSD || 0).toFixed(2)} | Encaissements en cours
             </div>
           </div>
 
@@ -522,10 +522,10 @@ export default function AgencyVersementsPage() {
               </span>
             </div>
             <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--ag-text-primary)' }}>
-              {cashSession.expectedCDF.toLocaleString('fr-FR')} FC
+              {Number(cashSession.expectedCDF || 0).toLocaleString('fr-FR')} FC
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)', marginTop: '4px' }}>
-              Fond initial : {cashSession.openingFundCDF.toLocaleString('fr-FR')} FC | Espèces franc congolais
+              Fond initial : {Number(cashSession.openingFundCDF || 0).toLocaleString('fr-FR')} FC | Espèces franc congolais
             </div>
           </div>
 
@@ -634,7 +634,7 @@ export default function AgencyVersementsPage() {
             }}
           >
             <Percent size={14} />
-            Commissions Mon Colis {commissionsData?.summary ? `($${commissionsData.summary.totalCommissionDue.toFixed(2)})` : ''}
+            Commissions Mon Colis {commissionsData?.summary ? `($${Number(commissionsData.summary.totalCommissionDue || 0).toFixed(2)})` : ''}
           </button>
         </div>
 
@@ -697,8 +697,8 @@ export default function AgencyVersementsPage() {
                   </div>
                   <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
                     <div style={{ fontSize: '0.75rem', color: 'var(--ag-text-muted)' }}>Écart USD :</div>
-                    <strong style={{ fontSize: '0.95rem', color: closedReceipt.diffUSD === 0 ? 'var(--ag-success)' : 'var(--ag-danger)' }}>
-                      ${closedReceipt.diffUSD.toFixed(2)}
+                    <strong style={{ fontSize: '0.95rem', color: (Number(closedReceipt.diffUSD || 0) === 0) ? 'var(--ag-success)' : 'var(--ag-danger)' }}>
+                      ${Number(closedReceipt.diffUSD || 0).toFixed(2)}
                     </strong>
                   </div>
                   <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--ag-surface-hover)' }}>
@@ -1003,7 +1003,7 @@ export default function AgencyVersementsPage() {
                             {vh.vendor?.phone || '—'}
                           </td>
                           <td style={{ fontWeight: '800', color: 'var(--ag-brand)', fontSize: '0.92rem' }}>
-                            {vh.currency === 'CDF' ? `${vh.amount.toLocaleString('fr-FR')} FC` : formatPrice(vh.amount)}
+                            {vh.currency === 'CDF' ? `${Number(vh.amount || 0).toLocaleString('fr-FR')} FC` : formatPrice(Number(vh.amount || 0))}
                           </td>
                           <td>
                             <span className="agency-badge" style={{
