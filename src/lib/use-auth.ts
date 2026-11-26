@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { saveOfflineSession, getOfflineSession, purgeUserOfflineData } from '@/lib/offline-storage';
 
 export type UserRole = 'vendeur' | 'agence' | 'livreur' | 'point_relais' | 'superadmin';
 
@@ -52,9 +53,13 @@ export function useAuth(requiredRole?: UserRole | string) {
         if (!cancelled) {
           if (res.ok) {
             const data = await res.json();
-            setUser(data.user as AuthUser);
+            const authUser = data.user as AuthUser;
+            setUser(authUser);
+            // Sauvegarder la session minimale (sans token ni mot de passe) pour consultation hors-ligne
+            saveOfflineSession(authUser);
           } else {
             setUser(null);
+            purgeUserOfflineData();
             // Si un rôle est requis et que la session est invalide, redirige vers la bonne page
             if (requiredRole) {
               const loginUrl = ROLE_LOGIN_URLS[requiredRole] ?? '/login';
@@ -66,7 +71,17 @@ export function useAuth(requiredRole?: UserRole | string) {
         }
       } catch {
         if (!cancelled) {
-          setUser(null);
+          // En cas de panne réseau ou mode hors-ligne, restaurer la session locale consultable
+          const cachedUser = getOfflineSession<AuthUser>();
+          if (cachedUser && (!requiredRole || cachedUser.role === requiredRole)) {
+            setUser(cachedUser);
+          } else {
+            setUser(null);
+            if (requiredRole) {
+              const loginUrl = ROLE_LOGIN_URLS[requiredRole] ?? '/login';
+              router.push(loginUrl);
+            }
+          }
           setLoading(false);
           setSessionChecked(true);
         }
@@ -75,8 +90,11 @@ export function useAuth(requiredRole?: UserRole | string) {
     return () => { cancelled = true; };
   }, [requiredRole, router]);
 
-  // -- Déconnexion sécurisée
+  // -- Déconnexion sécurisée (purge immédiate du cache local)
   const logout = useCallback(async () => {
+    // Purger toutes les données hors-ligne de cet utilisateur
+    purgeUserOfflineData(user?.id);
+
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
@@ -87,7 +105,7 @@ export function useAuth(requiredRole?: UserRole | string) {
     // Redirige vers la page de connexion appropriée selon le rôle
     const loginUrl = requiredRole ? (ROLE_LOGIN_URLS[requiredRole] ?? '/login') : '/login';
     router.push(loginUrl);
-  }, [requiredRole, router]);
+  }, [requiredRole, router, user?.id]);
 
   return { user, loading, sessionChecked, logout };
 }

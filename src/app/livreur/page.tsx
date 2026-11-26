@@ -7,13 +7,16 @@ import {
   User, Package, LogOut, ChevronRight, AlertTriangle, AlertCircle,
   DollarSign, Clock, CheckCircle, XCircle, QrCode, Building2,
   RefreshCw, X, Info, Check, ShieldAlert, Camera, Bell, Trash2,
-  Volume2, CheckCheck
+  Volume2, CheckCheck, WifiOff
 } from 'lucide-react';
 import { dataService, ColisItem, DriverAccount, DEFAULT_DROP_POINTS, DropPoint } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
+import { useOnlineStatus } from '@/lib/use-online-status';
+import { saveOfflineData, getOfflineData, sanitizePackagesForOffline } from '@/lib/offline-storage';
 import { useCurrency } from '@/components/CurrencyContext';
 import CurrencyToggle from '@/components/CurrencyToggle';
 import QRScanner from '@/components/QRScanner';
+import OfflineBanner from '@/components/mobile/OfflineBanner';
 
 // Composants Design System Mobile
 import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottomNav';
@@ -85,6 +88,7 @@ type Tab = 'courses' | 'incidents' | 'caisse' | 'profil';
 
 export default function LivreurPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
+  const { isOnline } = useOnlineStatus();
   const { formatPrice } = useCurrency();
 
   const [driver, setDriver] = useState<DriverAccount | null>(null);
@@ -126,6 +130,7 @@ export default function LivreurPage() {
   };
 
   const fetchNotifications = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     try {
       const res = await fetch('/api/notifications');
       if (res.ok) {
@@ -139,6 +144,7 @@ export default function LivreurPage() {
   };
 
   const markAllNotificationsAsRead = async () => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     try {
       await fetch('/api/notifications', {
         method: 'PATCH',
@@ -156,9 +162,24 @@ export default function LivreurPage() {
     const drv = d || driver;
     if (!drv) return;
     setCoursesLoading(true);
+
+    // Priorité mode hors-ligne : chargement instantané depuis le stockage sécurisé
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cached = getOfflineData<ColisItem[]>(drv.id, 'livreur_courses');
+      if (cached && cached.length > 0) {
+        setCourses(cached);
+      }
+      setCoursesLoading(false);
+      return;
+    }
+
     try {
       const all = await dataService.getPackagesForDriver(drv.id);
       
+      // Stockage local sécurisé : élimination stricte de tout code OTP et code de retrait
+      const sanitized = sanitizePackagesForOffline(all);
+      saveOfflineData(drv.id, 'livreur_courses', sanitized);
+
       const activeNow = all.filter(c => 
         c.status === 'En transit' || 
         c.status === 'Déposé en point relais' || 
@@ -179,7 +200,13 @@ export default function LivreurPage() {
       previousCoursesCountRef.current = activeNow;
       setCourses(all);
     } catch {
-      showToast('Erreur chargement des courses');
+      // En cas de panne réseau inattendue, repli vers les données locales saines
+      const cached = getOfflineData<ColisItem[]>(drv.id, 'livreur_courses');
+      if (cached && cached.length > 0) {
+        setCourses(cached);
+      } else {
+        showToast('Erreur chargement des courses');
+      }
     } finally {
       setCoursesLoading(false);
     }
@@ -266,8 +293,12 @@ export default function LivreurPage() {
     return { delivCash, mercCash };
   }, [coursesLivrees]);
 
-  // Validation OTP
+  // Validation OTP (Strictement en ligne)
   const handleValidateOtp = async (colisId: string, otp: string): Promise<boolean> => {
+    if (!isOnline) {
+      showToast('Validation impossible hors-ligne : connexion requise.');
+      return false;
+    }
     try {
       const res = await fetch(`/api/packages/${colisId}/validate-otp`, {
         method: 'POST',
@@ -291,6 +322,10 @@ export default function LivreurPage() {
 
   // Récupération d'un colis refusé par le point relais (Règle 4.2)
   const handleRecoverRefusedPackage = async (colisId: string) => {
+    if (!isOnline) {
+      showToast('Action indisponible hors-ligne : connexion requise.');
+      return;
+    }
     try {
       const res = await fetch(`/api/packages/${colisId}/assign-drop-point`, {
         method: 'POST',
@@ -313,6 +348,10 @@ export default function LivreurPage() {
 
   // Vérification de l'agent relais par code à 9 chiffres ou QR code scanné
   const handleVerifyAgent = async (codeToVerify?: string) => {
+    if (!isOnline) {
+      setAgentVerifyError('Vérification agent indisponible hors-ligne : connexion requise.');
+      return;
+    }
     const target = String(codeToVerify || agentNumberInput).trim();
     if (!target) return;
     setVerifyingAgent(true);
@@ -346,6 +385,10 @@ export default function LivreurPage() {
 
   // Confirmation de redirection au point relais (zone inaccessible)
   const handleConfirmReroute = async () => {
+    if (!isOnline) {
+      showToast('Redirection indisponible hors-ligne : connexion requise.');
+      return;
+    }
     if (!rerouteModalColis || !verifiedAgent || !driver) return;
     setRerouteLoading(true);
     try {
@@ -364,8 +407,12 @@ export default function LivreurPage() {
     }
   };
 
-  // Génération QR de remise d'espèces
+  // Génération QR de remise d'espèces (Strictement en ligne)
   const handleGenerateDepositQr = async () => {
+    if (!isOnline) {
+      showToast('Génération indisponible hors-ligne : connexion requise.');
+      return;
+    }
     if (!driver || cashCollected <= 0) return;
     setQrLoading(true);
     try {
@@ -423,6 +470,9 @@ export default function LivreurPage() {
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* Bannière Mode Hors-Ligne */}
+      <OfflineBanner isOnline={isOnline} />
 
       {/* ══════════════ 1. MES COURSES ACTIVES ══════════════ */}
       {activeTab === 'courses' && (
@@ -658,14 +708,16 @@ export default function LivreurPage() {
                     {isRefused && (
                       <button
                         onClick={() => handleRecoverRefusedPackage(c.id)}
+                        disabled={!isOnline}
                         style={{
                           minHeight: '44px', borderRadius: '10px', border: 'none',
-                          background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
-                          fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer',
+                          background: !isOnline ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                          color: !isOnline ? '#64748b' : '#000',
+                          fontWeight: '800', fontSize: '0.85rem', cursor: !isOnline ? 'not-allowed' : 'pointer',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem'
                         }}
                       >
-                        <Truck size={16} /> Récupérer le colis refusé pour retour
+                        <Truck size={16} /> {!isOnline ? 'Action indisponible hors-ligne' : 'Récupérer le colis refusé pour retour'}
                       </button>
                     )}
 
@@ -737,17 +789,23 @@ export default function LivreurPage() {
           {cashCollected > 0 ? (
             <button
               onClick={handleGenerateDepositQr}
-              disabled={qrLoading}
+              disabled={!isOnline || qrLoading}
               style={{
                 minHeight: '50px', borderRadius: '12px', border: 'none',
-                background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
-                fontWeight: '900', fontSize: '0.95rem', cursor: qrLoading ? 'not-allowed' : 'pointer',
+                background: !isOnline ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: !isOnline ? '#64748b' : '#000',
+                fontWeight: '900', fontSize: '0.95rem',
+                cursor: !isOnline || qrLoading ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                boxShadow: '0 4px 14px rgba(245,158,11,0.35)'
+                boxShadow: !isOnline ? 'none' : '0 4px 14px rgba(245,158,11,0.35)'
               }}
             >
               <QrCode size={20} />
-              {qrLoading ? 'Génération...' : `Générer QR Dépôt Agence (${formatPrice(cashCollected)})`}
+              {!isOnline
+                ? 'Dépôt indisponible hors-ligne'
+                : qrLoading
+                ? 'Génération...'
+                : `Générer QR Dépôt Agence (${formatPrice(cashCollected)})`}
             </button>
           ) : (
             <div style={{ textAlign: 'center', padding: '1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
@@ -904,6 +962,17 @@ export default function LivreurPage() {
               Route impraticable ou client indisponible : déposez le colis au point relais du secteur. Le client recevra son code OTP pour aller le retirer.
             </p>
 
+            {!isOnline && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: '12px', padding: '0.75rem', marginBottom: '1rem',
+                display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#fca5a5', fontSize: '0.8rem'
+              }}>
+                <WifiOff size={16} />
+                <span>Connexion internet requise pour rediriger un colis vers un point relais.</span>
+              </div>
+            )}
+
             {/* Options de vérification : Scanner QR ou Saisie Manuelle 9 chiffres */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
               <button
@@ -1018,15 +1087,17 @@ export default function LivreurPage() {
 
               <button
                 onClick={handleConfirmReroute}
-                disabled={!verifiedAgent || rerouteLoading}
+                disabled={!isOnline || !verifiedAgent || rerouteLoading}
                 style={{
                   width: '100%', minHeight: '48px', borderRadius: '12px', border: 'none',
-                  background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000',
-                  fontWeight: '900', fontSize: '0.95rem', cursor: !verifiedAgent || rerouteLoading ? 'not-allowed' : 'pointer',
+                  background: !isOnline ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: !isOnline ? '#64748b' : '#000',
+                  fontWeight: '900', fontSize: '0.95rem',
+                  cursor: !isOnline || !verifiedAgent || rerouteLoading ? 'not-allowed' : 'pointer',
                   opacity: !verifiedAgent ? 0.6 : 1, marginTop: '0.5rem'
                 }}
               >
-                {rerouteLoading ? 'Dépôt en cours...' : 'Confirmer le dépôt au relais'}
+                {!isOnline ? 'Dépôt indisponible hors-ligne' : rerouteLoading ? 'Dépôt en cours...' : 'Confirmer le dépôt au relais'}
               </button>
             </div>
           </div>

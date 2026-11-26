@@ -6,9 +6,10 @@ import MobileStatusBadge from './MobileStatusBadge';
 import MobileTimeline from './MobileTimeline';
 import { MOBILE_THEME } from './MobileDesignTokens';
 import { useTheme } from '@/components/ThemeContext';
+import { useOnlineStatus } from '@/lib/use-online-status';
 import {
   X, Phone, MapPin, Share2, Copy, Check, AlertTriangle,
-  Building2, User, Truck, DollarSign, ShieldAlert, CheckCircle2
+  Building2, User, Truck, DollarSign, ShieldAlert, CheckCircle2, WifiOff
 } from 'lucide-react';
 import VendorPackageQuoteAndHandover from '@/components/VendorPackageQuoteAndHandover';
 
@@ -41,6 +42,7 @@ export default function MobilePackageDetailSheet({
   onCollectRelais,
 }: MobilePackageDetailSheetProps) {
   const { isDark } = useTheme();
+  const { isOnline } = useOnlineStatus();
   const [copied, setCopied] = useState(false);
   const [showClaimModal, setShowClaimModal] = useState(false);
   const [claimReason, setClaimReason] = useState('');
@@ -85,6 +87,10 @@ export default function MobilePackageDetailSheet({
 
   const handleOpenClaim = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOnline) {
+      setClaimError('Action impossible hors-ligne. Connexion internet requise pour déposer une réclamation.');
+      return;
+    }
     if (!claimReason.trim()) return;
     setClaimSubmitting(true);
     setClaimError(null);
@@ -119,6 +125,10 @@ export default function MobilePackageDetailSheet({
 
   const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOnline) {
+      setOtpError('Action impossible hors-ligne. Une connexion internet est requise pour valider le code OTP.');
+      return;
+    }
     if (!otpValue.trim() || !onValidateOtp) return;
     setOtpValidating(true);
     setOtpError(null);
@@ -523,7 +533,9 @@ export default function MobilePackageDetailSheet({
                   {onRequestPayout && colis.agencyId && (
                     <button
                       type="button"
+                      disabled={!isOnline}
                       onClick={() => {
+                        if (!isOnline) return;
                         onClose();
                         onRequestPayout(colis.agencyId!, colis.agence || 'Agence', colis.prixColis);
                       }}
@@ -532,19 +544,19 @@ export default function MobilePackageDetailSheet({
                         minHeight: '44px',
                         borderRadius: '10px',
                         border: 'none',
-                        background: '#22c55e',
-                        color: '#000000',
+                        background: isOnline ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                        color: isOnline ? '#000000' : textSecondary,
                         fontWeight: '800',
                         fontSize: '0.88rem',
-                        cursor: 'pointer',
+                        cursor: isOnline ? 'pointer' : 'not-allowed',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '0.5rem',
-                        boxShadow: '0 4px 12px rgba(34, 197, 94, 0.3)',
+                        boxShadow: isOnline ? '0 4px 12px rgba(34, 197, 94, 0.3)' : 'none',
                       }}
                     >
-                      <DollarSign size={18} /> Réclamer mon versement ({formatPrice(colis.prixColis)})
+                      <DollarSign size={18} /> {isOnline ? `Réclamer mon versement (${formatPrice(colis.prixColis)})` : 'Versement (En ligne uniquement)'}
                     </button>
                   )}
                 </div>
@@ -554,24 +566,28 @@ export default function MobilePackageDetailSheet({
               {!isDispute && (
                 <button
                   type="button"
-                  onClick={() => setShowClaimModal(true)}
+                  disabled={!isOnline}
+                  onClick={() => {
+                    if (!isOnline) return;
+                    setShowClaimModal(true);
+                  }}
                   style={{
                     width: '100%',
                     padding: '0.6rem',
                     borderRadius: '10px',
                     border: '1px solid rgba(239, 68, 68, 0.25)',
-                    background: 'rgba(239, 68, 68, 0.06)',
-                    color: '#f87171',
+                    background: isOnline ? 'rgba(239, 68, 68, 0.06)' : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'),
+                    color: isOnline ? '#f87171' : textSecondary,
                     fontWeight: '700',
                     fontSize: '0.78rem',
-                    cursor: 'pointer',
+                    cursor: isOnline ? 'pointer' : 'not-allowed',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.4rem',
                   }}
                 >
-                  <AlertTriangle size={14} /> Poser une réclamation sur ce colis livré
+                  <AlertTriangle size={14} /> {isOnline ? 'Poser une réclamation sur ce colis livré' : 'Réclamation (En ligne uniquement)'}
                 </button>
               )}
             </div>
@@ -589,6 +605,21 @@ export default function MobilePackageDetailSheet({
                 </span>
                 <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.4 }}>
                   La session OTP livreur est désactivée : le client retirera son colis directement au point relais avec son code OTP de retrait.
+                </p>
+              </div>
+            ) : !isOnline ? (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: '14px', padding: '1rem', textAlign: 'center'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <WifiOff size={16} color="#f87171" />
+                  <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#f87171' }}>
+                    Validation OTP indisponible hors-ligne
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#cbd5e1', lineHeight: 1.4 }}>
+                  Une connexion internet est strictement requise pour vérifier le code de livraison et mettre à jour la traçabilité.
                 </p>
               </div>
             ) : (

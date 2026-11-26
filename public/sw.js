@@ -68,6 +68,11 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
+        // Mise en cache dynamique des bundles statiques Next.js pour le hors-ligne
+        if (event.request.url.includes('/_next/static/') && networkResponse.status === 200) {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
         return networkResponse;
       })
       .catch(async () => {

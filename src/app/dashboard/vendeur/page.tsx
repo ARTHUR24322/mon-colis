@@ -18,14 +18,27 @@ import ThemeToggle from '@/components/ThemeToggle';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import VendorWarehouseTab from '@/components/vendor/VendorWarehouseTab';
 
-// Composants du Design System Mobile
+// Composants du Design System Mobile & Offline
 import MobileBottomNav, { MobileNavItem } from '@/components/mobile/MobileBottomNav';
 import MobilePackageCard from '@/components/mobile/MobilePackageCard';
 import MobilePackageDetailSheet from '@/components/mobile/MobilePackageDetailSheet';
+import OfflineBanner from '@/components/mobile/OfflineBanner';
 import { MOBILE_THEME } from '@/components/mobile/MobileDesignTokens';
+import { useOnlineStatus } from '@/lib/use-online-status';
+import { saveOfflineData, getOfflineData, sanitizePackagesForOffline } from '@/lib/offline-storage';
 
 type Colis = ColisItem;
 type Tab = 'apercu' | 'historique' | 'stock' | 'revenus' | 'clients' | 'profil';
+
+interface WarehouseStockItem {
+  id: string;
+  productName: string;
+  quantityAvailable: number;
+  unitPrice: number;
+  weightKg?: number;
+  agencyId: string;
+  agencyName: string;
+}
 
 export function getVendorBadge(livres: number) {
   if (livres >= 100) return { icon: '', label: 'Vendeur Elite', color: '#a855f7' };
@@ -39,6 +52,7 @@ export default function VendeurDashboard() {
   const { user, loading: authLoading, logout } = useAuth('vendeur');
   const { formatPrice, exchangeRate } = useCurrency();
   const { theme, isDark, toggleTheme } = useTheme();
+  const { isOnline } = useOnlineStatus();
   const [activeTab, setActiveTab] = useState<Tab>('apercu');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [colis, setColis] = useState<Colis[]>([]);
@@ -69,11 +83,17 @@ export default function VendeurDashboard() {
   const [deliveryMode, setDeliveryMode] = useState<'DIRECT' | 'DROP_POINT_FIRST_MILE' | 'WAREHOUSE_FULFILLMENT'>('DIRECT');
   const [originDropPointId, setOriginDropPointId] = useState('');
   const [selectedAgencyId, setSelectedAgencyId] = useState<string | null>(null);
-  const [agenciesForCommune, setAgenciesForCommune] = useState<any[]>([]);
+  const [agenciesForCommune, setAgenciesForCommune] = useState<Array<{
+    id: string;
+    name: string;
+    rating: number;
+    avgDeliveryHours: number;
+    estimatedDeliveryPrice: number;
+  }>>([]);
   const [loadingAgenciesForCommune, setLoadingAgenciesForCommune] = useState(false);
 
   // Articles en stock entrepôt (Fulfillment Phase 2)
-  const [warehouseStockItems, setWarehouseStockItems] = useState<any[]>([]);
+  const [warehouseStockItems, setWarehouseStockItems] = useState<WarehouseStockItem[]>([]);
   const [selectedInventoryId, setSelectedInventoryId] = useState('');
   const [selectedInventoryQty, setSelectedInventoryQty] = useState(1);
 
@@ -154,50 +174,86 @@ export default function VendeurDashboard() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Chargement des données
+  // Chargement des données (avec cache hors-ligne sécurisé)
   const refreshColis = async () => {
     if (!user?.id) return;
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = getOfflineData<Colis[]>(user.id, 'packages');
+        if (cached && cached.length > 0) {
+          setColis(cached);
+        }
+        await loadPendingPaymentOtps();
+        return;
+      }
       const all = await dataService.getPackagesForVendor(user.id);
       setColis(all);
+      // Sauvegarde locale sécurisée : sanitisation stricte (zéro OTP, zéro pickupCode)
+      saveOfflineData(user.id, 'packages', sanitizePackagesForOffline(all));
       await loadPendingPaymentOtps();
     } catch (e) {
-      console.warn('Erreur chargement colis:', e);
+      console.warn('Erreur chargement colis, utilisation cache local:', e);
+      const cached = getOfflineData<Colis[]>(user.id, 'packages');
+      if (cached && cached.length > 0) {
+        setColis(cached);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Chargement des demandes de virement (ne disparaissent jamais)
+  // Chargement des demandes de virement (avec cache hors-ligne)
   const loadPayoutRequests = async () => {
+    if (!user?.id) return;
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = getOfflineData<VendorPayoutItem[]>(user.id, 'payout_requests');
+        if (cached) setPayoutRequests(cached);
+        return;
+      }
       const res = await fetch('/api/vendor/payments/request');
       if (res.ok) {
         const data = await res.json();
-        setPayoutRequests(data.requests || []);
+        const reqs: VendorPayoutItem[] = data.requests || [];
+        setPayoutRequests(reqs);
+        saveOfflineData(user.id, 'payout_requests', reqs);
       }
     } catch {
-      // silencieux
+      const cached = getOfflineData<VendorPayoutItem[]>(user.id, 'payout_requests');
+      if (cached) setPayoutRequests(cached);
     }
   };
 
-  // Chargement des soldes et OTPs de versement en attente (agence → vendeur)
+  // Chargement des soldes et OTPs de versement en attente (avec cache hors-ligne)
   const loadPendingPaymentOtps = async () => {
+    if (!user?.id) return;
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cachedBalances = getOfflineData<typeof apiBalances>(user.id, 'balances');
+        if (cachedBalances) setApiBalances(cachedBalances);
+        return;
+      }
       const res = await fetch('/api/vendor/payments/balance');
       if (res.ok) {
         const data = await res.json();
         setPendingPaymentOtps(data.pendingConfirmations ?? []);
-        setApiBalances(data.balances ?? []);
+        const balances = data.balances ?? [];
+        setApiBalances(balances);
+        saveOfflineData(user.id, 'balances', balances);
       }
     } catch {
-      // silencieux
+      const cachedBalances = getOfflineData<typeof apiBalances>(user.id, 'balances');
+      if (cachedBalances) setApiBalances(cachedBalances);
     }
   };
 
-  // Confirmer un versement via OTP
+  // Confirmer un versement via OTP (STRICTEMENT EN LIGNE)
   const handleConfirmPaymentOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOnline) {
+      setOtpConfirmError('Action impossible hors-ligne. Une connexion internet est requise.');
+      return;
+    }
     if (!otpConfirmInput.trim() || otpConfirmInput.trim().length !== 6) return;
     setOtpConfirmLoading(true);
     setOtpConfirmError(null);
@@ -229,12 +285,22 @@ export default function VendeurDashboard() {
   const loadWarehouseStockItems = async () => {
     if (!user?.id) return;
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const cached = getOfflineData<WarehouseStockItem[]>(user.id, 'warehouse_items');
+        if (cached) setWarehouseStockItems(cached);
+        return;
+      }
       const res = await fetch(`/api/vendor/warehouse/inventory?vendorId=${user.id}`);
       if (res.ok) {
         const d = await res.json();
-        setWarehouseStockItems(d.items || []);
+        const items: WarehouseStockItem[] = d.items || [];
+        setWarehouseStockItems(items);
+        saveOfflineData(user.id, 'warehouse_items', items);
       }
-    } catch {}
+    } catch {
+      const cached = getOfflineData<WarehouseStockItem[]>(user.id, 'warehouse_items');
+      if (cached) setWarehouseStockItems(cached);
+    }
   };
 
   useEffect(() => {
@@ -426,9 +492,13 @@ export default function VendeurDashboard() {
     });
   }, [colis, searchQuery, statusFilter, colisEnCours, colisIncidents]);
 
-  // Création d'un colis
+  // Création d'un colis (STRICTEMENT EN LIGNE)
   const handleCreateColis = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOnline) {
+      showToast('Action impossible hors-ligne. Une connexion internet est requise pour expédier un colis.');
+      return;
+    }
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -494,9 +564,13 @@ export default function VendeurDashboard() {
     }
   };
 
-  // Demande de versement
+  // Demande de versement (STRICTEMENT EN LIGNE)
   const handleSendVendorRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOnline) {
+      showToast('Action impossible hors-ligne. Une connexion internet est requise pour demander un versement.');
+      return;
+    }
     if (!vendorRequestModal) return;
     setVendorRequestLoading(true);
 
@@ -591,6 +665,11 @@ export default function VendeurDashboard() {
       position: 'relative',
       overflowX: 'hidden',
     }}>
+      {/* Bandeau d'état hors-ligne */}
+      {!isOnline && (
+        <OfflineBanner message="Mode hors-ligne : consultation uniquement. La création de colis et les demandes de versement sont désactivées." />
+      )}
+
       {/* Toast Alert Flottant */}
       {toastMessage && (
         <div style={{
@@ -625,17 +704,23 @@ export default function VendeurDashboard() {
 
           {/* ACTION PRINCIPALE UNIQUE : Expédier un colis */}
           <button
-            onClick={() => router.push('/dashboard/vendeur/nouveau-colis')}
+            onClick={() => {
+              if (!isOnline) {
+                showToast('Action impossible hors-ligne. Connexion internet requise pour expédier un colis.');
+                return;
+              }
+              router.push('/dashboard/vendeur/nouveau-colis');
+            }}
             style={{
               width: '100%',
               minHeight: '48px',
               borderRadius: '12px',
               border: 'none',
-              background: '#22c55e',
-              color: '#000000',
+              background: isOnline ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+              color: isOnline ? '#000000' : textSecondary,
               fontWeight: '700',
               fontSize: '0.95rem',
-              cursor: 'pointer',
+              cursor: isOnline ? 'pointer' : 'not-allowed',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -643,7 +728,7 @@ export default function VendeurDashboard() {
               transition: 'opacity 0.15s ease',
             }}
           >
-            <span>Expédier un colis</span>
+            <span>{isOnline ? 'Expédier un colis' : 'Expédier un colis (En ligne uniquement)'}</span>
           </button>
 
           {/* 3 CHIFFRES CLÉS COMPACTS ET ÉPURÉS (Conforme à l'image 1) */}
@@ -786,11 +871,19 @@ export default function VendeurDashboard() {
               Colis
             </h1>
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => {
+                if (!isOnline) {
+                  showToast('Action impossible hors-ligne. Connexion internet requise pour expédier un colis.');
+                  return;
+                }
+                setShowModal(true);
+              }}
               style={{
                 padding: '0.45rem 1.15rem', borderRadius: '10px', border: 'none',
-                background: '#22c55e', color: '#000000', fontSize: '0.85rem', fontWeight: '700',
-                cursor: 'pointer', transition: 'opacity 0.15s ease'
+                background: isOnline ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                color: isOnline ? '#000000' : textSecondary,
+                fontSize: '0.85rem', fontWeight: '700',
+                cursor: isOnline ? 'pointer' : 'not-allowed', transition: 'opacity 0.15s ease'
               }}
             >
               Expédier
@@ -893,10 +986,14 @@ export default function VendeurDashboard() {
             </button>
           </div>
 
-          {/* Action principale : Demander un versement (grand bouton vert comme sur l'image 4) */}
+          {/* Action principale : Demander un versement (STRICTEMENT EN LIGNE) */}
           <button
             type="button"
             onClick={() => {
+              if (!isOnline) {
+                showToast('Action impossible hors-ligne. Connexion internet requise pour demander un versement.');
+                return;
+              }
               if (agencesFinances.length === 1) {
                 setVendorRequestModal({
                   agencyId: agencesFinances[0].agencyId,
@@ -913,8 +1010,9 @@ export default function VendeurDashboard() {
             }}
             style={{
               width: '100%', minHeight: '48px', borderRadius: '12px', border: 'none',
-              background: '#22c55e', color: '#000000', fontSize: '0.95rem', fontWeight: '700',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              background: isOnline ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+              color: isOnline ? '#000000' : textSecondary, fontSize: '0.95rem', fontWeight: '700',
+              cursor: isOnline ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center'
             }}
           >
             Demander un versement
@@ -1264,16 +1362,23 @@ export default function VendeurDashboard() {
                         </div>
 
                         <button
-                          onClick={() => setVendorRequestModal({
-                            agencyId: ag.agencyId,
-                            agencyName: ag.agencyName,
-                            agencyPhone: ag.phone || '',
-                            amountUsd: ag.duAuVendeur,
-                          })}
+                          onClick={() => {
+                            if (!isOnline) {
+                              showToast('Action impossible hors-ligne. Connexion internet requise pour demander un versement.');
+                              return;
+                            }
+                            setVendorRequestModal({
+                              agencyId: ag.agencyId,
+                              agencyName: ag.agencyName,
+                              agencyPhone: ag.phone || '',
+                              amountUsd: ag.duAuVendeur,
+                            });
+                          }}
                           style={{
                             padding: '0.5rem 0.85rem', borderRadius: '10px', border: 'none',
-                            background: '#22c55e', color: '#000', fontWeight: '800',
-                            fontSize: '0.78rem', cursor: 'pointer'
+                            background: isOnline ? '#22c55e' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                            color: isOnline ? '#000' : textSecondary, fontWeight: '800',
+                            fontSize: '0.78rem', cursor: isOnline ? 'pointer' : 'not-allowed'
                           }}
                         >
                           Demander

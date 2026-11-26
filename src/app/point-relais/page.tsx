@@ -6,13 +6,16 @@ import {
   Clock, AlertCircle, RefreshCw, QrCode, Truck,
   Building2, X, Copy, Check, Lock, Search, AlertTriangle,
   Phone, Share2, ArrowRight, ShieldCheck, ShieldAlert,
-  ChevronRight, Calendar, User, CheckCircle, Camera
+  ChevronRight, Calendar, User, CheckCircle, Camera, WifiOff
 } from 'lucide-react';
 import Link from 'next/link';
 import { ColisItem, dataService } from '@/lib/data-service';
 import { useAuth } from '@/lib/use-auth';
+import { useOnlineStatus } from '@/lib/use-online-status';
+import { saveOfflineData, getOfflineData, sanitizePackagesForOffline } from '@/lib/offline-storage';
 import { useCurrency } from '@/components/CurrencyContext';
 import QRScanner from '@/components/QRScanner';
+import OfflineBanner from '@/components/mobile/OfflineBanner';
 
 // Types navigation
 type NavTab = 'accueil' | 'stock' | 'scanner' | 'plus';
@@ -70,8 +73,18 @@ function playHapticFeedback(type: 'success' | 'error') {
   }
 }
 
+interface PointRelaisCachedData {
+  incomingVendor: ColisItem[];
+  incomingDriver: ColisItem[];
+  available: ColisItem[];
+  vendorDeposits: ColisItem[];
+  dropPointCredits: number | null;
+  dropPointInfo: { address?: string; managerName?: string; phone?: string; qrToken?: string } | null;
+}
+
 export default function PointRelaisPage() {
   const { user, loading: authLoading, sessionChecked, logout } = useAuth();
+  const { isOnline } = useOnlineStatus();
   const { formatPrice } = useCurrency();
 
   const [agent, setAgent] = useState<AgentSession | null>(null);
@@ -128,31 +141,75 @@ export default function PointRelaisPage() {
   // Chargement des données
   const loadPackages = async (dpId: string) => {
     setLoadingData(true);
+
+    // En mode hors-ligne : consultation instantanée depuis le cache sécurisé
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const cached = getOfflineData<PointRelaisCachedData>(agent?.id || dpId, 'point_relais_dashboard');
+      if (cached) {
+        setIncomingVendor(cached.incomingVendor ?? []);
+        setIncomingDriver(cached.incomingDriver ?? []);
+        setAvailable(cached.available ?? []);
+        setVendorDeposits(cached.vendorDeposits ?? []);
+        if (cached.dropPointCredits !== undefined) setDropPointCredits(cached.dropPointCredits);
+        if (cached.dropPointInfo) setDropPointInfo(cached.dropPointInfo);
+      }
+      setLoadingData(false);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/drop-points/${dpId}/dashboard`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
       if (data.success) {
+        // Sécurisation stricte avant mise en cache locale : suppression de tout OTP et code de retrait
+        const sanitizedIncomingVendor = sanitizePackagesForOffline(data.incomingVendor ?? []);
+        const sanitizedIncomingDriver = sanitizePackagesForOffline(data.incomingDriver ?? []);
+        const sanitizedAvailable = sanitizePackagesForOffline(data.available ?? []);
+        const sanitizedVendorDeposits = sanitizePackagesForOffline(data.vendorDeposits ?? []);
+
         setIncomingVendor(data.incomingVendor ?? []);
         setIncomingDriver(data.incomingDriver ?? []);
         setAvailable(data.available ?? []);
         setVendorDeposits(data.vendorDeposits ?? []);
+
+        const dpInfo = data.dropPoint ? {
+          address: data.dropPoint.address,
+          managerName: data.dropPoint.managerName,
+          phone: data.dropPoint.phone,
+          qrToken: data.dropPoint.id,
+        } : null;
+
         if (data.dropPoint) {
           setDropPointCredits(data.dropPoint.credits);
-          setDropPointInfo({
-            address: data.dropPoint.address,
-            managerName: data.dropPoint.managerName,
-            phone: data.dropPoint.phone,
-            qrToken: data.dropPoint.id,
-          });
+          setDropPointInfo(dpInfo);
           if (data.dropPoint.agentNumber) {
             setAgent(prev => prev ? ({ ...prev, agentNumber: data.dropPoint.agentNumber }) : prev);
           }
         }
+
+        // Sauvegarde locale sécurisée pour consultation hors-ligne
+        saveOfflineData(agent?.id || dpId, 'point_relais_dashboard', {
+          incomingVendor: sanitizedIncomingVendor,
+          incomingDriver: sanitizedIncomingDriver,
+          available: sanitizedAvailable,
+          vendorDeposits: sanitizedVendorDeposits,
+          dropPointCredits: data.dropPoint?.credits ?? null,
+          dropPointInfo: dpInfo,
+        });
       }
     } catch (e) {
       console.error('Erreur chargement dashboard:', e);
+      const cached = getOfflineData<PointRelaisCachedData>(agent?.id || dpId, 'point_relais_dashboard');
+      if (cached) {
+        setIncomingVendor(cached.incomingVendor ?? []);
+        setIncomingDriver(cached.incomingDriver ?? []);
+        setAvailable(cached.available ?? []);
+        setVendorDeposits(cached.vendorDeposits ?? []);
+        if (cached.dropPointCredits !== undefined) setDropPointCredits(cached.dropPointCredits);
+        if (cached.dropPointInfo) setDropPointInfo(cached.dropPointInfo);
+      }
     } finally {
       setLoadingData(false);
     }
@@ -217,6 +274,10 @@ export default function PointRelaisPage() {
 
   // Acceptation / Refus d'un colis apporté par un livreur
   const handleAcceptDriverPackage = async (packageId: string) => {
+    if (!isOnline) {
+      triggerToast('Action indisponible hors-ligne : connexion requise.', 'error');
+      return;
+    }
     if (!agent) return;
     try {
       const res = await fetch(`/api/packages/${packageId}/drop-point-decision`, {
@@ -237,6 +298,10 @@ export default function PointRelaisPage() {
   };
 
   const handleRefuseDriverPackage = async (packageId: string) => {
+    if (!isOnline) {
+      triggerToast('Action indisponible hors-ligne : connexion requise.', 'error');
+      return;
+    }
     if (!agent) return;
     if (!confirm('Voulez-vous vraiment refuser ce colis apporté par le livreur ?')) return;
     try {
@@ -259,6 +324,10 @@ export default function PointRelaisPage() {
 
   // Actions Scanner
   const handleProcessScanCode = async (code: string) => {
+    if (!isOnline) {
+      triggerToast('Le scan et la prise en charge sont indisponibles hors-ligne : connexion requise.', 'error');
+      return;
+    }
     if (!agent) return;
     const cleanCode = code.trim();
     if (!cleanCode) return;
@@ -349,6 +418,10 @@ export default function PointRelaisPage() {
 
   // Soumission de la remise au livreur sécurisée (Vérification stricte de l'agence)
   const submitHandoverToDriver = async (packageId: string, driverIdentifier: string) => {
+    if (!isOnline) {
+      setHandoverError('Remise au livreur impossible hors-ligne : connexion requise.');
+      return;
+    }
     if (!agent) return;
     setHandoverLoading(true);
     setHandoverError(null);
@@ -389,6 +462,10 @@ export default function PointRelaisPage() {
 
   // Validation Retrait Client (Code OTP)
   const submitClientOtp = async (packageId: string, otp: string) => {
+    if (!isOnline) {
+      setOtpError('Validation OTP client impossible hors-ligne : connexion requise.');
+      return;
+    }
     if (!agent) return;
     if (!otp || otp.trim().length < 6) {
       setOtpError('Veuillez saisir le code à 6 chiffres fourni par le client.');
@@ -538,6 +615,9 @@ export default function PointRelaisPage() {
           </button>
         </div>
       </header>
+
+      {/* ── BANNIÈRE MODE HORS-LIGNE ── */}
+      <OfflineBanner isOnline={isOnline} />
 
       {/* ── ALERTE SOLDE ÉPUISÉ ── */}
       {isCreditsEmpty && (
@@ -941,21 +1021,26 @@ export default function PointRelaisPage() {
                           <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
                             <button
                               onClick={() => handleAcceptDriverPackage(c.id)}
+                              disabled={!isOnline}
                               style={{
                                 flex: 2, height: '42px', borderRadius: '10px', border: 'none',
-                                background: '#22c55e', color: '#000', fontWeight: '800', fontSize: '0.82rem',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                                background: !isOnline ? 'rgba(255,255,255,0.08)' : '#22c55e',
+                                color: !isOnline ? '#64748b' : '#000',
+                                fontWeight: '800', fontSize: '0.82rem',
+                                cursor: !isOnline ? 'not-allowed' : 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                               }}
                             >
-                              <CheckCircle2 size={16} /> Accepter la réception
+                              <CheckCircle2 size={16} /> {!isOnline ? 'Hors ligne' : 'Accepter la réception'}
                             </button>
                             <button
                               onClick={() => handleRefuseDriverPackage(c.id)}
+                              disabled={!isOnline}
                               style={{
                                 flex: 1, height: '42px', borderRadius: '10px',
                                 border: '1px solid rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.15)',
-                                color: '#f87171', fontWeight: '800', fontSize: '0.82rem',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                                color: !isOnline ? '#64748b' : '#f87171', fontWeight: '800', fontSize: '0.82rem',
+                                cursor: !isOnline ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                               }}
                             >
                               <X size={15} /> Refuser
@@ -964,21 +1049,32 @@ export default function PointRelaisPage() {
                         ) : isCollecte ? (
                           <button
                             onClick={() => {
+                              if (!isOnline) {
+                                triggerToast('Action indisponible hors-ligne : connexion requise.', 'error');
+                                return;
+                              }
                               setHandoverModalColis(c);
                               setDriverIdentifierInput('');
                               setHandoverError(null);
                             }}
+                            disabled={!isOnline}
                             style={{
                               flex: 1, height: '42px', borderRadius: '10px', border: 'none',
-                              background: '#ea580c', color: '#fff', fontWeight: '800', fontSize: '0.82rem',
-                              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                              background: !isOnline ? 'rgba(255,255,255,0.08)' : '#ea580c',
+                              color: !isOnline ? '#64748b' : '#fff',
+                              fontWeight: '800', fontSize: '0.82rem',
+                              cursor: !isOnline ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                             }}
                           >
-                            <Truck size={15} /> Remettre au livreur
+                            <Truck size={15} /> {!isOnline ? 'Remise indisponible hors-ligne' : 'Remettre au livreur'}
                           </button>
                         ) : (
                           <button
                             onClick={() => {
+                              if (!isOnline) {
+                                triggerToast('Validation OTP indisponible hors-ligne : connexion requise.', 'error');
+                                return;
+                              }
                               if (isDispute) {
                                 triggerToast('Retrait formellement bloqué : réclamation vendeur en cours.', 'error');
                                 return;
@@ -987,16 +1083,17 @@ export default function PointRelaisPage() {
                               setOtpInput('');
                               setOtpError(null);
                             }}
+                            disabled={!isOnline || isDispute}
                             style={{
                               flex: 1, height: '42px', borderRadius: '10px', border: 'none',
-                              background: isDispute ? '#334155' : '#16a34a',
-                              color: isDispute ? '#94a3b8' : '#fff',
+                              background: (!isOnline || isDispute) ? '#334155' : '#16a34a',
+                              color: (!isOnline || isDispute) ? '#94a3b8' : '#fff',
                               fontWeight: '800', fontSize: '0.82rem',
-                              cursor: isDispute ? 'not-allowed' : 'pointer',
+                              cursor: (!isOnline || isDispute) ? 'not-allowed' : 'pointer',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
                             }}
                           >
-                            <CheckCircle2 size={15} /> {isDispute ? 'Retrait bloqué' : 'Remise au client (OTP)'}
+                            <CheckCircle2 size={15} /> {!isOnline ? 'Retrait indisponible hors-ligne' : (isDispute ? 'Retrait bloqué' : 'Remise au client (OTP)')}
                           </button>
                         )}
 
@@ -1024,6 +1121,17 @@ export default function PointRelaisPage() {
            ══════════════════════════════════════════ */}
         {currentTab === 'scanner' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {!isOnline && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)',
+                borderRadius: '12px', padding: '12px 14px',
+                display: 'flex', alignItems: 'center', gap: '10px', color: '#fca5a5', fontSize: '0.82rem'
+              }}>
+                <WifiOff size={18} style={{ flexShrink: 0 }} />
+                <span>Le scanner et les opérations de prise en charge sont indisponibles hors-ligne. Une connexion internet est requise.</span>
+              </div>
+            )}
+
             {/* Sélecteur de Mode de Scan */}
             <div style={{
               display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px',
@@ -1120,14 +1228,22 @@ export default function PointRelaisPage() {
                 <div style={{ textAlign: 'center', padding: '2rem' }}>
                   <QrCode size={56} color="#60a5fa" style={{ margin: '0 auto 12px', opacity: 0.8 }} />
                   <button
-                    onClick={() => setCameraActive(true)}
+                    onClick={() => {
+                      if (!isOnline) {
+                        triggerToast('Caméra et scan indisponibles hors-ligne : connexion requise.', 'error');
+                        return;
+                      }
+                      setCameraActive(true);
+                    }}
+                    disabled={!isOnline}
                     style={{
                       padding: '10px 20px', borderRadius: '12px',
-                      background: '#2563eb', border: 'none', color: '#fff',
-                      fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer'
+                      background: !isOnline ? 'rgba(255,255,255,0.1)' : '#2563eb',
+                      border: 'none', color: !isOnline ? '#64748b' : '#fff',
+                      fontWeight: '800', fontSize: '0.85rem', cursor: !isOnline ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    Activer la caméra
+                    {!isOnline ? 'Caméra indisponible hors-ligne' : 'Activer la caméra'}
                   </button>
                 </div>
               )}
@@ -1154,15 +1270,16 @@ export default function PointRelaisPage() {
               />
               <button
                 type="submit"
-                disabled={scannerLoading || !manualCode.trim()}
+                disabled={!isOnline || scannerLoading || !manualCode.trim()}
                 style={{
                   height: '46px', padding: '0 18px', borderRadius: '12px',
-                  background: '#2563eb', border: 'none', color: '#fff',
+                  background: !isOnline ? 'rgba(255,255,255,0.1)' : '#2563eb',
+                  border: 'none', color: !isOnline ? '#64748b' : '#fff',
                   fontWeight: '800', fontSize: '0.85rem',
-                  cursor: scannerLoading ? 'not-allowed' : 'pointer'
+                  cursor: !isOnline || scannerLoading ? 'not-allowed' : 'pointer'
                 }}
               >
-                {scannerLoading ? '...' : 'Valider'}
+                {!isOnline ? 'Hors ligne' : scannerLoading ? '...' : 'Valider'}
               </button>
             </form>
           </div>
@@ -1322,6 +1439,17 @@ export default function PointRelaisPage() {
               </div>
             )}
 
+            {!isOnline && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)',
+                borderRadius: '10px', padding: '10px', color: '#fca5a5', fontSize: '0.78rem',
+                display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                <WifiOff size={16} style={{ flexShrink: 0 }} />
+                <span>Remise au livreur indisponible hors-ligne : connexion internet requise.</span>
+              </div>
+            )}
+
             <form
               onSubmit={e => {
                 e.preventDefault();
@@ -1347,14 +1475,15 @@ export default function PointRelaisPage() {
 
               <button
                 type="submit"
-                disabled={handoverLoading || !driverIdentifierInput.trim()}
+                disabled={!isOnline || handoverLoading || !driverIdentifierInput.trim()}
                 style={{
                   height: '46px', borderRadius: '10px', border: 'none',
-                  background: '#ea580c', color: '#fff', fontWeight: '800', fontSize: '0.88rem',
-                  cursor: handoverLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
+                  background: !isOnline ? 'rgba(255,255,255,0.1)' : '#ea580c',
+                  color: !isOnline ? '#64748b' : '#fff', fontWeight: '800', fontSize: '0.88rem',
+                  cursor: !isOnline || handoverLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
                 }}
               >
-                {handoverLoading ? 'Vérification...' : 'Valider la remise au livreur'}
+                {!isOnline ? 'Remise indisponible hors-ligne' : handoverLoading ? 'Vérification...' : 'Valider la remise au livreur'}
               </button>
             </form>
           </div>
@@ -1400,6 +1529,17 @@ export default function PointRelaisPage() {
               </div>
             )}
 
+            {!isOnline && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)',
+                borderRadius: '10px', padding: '10px', color: '#fca5a5', fontSize: '0.78rem',
+                display: 'flex', alignItems: 'center', gap: '8px'
+              }}>
+                <WifiOff size={16} style={{ flexShrink: 0 }} />
+                <span>Validation indisponible hors-ligne : connexion internet requise pour vérifier le code OTP.</span>
+              </div>
+            )}
+
             <form
               onSubmit={e => {
                 e.preventDefault();
@@ -1427,14 +1567,15 @@ export default function PointRelaisPage() {
 
               <button
                 type="submit"
-                disabled={otpLoading || otpInput.length < 6}
+                disabled={!isOnline || otpLoading || otpInput.length < 6}
                 style={{
                   height: '46px', borderRadius: '10px', border: 'none',
-                  background: '#16a34a', color: '#fff', fontWeight: '800', fontSize: '0.88rem',
-                  cursor: otpLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
+                  background: !isOnline ? 'rgba(255,255,255,0.1)' : '#16a34a',
+                  color: !isOnline ? '#64748b' : '#fff', fontWeight: '800', fontSize: '0.88rem',
+                  cursor: !isOnline || otpLoading ? 'not-allowed' : 'pointer', marginTop: '4px'
                 }}
               >
-                {otpLoading ? 'Validation...' : 'Valider le retrait'}
+                {!isOnline ? 'Validation indisponible hors-ligne' : otpLoading ? 'Validation...' : 'Valider le retrait'}
               </button>
             </form>
           </div>
