@@ -665,10 +665,11 @@ export default function VendeurDashboard() {
       position: 'relative',
       overflowX: 'hidden',
     }}>
-      {/* Bandeau d'état hors-ligne */}
-      {!isOnline && (
-        <OfflineBanner message="Mode hors-ligne : consultation uniquement. La création de colis et les demandes de versement sont désactivées." />
-      )}
+      {/* Indicateur d'état hors-ligne interactif */}
+      <OfflineBanner
+        isOnline={isOnline}
+        message="Mode hors-ligne : consultation uniquement. La création de colis et les demandes de versement nécessitent une connexion internet."
+      />
 
       {/* Toast Alert Flottant */}
       {toastMessage && (
