@@ -411,10 +411,11 @@ export default function AgencyTeamPage() {
                     {perms.canManageSettings && <li>Paramètres agence & tarifs</li>}
                     {perms.canEditPackages && <li>Accepter / refuser colis</li>}
                     {perms.canScanPackages && <li>Scanner & réceptions</li>}
+                    {perms.canManageWarehouse && <li>Entrepôt, stocks & picking</li>}
                     {perms.canAssignDrivers && <li>Assigner les livreurs</li>}
                     {perms.canManageCashSessions && <li>Sessions de caisse & écarts</li>}
                     {perms.canExportReports && <li>Exports & rapports</li>}
-                    {!perms.canEditPackages && !perms.canScanPackages && !perms.canManageCashSessions && <li>Consultation seule</li>}
+                    {!perms.canEditPackages && !perms.canScanPackages && !perms.canManageCashSessions && !perms.canManageWarehouse && <li>Consultation seule</li>}
                   </ul>
                 </div>
               );
@@ -520,6 +521,7 @@ export default function AgencyTeamPage() {
                   }}
                 >
                   <option value="agent_comptoir">Agent de Comptoir (Réception & Scans)</option>
+                  <option value="magasinier">Magasinier / Entrepôt (Stock, Rayons & Picking)</option>
                   <option value="gestionnaire">Gestionnaire d'Exploitation (Colis & Livreurs)</option>
                   <option value="comptable">Comptable / Caisse (Finances & Versements)</option>
                   <option value="lecture_seule">Consultant (Lecture seule)</option>

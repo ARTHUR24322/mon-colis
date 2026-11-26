@@ -48,7 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Tableau de bord', href: '/agence/dashboard', icon: LayoutDashboard },
   { label: 'Gestion Colis', href: '/agence/colis', icon: Package, permission: 'canViewPackages', badgeKey: 'colis' },
   { label: 'Réception & Scan', href: '/agence/reception', icon: QrCode, permission: 'canScanPackages', badgeKey: 'reception' },
-  { label: 'Entrepôt & Stock', href: '/agence/entrepot', icon: Boxes, permission: 'canScanPackages', badgeKey: 'entrepot' },
+  { label: 'Entrepôt & Stock', href: '/agence/entrepot', icon: Boxes, permission: 'canManageWarehouse', badgeKey: 'entrepot' },
   { label: 'Flotte Livreurs', href: '/agence/livreurs', icon: Truck, permission: 'canManageDrivers' },
   { label: 'Versements & Caisse', href: '/agence/versements', icon: Wallet, permission: 'canViewFinances', badgeKey: 'versements' },
   { label: 'Équipe & Accès', href: '/agence/equipe', icon: Users, permission: 'canManageTeam' },

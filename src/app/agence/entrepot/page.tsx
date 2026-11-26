@@ -140,7 +140,7 @@ export default function AgencyWarehousePage() {
   const { user } = useAuth('agence');
   const { formatPrice } = useCurrency();
   const userRole = normalizeAgencyRole(user?.agencyRole);
-  const canScan = hasAgencyPermission(userRole, 'canScanPackages');
+  const canManageWarehouse = hasAgencyPermission(userRole, 'canManageWarehouse');
 
   // Navigation interne
   const [activeTab, setActiveTab] = useState<'reception' | 'picking' | 'inventory' | 'spaces' | 'returns'>('reception');

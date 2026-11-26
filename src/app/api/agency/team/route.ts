@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Nom, email et rôle sont obligatoires' }, { status: 400 });
     }
 
-    const validRoles: AgencyRole[] = ['directeur', 'gestionnaire', 'agent_comptoir', 'comptable', 'lecture_seule'];
+    const validRoles: AgencyRole[] = ['directeur', 'gestionnaire', 'magasinier', 'agent_comptoir', 'comptable', 'lecture_seule'];
     if (!validRoles.includes(role)) {
       return NextResponse.json({ error: 'Rôle invalide' }, { status: 400 });
     }
@@ -211,7 +211,7 @@ export async function PATCH(req: NextRequest) {
     };
 
     if (role) {
-      const validRoles: AgencyRole[] = ['directeur', 'gestionnaire', 'agent_comptoir', 'comptable', 'lecture_seule'];
+      const validRoles: AgencyRole[] = ['directeur', 'gestionnaire', 'magasinier', 'agent_comptoir', 'comptable', 'lecture_seule'];
       if (!validRoles.includes(role)) {
         return NextResponse.json({ error: 'Rôle invalide' }, { status: 400 });
       }

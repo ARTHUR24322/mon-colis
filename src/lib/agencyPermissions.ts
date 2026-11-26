@@ -9,7 +9,7 @@
  * - lecture_seule    : Consultation uniquement, aucune action de modification
  */
 
-export type AgencyRole = 'directeur' | 'gestionnaire' | 'agent_comptoir' | 'comptable' | 'lecture_seule';
+export type AgencyRole = 'directeur' | 'gestionnaire' | 'magasinier' | 'agent_comptoir' | 'comptable' | 'lecture_seule';
 
 export interface AgencyPermissions {
   canManageTeam: boolean;          // inviter des agents, révoquer, changer les rôles
@@ -17,6 +17,7 @@ export interface AgencyPermissions {
   canViewPackages: boolean;        // voir la liste et le détail des colis
   canEditPackages: boolean;        // accepter, refuser, modifier statut de livraison
   canScanPackages: boolean;        // scanner QR code, valider OTP, réceptionner
+  canManageWarehouse: boolean;     // gérer l'entrepôt, inventaires, réceptions de stock, picking & emplacements
   canManageDrivers: boolean;       // recruter, lier/délier, activer/suspendre des livreurs
   canAssignDrivers: boolean;       // assigner les courses aux livreurs
   canViewFinances: boolean;        // voir les montants collectés, soldes et statistiques
@@ -31,6 +32,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewPackages: true,
     canEditPackages: true,
     canScanPackages: true,
+    canManageWarehouse: true,
     canManageDrivers: true,
     canAssignDrivers: true,
     canViewFinances: true,
@@ -43,9 +45,23 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewPackages: true,
     canEditPackages: true,
     canScanPackages: true,
+    canManageWarehouse: true,
     canManageDrivers: true,
     canAssignDrivers: true,
     canViewFinances: true,
+    canManageCashSessions: false,
+    canExportReports: true,
+  },
+  magasinier: {
+    canManageTeam: false,
+    canManageSettings: false,
+    canViewPackages: true,
+    canEditPackages: false,
+    canScanPackages: true,
+    canManageWarehouse: true,
+    canManageDrivers: false,
+    canAssignDrivers: false,
+    canViewFinances: false,
     canManageCashSessions: false,
     canExportReports: true,
   },
@@ -55,6 +71,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewPackages: true,
     canEditPackages: false,
     canScanPackages: true,
+    canManageWarehouse: false,
     canManageDrivers: false,
     canAssignDrivers: false,
     canViewFinances: false,
@@ -67,6 +84,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewPackages: true,
     canEditPackages: false,
     canScanPackages: false,
+    canManageWarehouse: false,
     canManageDrivers: false,
     canAssignDrivers: false,
     canViewFinances: true,
@@ -79,6 +97,7 @@ export const AGENCY_ROLE_PERMISSIONS: Record<AgencyRole, AgencyPermissions> = {
     canViewPackages: true,
     canEditPackages: false,
     canScanPackages: false,
+    canManageWarehouse: false,
     canManageDrivers: false,
     canAssignDrivers: false,
     canViewFinances: false,
@@ -101,9 +120,15 @@ export const AGENCY_ROLE_LABELS: Record<AgencyRole, {
   },
   gestionnaire: {
     label: 'Gestionnaire Exploitation',
-    description: 'Gestion opérationnelle — Colis, courses et livreurs',
+    description: 'Gestion opérationnelle — Colis, courses, livreurs et entrepôt',
     badgeColor: '#2563eb',
     badgeBg: 'rgba(37, 99, 235, 0.15)',
+  },
+  magasinier: {
+    label: 'Magasinier / Entrepôt',
+    description: 'Entrepôt & Stock — Réception de marchandises, inventaire rayons et préparation picking',
+    badgeColor: '#0891b2',
+    badgeBg: 'rgba(8, 145, 178, 0.15)',
   },
   agent_comptoir: {
     label: 'Agent de Comptoir',
