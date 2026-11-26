@@ -261,7 +261,7 @@ export default function AgenceDashboardHome() {
           <KpiCard label="Réclamations" value={kpis.disputes} sub={kpis.disputes > 0 ? ' Attention requise' : 'Aucun incident en cours'} color={kpis.disputes > 0 ? '#ef4444' : '#64748b'} icon={<AlertTriangle size={22} />} />
         </div>
 
-        {/* ─── Bloc Commissions Super Admin ─── */}
+        {/* ─── Bloc Commissions Mon Colis ─── */}
         <div style={{
           backgroundColor: 'var(--ag-surface)',
           border: '1px solid var(--ag-border)',
@@ -287,7 +287,7 @@ export default function AgenceDashboardHome() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '0.88rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
-                  Commissions Dues au Super Admin
+                  Commissions Dues à Mon Colis
                 </span>
                 <span className="agency-badge" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: '800' }}>
                   À reverser

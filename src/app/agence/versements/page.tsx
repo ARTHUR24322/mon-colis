@@ -634,7 +634,7 @@ export default function AgencyVersementsPage() {
             }}
           >
             <Percent size={14} />
-            Commissions Super Admin {commissionsData?.summary ? `($${commissionsData.summary.totalCommissionDue.toFixed(2)})` : ''}
+            Commissions Mon Colis {commissionsData?.summary ? `($${commissionsData.summary.totalCommissionDue.toFixed(2)})` : ''}
           </button>
         </div>
 
@@ -1155,7 +1155,7 @@ export default function AgencyVersementsPage() {
                   </div>
                   <div>
                     <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: 'var(--ag-text-primary)' }}>
-                      Redevances & Commissions Dues au Super Admin
+                      Redevances & Commissions Dues à Mon Colis
                     </h3>
                     <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: 'var(--ag-text-secondary)' }}>
                       Relevé transparent de vos obligations financières envers la plateforme pour vos livraisons achevées et vos locations d&apos;entrepôt.
@@ -1176,7 +1176,7 @@ export default function AgencyVersementsPage() {
 
             {/* 3 Cartes KPI Clés */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
-              {/* Carte 1 : Total Dû Super Admin */}
+              {/* Carte 1 : Total Dû à Mon Colis */}
               <div style={{
                 backgroundColor: 'var(--ag-surface)', border: '1px solid var(--ag-border)',
                 borderRadius: '14px', padding: '18px', boxShadow: 'var(--ag-card-shadow)',
@@ -1185,7 +1185,7 @@ export default function AgencyVersementsPage() {
                 <div style={{ position: 'absolute', top: 0, right: 0, width: '60px', height: '60px', background: '#ef4444', opacity: 0.08, borderRadius: '0 0 0 60px' }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Total Dû au Super Admin
+                    Total Dû à Mon Colis
                   </span>
                   <DollarSign size={18} color="#ef4444" />
                 </div>
@@ -1307,7 +1307,7 @@ export default function AgencyVersementsPage() {
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Date Livraison</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Frais Livraison Brut</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Taux Appliqué</th>
-                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Super Admin (Dû)</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Mon Colis (Dû)</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Net Revenu Agence</th>
                       </tr>
                     </thead>
@@ -1393,7 +1393,7 @@ export default function AgencyVersementsPage() {
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Emplacements</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Loyer Brut Perçu</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: 'var(--ag-text-muted)', textTransform: 'uppercase' }}>Taux Appliqué</th>
-                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Super Admin (Dû)</th>
+                        <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#ef4444', textTransform: 'uppercase' }}>Commission Mon Colis (Dû)</th>
                         <th style={{ padding: '12px 16px', fontSize: '0.75rem', fontWeight: '800', color: '#10b981', textTransform: 'uppercase' }}>Net Revenu Agence</th>
                       </tr>
                     </thead>

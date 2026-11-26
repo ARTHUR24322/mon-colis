@@ -1349,13 +1349,13 @@ export default function AgencyWarehousePage() {
                 display: 'flex', flexDirection: 'column', gap: '0.4rem', boxShadow: 'var(--ag-card-shadow)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#fb923c' }}>Commission Super Admin</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#fb923c' }}>Commission Mon Colis</span>
                   <Tag size={18} color="#f97316" />
                 </div>
                 <div style={{ fontSize: '1.7rem', fontWeight: '900', color: '#f97316' }}>
                   -${Number(totalWarehouseCommissionUSD || 0).toFixed(2)}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Redevance prélevée sur le stockage (dû au Super Admin)</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--ag-text-secondary)' }}>Redevance prélevée sur le stockage (dû à Mon Colis)</div>
               </div>
 
               <div style={{
@@ -1512,7 +1512,7 @@ export default function AgencyWarehousePage() {
                         <th style={{ padding: '0.8rem 1rem' }}>Espace Loué</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Emplacements</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Loyer Brut</th>
-                        <th style={{ padding: '0.8rem 1rem' }}>Commission Super Admin</th>
+                        <th style={{ padding: '0.8rem 1rem' }}>Commission Mon Colis</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Net Agence</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Échéance</th>
                         <th style={{ padding: '0.8rem 1rem' }}>Statut</th>
